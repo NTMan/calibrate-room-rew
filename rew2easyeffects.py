@@ -61,45 +61,55 @@ class REW2EasyEffects(Gtk.Application):
         def on_clicked(_):
             dialog = Gtk.FileDialog.new()
             if save:
-                dialog.save(self.window, None, self._on_file_chosen(entry))
+                dialog.save(self.window, None, self._on_file_chosen(entry, save=True))
             else:
-                dialog.open(self.window, None, self._on_file_chosen(entry))
+                dialog.open(self.window, None, self._on_file_chosen(entry, save=False))
 
         button.connect("clicked", on_clicked)
         return button
 
-    def _on_file_chosen(self, entry):
+    def _on_file_chosen(self, entry, save=False):
         def callback(dialog, result):
             try:
-                file = dialog.open_finish(result)
-                entry.set_text(file.get_path())
+                file = dialog.save_finish(result) if save else dialog.open_finish(result)
+                if file:
+                    entry.set_text(file.get_path())
             except GLib.Error:
                 pass
         return callback
 
     def parse_filters(self, txt_path):
         filters = []
-        pattern = re.compile(r"Filter\s+\d+: ON +PK +Fc +([\d.]+) Hz +Gain +([\-\d.]+) dB +Q +([\d.]+)")
+        pk_pattern = re.compile(r"Filter\s+\d+: ON +PK +Fc +([\d.]+) Hz +Gain +([\-\d.]+) dB +Q +([\d.]+)")
+        ls_pattern = re.compile(r"Filter\s+\d+: ON +LS +Fc +([\d.]+) Hz +Gain +([\-\d.]+)")
+        hs_pattern = re.compile(r"Filter\s+\d+: ON +HS +Fc +([\d.]+) Hz +Gain +([\-\d.]+)")
         with open(txt_path) as f:
             for line in f:
-                match = pattern.search(line)
-                if match:
+                if (match := pk_pattern.search(line)):
                     freq, gain, q = map(float, match.groups())
-                    filters.append((freq, gain, q))
+                    filters.append(("PK", freq, gain, q))
+                elif (match := ls_pattern.search(line)):
+                    freq, gain = map(float, match.groups())
+                    filters.append(("LS", freq, gain, None))
+                elif (match := hs_pattern.search(line)):
+                    freq, gain = map(float, match.groups())
+                    filters.append(("HS", freq, gain, None))
         return filters
 
     def average_filters(self, l_filters, r_filters):
         if len(l_filters) != len(r_filters):
             print("Filter count mismatch, cannot average.")
             return l_filters
-        return [
-            (
-                (l[0] + r[0]) / 2,
-                (l[1] + r[1]) / 2,
-                (l[2] + r[2]) / 2
-            )
-            for l, r in zip(l_filters, r_filters)
-        ]
+        result = []
+        for lf, rf in zip(l_filters, r_filters):
+            if lf[0] != rf[0]:
+                print("Filter type mismatch, cannot average.")
+                return l_filters
+            if lf[0] == "PK":
+                result.append(("PK", (lf[1] + rf[1]) / 2, (lf[2] + rf[2]) / 2, (lf[3] + rf[3]) / 2))
+            else:
+                result.append((lf[0], (lf[1] + rf[1]) / 2, (lf[2] + rf[2]) / 2, None))
+        return result
 
     def on_generate_clicked(self, _):
         left_file = self.left_entry.get_text()
@@ -131,8 +141,13 @@ class REW2EasyEffects(Gtk.Application):
             filters = self.average_filters(left_filters, right_filters)
 
         with open(output_file, "w") as f:
-            for i, (freq, gain, q) in enumerate(filters, start=1):
-                f.write(f"Filter {i}: ON  PK       Fc   {freq:.2f} Hz  Gain  {gain:.2f} dB  Q  {q:.3f}\n")
+            for i, (ftype, freq, gain, q) in enumerate(filters, start=1):
+                if ftype == "PK":
+                    f.write(f"Filter {i}: ON  PK       Fc   {freq:.2f} Hz  Gain  {gain:.2f} dB  Q  {q:.3f}\n")
+                elif ftype == "LS":
+                    f.write(f"Filter {i}: ON  LS       Fc   {freq:.2f} Hz  Gain  {gain:.2f} dB\n")
+                elif ftype == "HS":
+                    f.write(f"Filter {i}: ON  HS       Fc   {freq:.2f} Hz  Gain  {gain:.2f} dB\n")
 
         print("TXT saved to:", output_file)
 
