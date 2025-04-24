@@ -118,32 +118,50 @@ class EQEditor(Gtk.Application):
         except Exception as e:
             print(f"Could not load current filter chain: {e}")
 
+    def generate_filter_chain_config(self):
+        lines = []
+        lines.append("context.modules = [")
+        lines.append("  { name = libpipewire-module-filter-chain")
+        lines.append("    args = {")
+        lines.append("      node.name = \"eq_gui\"")
+        lines.append("      node.description = \"EQ GUI\"")
+        lines.append("      media.name = \"EQ GUI\"")
+        lines.append("      filter.graph = {")
+        lines.append("        nodes = [")
+
+        for i, flt in enumerate(self.filters):
+            if not flt.enabled:
+                continue
+            lines.append(
+                f"          {{ type = builtin name = eq{i} label = eq control = {{ {i} = {flt.freq:.1f}:{flt.gain:.1f}:{flt.q:.2f} }} }}"
+            )
+
+        lines.append("        ]")
+        lines.append("      }")
+        lines.append("      capture.props = { node.name = \"eq_capture\" media.class = \"Stream/Output/Audio\" }")
+        lines.append("      playback.props = { node.name = \"eq_playback\" media.class = \"Stream/Input/Audio\" }")
+        lines.append("    }")
+        lines.append("  }")
+        lines.append("]")
+        return "\n".join(lines)
+
     def export_as_conf(self, _):
         try:
             with open("exported_eq.conf", "w") as f:
-                f.write("context.modules = [\n")
-                f.write("  { name = libpipewire-module-filter-chain\n")
-                f.write("    args = {\n")
-                f.write("      node.name = \"eq_gui\"\n")
-                f.write("      node.description = \"EQ GUI\"\n")
-                f.write("      media.name = \"EQ GUI\"\n")
-                f.write("      filter.graph = {\n")
-                f.write("        nodes = [\n")
-                for i, flt in enumerate(self.filters):
-                    if not flt.enabled:
-                        continue
-                    f.write("          { type = builtin name = eq{} label = eq control = {{ {} = {:.1f}:{:.1f}:{:.1f} }} }\n".format(
-                        i, i, flt.freq, flt.gain, flt.q))
-                f.write("        ]\n")
-                f.write("      }\n")
-                f.write("      capture.props = { node.name = \"eq_capture\" media.class = \"Stream/Output/Audio\" }\n")
-                f.write("      playback.props = { node.name = \"eq_playback\" media.class = \"Stream/Input/Audio\" }\n")
-                f.write("    }\n")
-                f.write("  }\n")
-                f.write("]\n")
+                f.write(self.generate_filter_chain_config())
             print("Exported to exported_eq.conf")
         except Exception as e:
             print(f"Export failed: {e}")
+
+    def apply_filters(self, _):
+        try:
+            conf_path = f"/tmp/eq_{uuid4().hex}.conf"
+            with open(conf_path, "w") as f:
+                f.write(self.generate_filter_chain_config())
+            subprocess.run(["pw-cli", "create-module", "libpipewire-module-filter-chain", f"filename={conf_path}"])
+            print(f"Applied EQ config: {conf_path}")
+        except Exception as e:
+            print(f"Apply failed: {e}")
 
     def import_rew_filters(self, _):
         dialog = Gtk.FileDialog.new()
@@ -324,35 +342,6 @@ class EQEditor(Gtk.Application):
         dialog.add_button("Close", Gtk.ResponseType.CLOSE)
         dialog.connect("response", lambda d, r: d.destroy())
         dialog.show()
-
-    def apply_filters(self, button):
-        conf_path = f"/tmp/eq_{uuid4().hex}.conf"
-        with open(conf_path, "w") as f:
-            f.write("context.modules = [\n")
-            f.write("  { name = libpipewire-module-filter-chain\n")
-            f.write("    args = {\n")
-            f.write("      node.name = \"eq_gui\"\n")
-            f.write("      node.description = \"EQ GUI\"\n")
-            f.write("      media.name = \"EQ GUI\"\n")
-            f.write("      filter.graph = {\n")
-            f.write("        nodes = [\n")
-
-            for i, flt in enumerate(self.filters):
-                if not flt.enabled:
-                    continue
-                f.write("          { type = builtin name = eq{} label = eq control = {{ {} = {:.1f}:{:.1f}:{:.1f} }} }\n".format(
-                    i, i, flt.freq, flt.gain, flt.q))
-
-            f.write("        ]\n")
-            f.write("      }\n")
-            f.write("      capture.props = { node.name = \"eq_capture\" media.class = \"Stream/Output/Audio\" }\n")
-            f.write("      playback.props = { node.name = \"eq_playback\" media.class = \"Stream/Input/Audio\" }\n")
-            f.write("    }\n")
-            f.write("  }\n")
-            f.write("]\n")
-
-        subprocess.run(["pw-cli", "create-module", "libpipewire-module-filter-chain", f"filename={conf_path}"])
-        print(f"Applied EQ config: {conf_path}")
 
 app = EQEditor()
 app.run()
