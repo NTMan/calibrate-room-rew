@@ -8,7 +8,7 @@ from uuid import uuid4
 from pathlib import Path
 
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, Gio, GObject
+from gi.repository import Gtk, Gio, GObject, GLib
 
 CONFIG_PATH = "/tmp/pipewire_eq_gui_config.json"
 
@@ -32,7 +32,7 @@ class EQEditor(Gtk.Application):
         super().__init__(application_id="org.pipewire.eqeditor")
         self.filters = []
         self.device_name = "Unknown"
-        self.load_from_active_filter_chain()
+        self.debounce_source = None
 
     def do_activate(self):
         self.window = Gtk.ApplicationWindow(application=self)
@@ -63,10 +63,6 @@ class EQEditor(Gtk.Application):
         export_button = Gtk.Button(label="Export .conf")
         export_button.connect("clicked", self.export_as_conf)
         header.pack_start(export_button)
-
-        apply_button = Gtk.Button(label="Apply")
-        apply_button.connect("clicked", self.apply_filters)
-        header.pack_end(apply_button)
 
         self.scroll = Gtk.ScrolledWindow()
         self.scroll.set_hexpand(True)
@@ -153,15 +149,46 @@ class EQEditor(Gtk.Application):
         except Exception as e:
             print(f"Export failed: {e}")
 
-    def apply_filters(self, _):
+    def schedule_live_apply(self):
+        if self.debounce_source is not None and self.debounce_source > 0:
+            try:
+                GLib.source_remove(self.debounce_source)
+            except Exception as e:
+                print(f"[!] Failed to remove debounce source: {e}")
+        self.debounce_source = GLib.timeout_add_seconds(1, self.apply_filters_live)
+
+    def _apply_filters_wrapper(self):
+        self.apply_filters_live()
+        self.debounce_source = None
+        return False
+
+    def apply_filters_live(self):
         try:
-            conf_path = f"/tmp/eq_{uuid4().hex}.conf"
-            with open(conf_path, "w") as f:
-                f.write(self.generate_filter_chain_config())
-            subprocess.run(["pw-cli", "create-module", "libpipewire-module-filter-chain", f"filename={conf_path}"])
-            print(f"Applied EQ config: {conf_path}")
+            result = subprocess.run(["pw-dump"], capture_output=True, text=True)
+            data = json.loads(result.stdout)
+
+            node_id = None
+            for obj in data:
+                if obj.get("type") == "PipeWire:Node" and obj.get("info", {}).get("props", {}).get("node.name") == "eq_playback":
+                    node_id = obj.get("id")
+                    break
+
+            if node_id is None:
+                print("[!] Filter chain node not found")
+                return False
+
+            control_parts = []
+            for i, flt in enumerate(self.filters):
+                if flt.enabled:
+                    control_parts.append(f"{i} = {flt.freq:.1f}:{flt.gain:.1f}:{flt.q:.3f}")
+
+            arg = "{ control = { " + ", ".join(control_parts) + " } }"
+            subprocess.run(["pw-cli", "set-param", str(node_id), "Props", arg])
+            print("[✓] Filters applied live")
+
         except Exception as e:
-            print(f"Apply failed: {e}")
+            print(f"[!] Failed to apply live filters: {e}")
+        return False
 
     def import_rew_filters(self, _):
         dialog = Gtk.FileDialog.new()
@@ -249,6 +276,7 @@ class EQEditor(Gtk.Application):
         def on_gain_changed(w):
             filt.gain = w.get_value()
             filt.gain_label.set_text(f"{filt.gain:.1f} dB")
+            self.schedule_live_apply()
 
         gain_scale.connect("value-changed", on_gain_changed)
 
@@ -273,6 +301,7 @@ class EQEditor(Gtk.Application):
     def toggle_bypass(self, filt):
         filt.enabled = not filt.enabled
         self.set_filter_sensitivity(filt)
+        self.schedule_live_apply()
 
     def set_filter_sensitivity(self, filt):
         filt.gain_scale.set_sensitive(filt.enabled)
