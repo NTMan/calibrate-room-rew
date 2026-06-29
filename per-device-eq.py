@@ -39,11 +39,12 @@ SYS_PROFILE_DIRS = ["/usr/share/per-device-eq/profiles",
                     os.path.join(_SCRIPT_DIR, "profiles")]
 
 # Persistence is native to WirePlumber:
-#   * a small WP Lua hook (installed below) applies the in-node EQ on each sink,
+#   * a small, STATIC WP Lua hook (shipped in the repo, installed verbatim)
+#     applies the in-node EQ on each sink and owns persistence,
 #   * a PipeWire metadata object ("per-device-eq", created by WP's own
-#     metadata.lua) carries live edits so reconnects pick up the *current* graph,
-#   * the graphs are also baked into the hook as a seed table for cold start
-#     (metadata is empty after a PipeWire restart).
+#     metadata.lua) carries live edits from the app to the hook,
+#   * the hook persists graphs to WpState (~/.local/state/wireplumber/) and
+#     reloads them at startup, so the EQ survives reboot with no user process.
 # WirePlumber 0.5 looks up user scripts in ~/.local/share/wireplumber/scripts.
 WP_SCRIPT_DIR  = os.path.expanduser("~/.local/share/wireplumber/scripts")
 WP_SCRIPT_NAME = "90-per-device-eq.lua"
@@ -53,105 +54,22 @@ WP_SCRIPT_STALE = os.path.expanduser(  # removed: an earlier build wrote here to
 WP_CONF_DIR    = os.path.expanduser("~/.config/wireplumber/wireplumber.conf.d")
 WP_CONF        = os.path.join(WP_CONF_DIR, "90-per-device-eq.conf")
 METADATA_NAME  = "per-device-eq"
+# the static hook is shipped next to this script (repo) or system-wide (package)
+HOOK_SRC_CANDIDATES = [os.path.join(_SCRIPT_DIR, "wireplumber", WP_SCRIPT_NAME),
+                       "/usr/share/per-device-eq/wireplumber/" + WP_SCRIPT_NAME]
+# where the hook persists graphs; used to drive a one-time migration from
+# bindings.json into WpState (after that the hook owns the file)
+WPSTATE_FILE   = os.path.expanduser("~/.local/state/wireplumber/" + METADATA_NAME)
 
 TYPE_TO_LABEL = {"PK": "bq_peaking", "LSC": "bq_lowshelf", "HSC": "bq_highshelf"}
 TYPE_NAMES = ["PK", "LSC", "HSC"]
 CLEAN_ID = "clean"
 
 
-# ============================ WirePlumber hook (generated) ============================
-# The hook is regenerated whenever bindings change: PRESETS is baked in as the
-# cold-start seed, and the live 'per-device-eq' metadata (written by the GUI)
-# overrides it so reconnects always pick up the current graph.
-HOOK_TEMPLATE = r"""-- 90-per-device-eq.lua  (auto-written by per-device-eq; do not edit by hand)
-local log  = Log.open_topic("pde")
-local META = "%(meta)s"
-local FLAT = [==[%(flat)s]==]
 
--- cold-start seed (metadata is empty after a PipeWire restart):
-local PRESETS = {
-%(presets)s}
-
-local md = nil          -- activated 'per-device-eq' metadata proxy
-local nodes = {}        -- node.name -> live Audio/Sink node proxy
-
-local function set_graph(node, graph)
-  local ok, err = pcall(function()
-    node:set_param("Props", Pod.Object {
-      "Spa:Pod:Object:Param:Props", "Props",
-      params = Pod.Struct { "audioconvert.filter-graph.0", graph },
-    })
-  end)
-  if not ok then log.warning("set_param failed: " .. tostring(err)) end
-end
-
--- live metadata wins; fall back to the baked-in seed
-local function graph_for(name)
-  if md then
-    local ok, v = pcall(function() return md:find(0, name) end)
-    if ok and v ~= nil and v ~= "" then return v end
-  end
-  return PRESETS[name]
-end
-
-local function apply(node, name)
-  local g = graph_for(name)
-  if g then set_graph(node, g) end     -- no binding / Clean -> leave node alone
-end
-
--- metadata side: activate, then react to live edits from the GUI
-md_om = ObjectManager {
-  Interest { type = "metadata",
-    Constraint { "metadata.name", "equals", META, type = "pw-global" } }
-}
-md_om:connect("object-added", function(_, m)
-  if md then return end
-  local feat = (type(Feature) == "table" and Feature.Metadata) and Feature.Metadata.DATA or nil
-  m:activate(feat, function(_, err)
-    if err then log.warning("metadata activate: " .. tostring(err)); return end
-    md = m
-    m:connect("changed", function(_, subject, key, typ, value)
-      local n = nodes[key]
-      if not n then return end
-      if value ~= nil and value ~= "" then set_graph(n, value)
-      else set_graph(n, FLAT) end          -- key cleared (Clean) -> strip EQ
-    end)
-    for name, n in pairs(nodes) do          -- metadata ready: (re)apply running sinks
-      local st; pcall(function() st = n:get_state() end)
-      if st == "running" then apply(n, name) end
-    end
-  end)
-end)
-md_om:activate()
-
--- node side: track sinks, apply when they reach running (ports negotiated)
-sink_om = ObjectManager {
-  Interest { type = "node",
-    Constraint { "media.class", "equals", "Audio/Sink", type = "pw-global" } }
-}
-sink_om:connect("object-added", function(_, node)
-  local name
-  if not pcall(function() name = tostring(node.properties["node.name"]) end) or not name then
-    return
-  end
-  nodes[name] = node
-  pcall(function()
-    node:connect("state-changed", function(n, _old, new)
-      if new == "running" then apply(n, name) end
-    end)
-  end)
-  local st; pcall(function() st = node:get_state() end)
-  if st == "running" then apply(node, name) end
-end)
-sink_om:connect("object-removed", function(_, node)
-  local name
-  if pcall(function() name = tostring(node.properties["node.name"]) end) and name then
-    nodes[name] = nil
-  end
-end)
-sink_om:activate()
-log.info("per-device-eq hook loaded")
-"""
+# ============================ WirePlumber hook (config) ============================
+# The hook itself is a STATIC file shipped in the repo (wireplumber/90-per-device-eq.lua);
+# install_hook() copies it verbatim. Only the small component config is built here.
 
 # Two components: WP's own metadata.lua creates our named object; our hook reads it.
 HOOK_CONF = (
@@ -168,18 +86,6 @@ HOOK_CONF = (
     '  }\n'
     '}\n'
 ) % {"meta": METADATA_NAME, "script": WP_SCRIPT_NAME}
-
-
-def render_hook_lua(presets):
-    """presets: dict {node.name: graph_string}. Returns the hook .lua text."""
-    lines = []
-    for name, graph in presets.items():
-        lines.append('  ["%s"] = [==[%s]==],' % (name, graph))
-    body = ("\n".join(lines) + "\n") if lines else ""
-    return HOOK_TEMPLATE % {"meta": METADATA_NAME,
-                            "flat": build_graph(0.0, []),
-                            "presets": body}
-
 
 
 # ============================ EQ model ============================
@@ -503,7 +409,8 @@ class ProfileStore:
 
     def presets(self):
         """{node.name: graph_string} for every node bound to a non-Clean,
-        content-ful profile. Used both to seed the hook and to write metadata."""
+        content-ful profile. Pushed into the metadata (--apply, and the one-time
+        migration of existing bindings into the hook's persistent state)."""
         out = {}
         for node, pid in self.bindings.items():
             if not pid or pid == CLEAN_ID:
@@ -672,24 +579,35 @@ def _write_if_changed(path, content):
         return True
     return False
 
-def install_hook(store=None):
-    """(Re)write the WP hook (.lua, seeded from current bindings) and the
-    component config. Returns True if the *config* was newly created -- the
-    caller should then restart WirePlumber once so the metadata object gets
-    created. Rewriting only the .lua needs no restart (live edits flow through
-    the metadata object instead)."""
-    if store is None:
-        store = ProfileStore()
+def hook_source():
+    """Path to the static hook .lua shipped with per-device-eq, or None."""
+    for p in HOOK_SRC_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    return None
+
+def install_hook():
+    """Install the static WP hook (.lua copied verbatim from the repo) and the
+    component config. Returns True if anything was written (new or changed) --
+    the caller should then restart WirePlumber once so the new hook + metadata
+    object are (re)loaded. In steady state nothing changes and no restart is
+    needed; live edits flow through the metadata object, not the file."""
+    src = hook_source()
+    if src is None:
+        raise FileNotFoundError(
+            "per-device-eq hook script not found; looked in:\n  "
+            + "\n  ".join(HOOK_SRC_CANDIDATES))
+    with open(src, encoding="utf-8") as f:
+        lua = f.read()
     # an earlier build also wrote the script under ~/.config/.../scripts; drop it
     try:
         if os.path.exists(WP_SCRIPT_STALE):
             os.remove(WP_SCRIPT_STALE)
     except Exception:
         pass
-    _write_if_changed(WP_SCRIPT, render_hook_lua(store.presets()))
-    conf_existed = os.path.exists(WP_CONF)
-    _write_if_changed(WP_CONF, HOOK_CONF)
-    return not conf_existed
+    lua_changed = _write_if_changed(WP_SCRIPT, lua)
+    conf_changed = _write_if_changed(WP_CONF, HOOK_CONF)
+    return lua_changed or conf_changed
 
 def restart_wireplumber():
     return _run(["systemctl", "--user", "restart", "wireplumber"]).returncode == 0
@@ -1173,33 +1091,57 @@ def launch_gui():
             return "%s %d" % (base, i)
 
         def _startup_setup(self):
-            """On launch: make sure the PipeWire tools exist, then install the
-            WirePlumber hook automatically so EQ persists without the user ever
-            running --install-hook. The hook is the single thing that applies EQ;
-            installing it here means 'it just works' after first launch."""
+            """On launch: ensure the PipeWire tools exist, install the static
+            WirePlumber hook automatically (so EQ persists without the user ever
+            running --install-hook), and do a one-time migration of existing
+            bindings into the hook's persistent state. 'It just works' after the
+            first launch; later edits flow live through the metadata object."""
             missing = missing_tools()
             if missing:
                 self._info("Missing PipeWire tools", missing_tools_message(missing))
                 return
-            self._sync_hook()
-
-        def _sync_hook(self):
-            """Regenerate the WP hook seed from current bindings (cheap, no
-            restart -- live edits flow through the metadata object). On the very
-            first install the config is newly created, so restart WirePlumber
-            once to bring up the metadata object."""
+            if hook_source() is None:
+                self._info("Hook script not found",
+                           "Could not find the WirePlumber hook script "
+                           "(wireplumber/90-per-device-eq.lua) next to per-device-eq. "
+                           "EQ will still preview live, but it won't persist until "
+                           "the hook is installed.")
+                return
             store = self.store
             def work():
-                created = install_hook(store)
-                if created and not self._hook_installed:
+                try:
+                    changed = install_hook()
+                except Exception as e:
+                    GLib.idle_add(self._info, "Hook install failed", str(e))
+                    return
+                if changed and not self._hook_installed:
                     self._hook_installed = True
                     restart_wireplumber()
                     GLib.idle_add(self._info, "Per-device EQ set up",
                                   "Installed the WirePlumber hook for persistent "
-                                  "EQ and restarted WirePlumber once to activate "
-                                  "it. From now on, edits apply instantly and are "
-                                  "restored after reboot and on device reconnect.")
+                                  "EQ and restarted WirePlumber once to activate it. "
+                                  "Your EQ now applies automatically and is restored "
+                                  "after reboot and on device reconnect.")
+                self._migrate_state_once(store)
             _in_thread(work)
+
+        def _migrate_state_once(self, store):
+            """One-time: if the hook hasn't persisted anything yet but we already
+            have bindings (e.g. upgrading from an older version), push them into
+            the metadata so the hook applies and persists them. After the hook
+            owns the state file, this becomes a no-op."""
+            if os.path.exists(WPSTATE_FILE):
+                return
+            pres = store.presets()
+            if not pres:
+                return
+            for _ in range(20):                       # wait for the metadata object
+                r = _run(["pw-metadata", "-n", METADATA_NAME])
+                if "Found" in (r.stdout + r.stderr):
+                    break
+                time.sleep(0.5)
+            for node, graph in pres.items():
+                metadata_set(node, graph)
 
         def _ensure_editable(self):
             """Return an editable (user) profile id for the current editor,
@@ -1216,27 +1158,25 @@ def launch_gui():
             self._profile_id = nid
             if self.current:
                 self.store.set_binding(self.current, nid)
-            self._sync_hook()
             self._rebuild_profile_list()
             self._select_profile_row(nid)
             return nid
 
         def _persist(self):
-            """Write the current editor to its (user) profile, update the live
-            metadata + hook seed. Built-ins are forked first; a flat editor on a
-            built-in stays Clean (metadata key cleared so reconnects stay flat)."""
+            """Write the current editor to its (user) profile and binding. The
+            live push to the metadata object (and thus the hook's persistence)
+            already happened in apply_live(); here we only save profile/binding.
+            A flat editor on a built-in stays Clean (its metadata key was cleared
+            by apply_live, so reconnects stay flat)."""
             pid = self._ensure_editable()
             if pid is None:
                 if self.current:
                     self.store.set_binding(self.current, CLEAN_ID)
-                    _in_thread(lambda n=self.current: metadata_clear(n))
-                self._sync_hook()
                 return
             self.store.save_user(self._body_from_editor(
                 pid=pid, name=self.store.get(pid).get("name", pid)))
             if self.current:
                 self.store.set_binding(self.current, pid)
-            self._sync_hook()
             self._flash("Saved")
 
         def _update_pbtn_sensitivity(self):
@@ -1378,7 +1318,6 @@ def launch_gui():
             self._reset_history()
             if bind and node:
                 self.store.set_binding(node, pid)
-                self._sync_hook()
             self.apply_live()
             self._select_profile_row(pid)
             self._update_status()
@@ -1392,7 +1331,6 @@ def launch_gui():
             self._profile_id = nid
             if self.current:
                 self.store.set_binding(self.current, nid)
-            self._sync_hook()
             self._rebuild_profile_list()
             self._select_profile_row(nid)
             self.apply_live()
@@ -1441,8 +1379,11 @@ def launch_gui():
                 idx = 0
             if idx != 1:
                 return
-            self.store.delete_user(self._profile_id)
-            self._sync_hook()
+            gone = self._profile_id
+            victims = [n for n, pid in self.store.bindings.items() if pid == gone]
+            self.store.delete_user(gone)
+            for n in victims:                          # drop their now-dead EQ
+                _in_thread(lambda node=n: metadata_clear(node))
             self._rebuild_profile_list()
             if self.current:                           # reload (falls back to Clean if needed)
                 self.load_device(self.current)
@@ -2000,13 +1941,16 @@ def main():
     if args.apply:
         return cmd_apply()
     if args.install_hook:
-        created = install_hook()
-        if created:
-            print("hook + config installed; restarting WirePlumber once to create "
-                  "the metadata object...")
+        try:
+            changed = install_hook()
+        except FileNotFoundError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if changed:
+            print("hook + config installed/updated; restarting WirePlumber once...")
             restart_wireplumber()
         else:
-            print("hook refreshed (config already present; no restart needed)")
+            print("hook already up to date (no restart needed)")
         return 0
     return launch_gui()
 

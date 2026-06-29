@@ -145,7 +145,8 @@ Click **Import REW/AutoEQ…** and choose the text file exported in Part A (or a
 | --- | --- |
 | `~/.config/per-device-eq/profiles/*.json` | your profiles |
 | `~/.config/per-device-eq/bindings.json` | device (`node.name`) → profile map |
-| `~/.local/share/wireplumber/scripts/90-per-device-eq.lua` | the persistence hook (also carries a baked-in seed of your graphs for cold start) |
+| `~/.local/share/wireplumber/scripts/90-per-device-eq.lua` | the persistence hook (a static script, installed verbatim from the repo) |
+| `~/.local/state/wireplumber/per-device-eq` | the hook's saved graphs (written by the hook; restored at startup) |
 | `~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf` | loads the hook and creates the `per-device-eq` metadata object |
 | `profiles/clean.json`, `/usr/share/per-device-eq/profiles/` | built-in / system profiles |
 

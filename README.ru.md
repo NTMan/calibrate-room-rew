@@ -145,7 +145,8 @@ wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.5
 | --- | --- |
 | `~/.config/per-device-eq/profiles/*.json` | ваши профили |
 | `~/.config/per-device-eq/bindings.json` | привязка устройство (`node.name`) → профиль |
-| `~/.local/share/wireplumber/scripts/90-per-device-eq.lua` | хук персистентности (содержит и впечатанный seed ваших графов для холодного старта) |
+| `~/.local/share/wireplumber/scripts/90-per-device-eq.lua` | хук персистентности (статичный скрипт, ставится из репозитория как есть) |
+| `~/.local/state/wireplumber/per-device-eq` | сохранённые хуком графы (пишет хук; восстанавливаются при старте) |
 | `~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf` | загружает хук и создаёт metadata-объект `per-device-eq` |
 | `profiles/clean.json`, `/usr/share/per-device-eq/profiles/` | встроенные / системные профили |
 
