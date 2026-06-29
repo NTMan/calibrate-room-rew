@@ -444,12 +444,27 @@ class ProfileStore:
 
 
 # ============================ PipeWire helpers ============================
-def _run(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True)
+def _run(cmd, timeout=2.0):
+    """Run a helper. A hung pw-* child is the classic way to freeze the GUI, so
+    every call is bounded by a timeout; on timeout/failure we kill the child and
+    return a sentinel CompletedProcess instead of blocking forever."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, 124, "", "timeout")
+    except Exception as e:
+        return subprocess.CompletedProcess(cmd, 1, "", str(e))
+
+
+def _in_thread(fn):
+    """Run fn on a daemon thread (for off-main-loop subprocess work)."""
+    import threading
+    threading.Thread(target=fn, daemon=True).start()
+
 
 def pw_dump():
     try:
-        return json.loads(_run(["pw-dump"]).stdout)
+        return json.loads(_run(["pw-dump"], timeout=5.0).stdout)
     except Exception:
         return []
 
@@ -647,6 +662,7 @@ def launch_gui():
             self.bypass = False
             self._loading = False
             self._apply_src = 0
+            self._poll_busy = False
             self._undo = []          # editor-body snapshots (current session)
             self._redo = []
             self._restoring = False
@@ -1510,11 +1526,16 @@ def launch_gui():
         def apply_live(self):
             if not self.current:
                 return
-            nid = resolve_sink_id(self.current)
-            if nid is None:
-                return
+            node = self.current
+            # build the graph on the main thread (reads editor state), then do the
+            # blocking pw-* calls on a worker so a slow/renegotiating sink (esp.
+            # Bluetooth) can never freeze the GUI
             graph = build_graph(0.0, []) if self.bypass else self._editor_graph()
-            set_graph(nid, graph)
+            def work():
+                nid = resolve_sink_id(node)
+                if nid is not None:
+                    set_graph(nid, graph)
+            _in_thread(work)
 
         # ---------- import / export (Gtk.FileDialog, GTK 4.10+) ----------
         @staticmethod
@@ -1608,9 +1629,24 @@ def launch_gui():
 
         # ---------- polling: follow default + star refresh ----------
         def _poll(self):
-            dump = pw_dump()
-            sinks = list_sinks(dump)
-            default = next((s["name"] for s in sinks if s["default"]), None)
+            if getattr(self, "_poll_busy", False):
+                return True                      # previous poll still running
+            self._poll_busy = True
+            def work():
+                sinks, default = None, None
+                try:
+                    dump = pw_dump()
+                    sinks = list_sinks(dump)
+                    default = next((s["name"] for s in sinks if s["default"]), None)
+                finally:
+                    GLib.idle_add(self._apply_poll, sinks, default)
+            _in_thread(work)
+            return True
+
+        def _apply_poll(self, sinks, default):
+            self._poll_busy = False
+            if sinks is None:                    # poll failed/timed out; try again later
+                return False
             prev_names = [s["name"] for s in self.sinks]
             prev_default = next((s["name"] for s in self.sinks if s["default"]), None)
             new_names = [s["name"] for s in sinks]
@@ -1623,7 +1659,7 @@ def launch_gui():
                 if idx is not None:
                     self._set_selected(idx)
             self._update_status()
-            return True
+            return False
 
         # ---------- graph interaction ----------
         def _x_of(self, f):
@@ -1799,6 +1835,11 @@ def launch_gui():
 
 # ============================ main ============================
 def main():
+    try:                      # `kill -USR1 <pid>` dumps a live stack to stderr
+        import faulthandler, signal
+        faulthandler.register(signal.SIGUSR1)
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(description="Per-device PipeWire EQ (profiles)")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--list", action="store_true", help="list sinks")
