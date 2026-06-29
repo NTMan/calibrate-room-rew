@@ -4,7 +4,7 @@
 
 Measure your speakers/room with REW (or grab a headphone target from AutoEQ), then apply the result as a **per-output-device parametric EQ** directly inside PipeWire with [`per-device-eq.py`](per-device-eq.py).
 
-`per-device-eq` replaces the old EasyEffects step: instead of routing audio through a separate virtual sink, it writes the EQ as an in-node filter-graph into the **real sink** and installs a small WirePlumber hook that re-applies it whenever the device starts playing — so the correction survives reboot, hotplug and Bluetooth reconnect, with no daemon and no extra node in the graph.
+`per-device-eq` writes the EQ as an in-node filter-graph directly into the **real sink** — no separate virtual sink, no extra node in the graph — and installs a small WirePlumber hook that re-applies it whenever the device starts playing. The correction lives inside WirePlumber itself, so it survives reboot, hotplug and Bluetooth reconnect **with no background process of your own running**: nothing to autostart, nothing to keep open.
 
 ![Per-Device EQ — the GUI](per-device-eq-screenshot.png)
 
@@ -16,13 +16,24 @@ Measure your speakers/room with REW (or grab a headphone target from AutoEQ), th
 - **Live + persistent.** Edits apply instantly and autosave; the WirePlumber hook restores them on every playback.
 - **Interactive editor.** Drag bands on the response graph, per-channel EQ, preamp, bypass A/B, and Undo/Redo (`Ctrl+Z` / `Ctrl+Shift+Z`).
 
+### Why this instead of EasyEffects
+
+EasyEffects is great, but it didn't fit how I actually use my machine, which is why this tool exists. Specifically:
+
+- **It doesn't store settings per output device.** I want each sink — speakers, this Bluetooth headset, that one — to keep its own correction automatically. EasyEffects doesn't think in terms of sinks.
+- **It has to be running.** The correction only exists while the EasyEffects process is up, so it needs to be autostarted and stay open. `per-device-eq` puts the EQ inside WirePlumber; nothing of mine runs.
+- **It breaks the "just pick the sink and it plays" flow.** When you switch the output in your desktop and audio follows, EasyEffects doesn't follow with it — you have to go find and select the right sink inside EasyEffects. With this tool the EQ is attached to the sink, so it follows the audio.
+- **It doesn't work for a DAW.** Pro-audio apps that talk to devices directly bypass the EasyEffects sink. An in-node graph on the real device applies regardless.
+
+`per-device-eq` is free of all four — and, most importantly, it does the one job it's for: making the sound correct.
+
 ---
 
 ## Requirements & install
 
 **PipeWire ≥ 1.6** (the in-node `audioconvert.filter-graph` is required), **WirePlumber**, **GTK 4**, **PyGObject**, **Python 3**.
 
-Fedora:
+At runtime the app shells out to the PipeWire command-line tools `pw-metadata` and `pw-dump`. If either is missing it tells you so on launch — install the PipeWire command-line utilities however your distribution ships them (the tool names are the same everywhere; the package that contains them varies by distro). On Fedora, for example:
 
 ```
 sudo dnf install gtk4 python3-gobject pipewire pipewire-utils wireplumber
@@ -90,26 +101,19 @@ This text file is what you import in Part B — no conversion needed.
 
 # Part B — Apply with per-device-eq
 
-### 1. Install the persistence hook (once)
-
-```
-./per-device-eq.py --install-hook
-systemctl --user restart wireplumber
-```
-
-(You can skip this — the GUI installs the hook automatically the first time you save a profile, and tells you to restart WirePlumber once.)
-
-### 2. Launch the app
+### 1. Launch the app
 
 ```
 ./per-device-eq.py
 ```
 
-### 3. Pick the output device
+The first time it starts, it installs its WirePlumber hook automatically and restarts WirePlumber once to activate it — you don't need to run anything by hand. (For a headless setup you can do this without the GUI: `./per-device-eq.py --install-hook`.)
+
+### 2. Pick the output device
 
 Use the **Device** dropdown. `★` marks the current default; the **Follow default** switch auto-selects whatever is playing.
 
-### 4. Import your filters
+### 3. Import your filters
 
 Click **Import REW/AutoEQ…** and choose the text file exported in Part A (or an AutoEQ `ParametricEQ.txt` for headphones). The filters load, you hear the correction immediately, a profile is created and bound to that device, and it is saved automatically.
 
@@ -141,15 +145,14 @@ Click **Import REW/AutoEQ…** and choose the text file exported in Part A (or a
 | --- | --- |
 | `~/.config/per-device-eq/profiles/*.json` | your profiles |
 | `~/.config/per-device-eq/bindings.json` | device (`node.name`) → profile map |
-| `~/.config/per-device-eq/presets.lua` | generated; read by the hook |
-| `~/.local/share/wireplumber/scripts/90-per-device-eq.lua` | the persistence hook |
-| `~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf` | hook component config |
+| `~/.local/share/wireplumber/scripts/90-per-device-eq.lua` | the persistence hook (also carries a baked-in seed of your graphs for cold start) |
+| `~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf` | loads the hook and creates the `per-device-eq` metadata object |
 | `profiles/clean.json`, `/usr/share/per-device-eq/profiles/` | built-in / system profiles |
 
 ## Known issues
 
 - **Volume drop after enabling EQ (PipeWire).** On some sinks with hardware volume, the first volume change made *after* an in-node EQ is active can collapse the real output level (while the reported volume looks correct) until PipeWire/WirePlumber is restarted. Tracked upstream: <https://gitlab.freedesktop.org/pipewire/pipewire/-/work_items/5344>. Workaround: set the volume before enabling the EQ, or `systemctl --user restart wireplumber`.
 
-## Legacy: EasyEffects
+## Legacy: EasyEffects converter
 
-The earlier EasyEffects workflow still works if you prefer it: paste the REW text into [`rew2easyeffects.py`](rew2easyeffects.py) to generate an EasyEffects-compatible configuration, then load it in EasyEffects' Equalizer. `per-device-eq` makes this step unnecessary.
+If you still use EasyEffects for some reason, the old [`rew2easyeffects.py`](rew2easyeffects.py) converter remains in the repo — paste the REW text into it to generate an EasyEffects-compatible configuration. For everything else, `per-device-eq` is the path this project recommends (see *Why this instead of EasyEffects* above).
