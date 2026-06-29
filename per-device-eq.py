@@ -26,7 +26,7 @@ no binding == Clean (the hook does not touch the node).
   (no args)              launch the GTK4 GUI
 """
 
-import argparse, json, math, cmath, os, re, subprocess, sys, time, uuid
+import argparse, json, math, cmath, os, re, shutil, subprocess, sys, time, uuid
 
 FS = 48000.0
 CONFIG_DIR        = os.path.expanduser("~/.config/per-device-eq")
@@ -535,6 +535,21 @@ def _in_thread(fn):
     threading.Thread(target=fn, daemon=True).start()
 
 
+# The PipeWire command-line tools we shell out to. Names are the same across
+# distributions; the *package* that ships them is not, so we check for the tools
+# themselves and let the user install them however their distro prefers.
+REQUIRED_TOOLS = ["pw-metadata", "pw-dump"]
+
+def missing_tools(tools=REQUIRED_TOOLS):
+    return [t for t in tools if shutil.which(t) is None]
+
+def missing_tools_message(missing):
+    return ("These PipeWire command-line tools are required but were not found "
+            "in PATH:\n\n    %s\n\nInstall the PipeWire utilities with your "
+            "distribution's package manager and try again." % "  ".join(missing))
+
+
+
 def pw_dump():
     try:
         return json.loads(_run(["pw-dump"], timeout=5.0).stdout)
@@ -951,6 +966,7 @@ def launch_gui():
             self._hpaned.set_position(720)
             self._vpaned.set_position(300)
             GLib.timeout_add_seconds(2, self._poll)
+            self._startup_setup()
 
         # ---------- small helpers ----------
         def _labeled(self, text, widget):
@@ -1155,6 +1171,17 @@ def launch_gui():
             while ("%s %d" % (base, i)) in names:
                 i += 1
             return "%s %d" % (base, i)
+
+        def _startup_setup(self):
+            """On launch: make sure the PipeWire tools exist, then install the
+            WirePlumber hook automatically so EQ persists without the user ever
+            running --install-hook. The hook is the single thing that applies EQ;
+            installing it here means 'it just works' after first launch."""
+            missing = missing_tools()
+            if missing:
+                self._info("Missing PipeWire tools", missing_tools_message(missing))
+                return
+            self._sync_hook()
 
         def _sync_hook(self):
             """Regenerate the WP hook seed from current bindings (cheap, no
@@ -1957,6 +1984,12 @@ def main():
     g.add_argument("--install-hook", action="store_true",
                    help="install/refresh the WirePlumber hook + metadata config")
     args = ap.parse_args()
+
+    if (args.list or args.inspect or args.apply):
+        miss = missing_tools()
+        if miss:
+            print(missing_tools_message(miss), file=sys.stderr)
+            return 2
 
     if args.list:
         return cmd_list()
