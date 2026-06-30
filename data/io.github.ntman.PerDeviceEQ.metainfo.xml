@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Mikhail Gavrilov -->
+<component type="desktop-application">
+  <id>io.github.ntman.PerDeviceEQ</id>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Per-Device EQ</name>
+  <summary>Per-output-device parametric EQ for PipeWire</summary>
+
+  <description>
+    <p>
+      Per-Device EQ applies a parametric equaliser directly inside the real
+      PipeWire sink, so every output device — speakers, a Bluetooth headset,
+      a USB DAC — keeps its own correction. The EQ is written as an in-node
+      filter graph, with no extra virtual sink in the audio path, and is
+      restored automatically by a WirePlumber hook: it survives reboot and
+      device reconnect with no background process of your own running.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>One saved correction per output device, applied and restored automatically</li>
+      <li>Interactive editor with a frequency-response graph, per-channel bands and a preamp</li>
+      <li>Import REW and AutoEQ filters; export and reuse profiles</li>
+      <li>Applies to every application, including pro-audio tools that open the device directly</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.ntman.PerDeviceEQ.desktop</launchable>
+
+  <url type="homepage">https://github.com/NTMan/calibrate-room-rew</url>
+  <url type="bugtracker">https://github.com/NTMan/calibrate-room-rew/issues</url>
+
+  <developer id="io.github.ntman">
+    <name>Mikhail Gavrilov</name>
+  </developer>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Editing the equaliser for a Bluetooth headset</caption>
+      <image>https://raw.githubusercontent.com/NTMan/calibrate-room-rew/main/per-device-eq-screenshot.png</image>
+    </screenshot>
+  </screenshots>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+  </categories>
+
+  <keywords>
+    <keyword>equalizer</keyword>
+    <keyword>EQ</keyword>
+    <keyword>PipeWire</keyword>
+    <keyword>parametric</keyword>
+    <keyword>AutoEQ</keyword>
+    <keyword>REW</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.0.0" date="2026-06-30"/>
+  </releases>
+</component>
