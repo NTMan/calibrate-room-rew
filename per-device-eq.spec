@@ -2,11 +2,10 @@
 %global reponame calibrate-room-rew
 
 Name:           per-device-eq
-Version:        1.0.5
+Version:        2.0.0
 Release:        %autorelease
 Summary:        Per-output-device parametric EQ for PipeWire
 
-# The application code is GPL-3.0-or-later; confirm and ship a LICENSE file.
 License:        GPL-3.0-or-later
 URL:            https://github.com/NTMan/%{reponame}
 Source0:        %{url}/archive/v%{version}/%{reponame}-%{version}.tar.gz
@@ -21,6 +20,7 @@ Requires:       python3
 Requires:       python3-gobject
 Requires:       python3-cairo
 Requires:       gtk4
+Requires:       libadwaita
 Requires:       pipewire
 Requires:       pipewire-utils
 Requires:       wireplumber
@@ -38,11 +38,20 @@ that open the device directly.
 %autosetup -n %{reponame}-%{version}
 
 %build
-# nothing to build
+# nothing to build (pure Python + data)
 
 %install
-# main executable (installed without the .py extension; Exec=per-device-eq)
+# thin launcher (installed without the .py extension; Exec=per-device-eq).
+# It locates the perdeviceeq package below at /usr/share/per-device-eq.
 install -Dpm0755 per-device-eq.py %{buildroot}%{_bindir}/%{name}
+
+# Python implementation package, imported by the launcher
+install -d %{buildroot}%{_datadir}/%{name}/perdeviceeq
+install -pm0644 -t %{buildroot}%{_datadir}/%{name}/perdeviceeq perdeviceeq/*.py
+
+# GtkBuilder design for the GUI (resolved at runtime via the package data root)
+install -Dpm0644 data/%{appid}.ui \
+        %{buildroot}%{_datadir}/%{name}/data/%{appid}.ui
 
 # WirePlumber hook, shipped as data; the app installs it per-user on first run
 install -Dpm0644 wireplumber/90-per-device-eq.lua \
@@ -59,12 +68,20 @@ install -Dpm0644 data/%{appid}.metainfo.xml \
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{appid}.desktop
 appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metainfo.xml
+# byte-compile check: the package must import cleanly (no GTK needed here)
+%{python3} -c "import sys; sys.path.insert(0, '%{buildroot}%{_datadir}/%{name}'); \
+import perdeviceeq.config, perdeviceeq.eq, perdeviceeq.profiles, \
+perdeviceeq.pipewire, perdeviceeq.integration, perdeviceeq.cli"
 
 %files
 %license LICENSE
 %doc README.md README.ru.md
 %{_bindir}/%{name}
 %dir %{_datadir}/%{name}
+%dir %{_datadir}/%{name}/perdeviceeq
+%{_datadir}/%{name}/perdeviceeq/*.py
+%dir %{_datadir}/%{name}/data
+%{_datadir}/%{name}/data/%{appid}.ui
 %dir %{_datadir}/%{name}/wireplumber
 %{_datadir}/%{name}/wireplumber/90-per-device-eq.lua
 %{_datadir}/applications/%{appid}.desktop

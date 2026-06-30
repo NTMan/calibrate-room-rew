@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  per-device-eq GUI skeleton (GtkBuilder). Hierarchy: the OUTPUT DEVICE is the
+  primary anchor and lives in the header (dropdown + a pin toggle that makes it
+  follow the system default). The PROFILE is subordinate to the device, so the
+  profile picker is the first row in the body. Below it: EQ-wide toggles, the
+  per-channel selector, the graph, and the per-channel section (preamp + bands).
+  The FR graph, band table, channel buttons, picker rows, footer/header buttons
+  and the device model are built in code (perdeviceeq/gui.py).
+-->
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+
+  <!-- profile picker (Weather-style): empty query = favorites, typing = catalog -->
+  <object class="GtkPopover" id="profile_popover">
+    <property name="width-request">340</property>
+    <child>
+      <object class="GtkBox">
+        <property name="orientation">vertical</property>
+        <property name="spacing">6</property>
+        <property name="margin-top">6</property>
+        <property name="margin-bottom">6</property>
+        <property name="margin-start">6</property>
+        <property name="margin-end">6</property>
+        <child>
+          <object class="GtkSearchEntry" id="search_entry">
+            <property name="placeholder-text" translatable="yes">Search profiles…</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkScrolledWindow">
+            <property name="min-content-height">240</property>
+            <property name="max-content-height">380</property>
+            <property name="propagate-natural-height">true</property>
+            <property name="hscrollbar-policy">never</property>
+            <child>
+              <object class="GtkListBox" id="profile_list">
+                <property name="selection-mode">none</property>
+                <style>
+                  <class name="boxed-list"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkSeparator"/>
+        </child>
+        <child>
+          <object class="GtkBox" id="popover_footer">
+            <property name="orientation">vertical</property>
+            <property name="spacing">4</property>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+
+  <!-- main window content -->
+  <object class="AdwToolbarView" id="content">
+    <child type="top">
+      <object class="AdwHeaderBar" id="header_bar">
+        <property name="title-widget">
+          <object class="AdwWindowTitle" id="window_title">
+            <property name="title" translatable="yes">Per-Device EQ</property>
+          </object>
+        </property>
+        <!-- primary anchor: output device + follow-default pin -->
+        <child type="start">
+          <object class="GtkBox" id="device_box">
+            <property name="spacing">6</property>
+            <property name="valign">center</property>
+            <child>
+              <object class="GtkDropDown" id="device_dd">
+                <property name="tooltip-text" translatable="yes">Output device</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkToggleButton" id="follow_btn">
+                <property name="icon-name">view-pin-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Follow the system default output</property>
+                <property name="active">true</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+    <property name="content">
+      <object class="GtkScrolledWindow">
+        <property name="hscrollbar-policy">never</property>
+        <property name="vexpand">true</property>
+        <child>
+          <object class="AdwClamp">
+            <property name="maximum-size">720</property>
+            <property name="margin-top">18</property>
+            <property name="margin-bottom">18</property>
+            <property name="margin-start">12</property>
+            <property name="margin-end">12</property>
+            <child>
+              <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">18</property>
+
+                <!-- profile (subordinate to the device) -->
+                <child>
+                  <object class="AdwPreferencesGroup">
+                    <child>
+                      <object class="AdwActionRow" id="profile_row">
+                        <property name="title" translatable="yes">Profile</property>
+                        <property name="subtitle" translatable="yes">EQ preset for this device</property>
+                        <property name="activatable-widget">profile_button</property>
+                        <child type="suffix">
+                          <object class="GtkMenuButton" id="profile_button">
+                            <property name="valign">center</property>
+                            <property name="popover">profile_popover</property>
+                            <property name="always-show-arrow">true</property>
+                            <property name="label" translatable="yes">Profile</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="AdwSwitchRow" id="bypass_row">
+                        <property name="title" translatable="yes">Bypass</property>
+                        <property name="subtitle" translatable="yes">Temporarily disable this profile for the device</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+
+                <!-- channel-link toggle (stored with the profile) -->
+                <child>
+                  <object class="AdwPreferencesGroup" id="group_eq">
+                    <child>
+                      <object class="AdwSwitchRow" id="link_row">
+                        <property name="title" translatable="yes">Same EQ for all channels</property>
+                        <property name="subtitle" translatable="yes">Turn off to tune each channel separately</property>
+                        <property name="active">true</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+
+                <!-- per-channel selector (FL | FR | …); built + shown in code -->
+                <child>
+                  <object class="GtkBox" id="channel_bar">
+                    <property name="halign">center</property>
+                    <property name="visible">false</property>
+                    <style>
+                      <class name="linked"/>
+                    </style>
+                  </object>
+                </child>
+
+                <child>
+                  <object class="GtkFrame" id="graph_frame">
+                    <style>
+                      <class name="card"/>
+                    </style>
+                  </object>
+                </child>
+
+                <!-- preamp: a separate gain, not one of the band filters -->
+                <child>
+                  <object class="AdwPreferencesGroup" id="preamp_group">
+                    <child>
+                      <object class="AdwActionRow" id="preamp_row">
+                        <property name="title" translatable="yes">Preamp (dB)</property>
+                        <property name="subtitle" translatable="yes">Headroom for this channel</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+
+                <!-- per-channel band table (built in code) -->
+                <child>
+                  <object class="AdwPreferencesGroup" id="bands_group">
+                    <property name="title" translatable="yes">Bands</property>
+                  </object>
+                </child>
+
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </property>
+  </object>
+</interface>
