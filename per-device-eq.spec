@@ -2,7 +2,7 @@
 %global reponame calibrate-room-rew
 
 Name:           per-device-eq
-Version:        2.0.0
+Version:        2.0.1
 Release:        %autorelease
 Summary:        Per-output-device parametric EQ for PipeWire
 
@@ -13,6 +13,7 @@ Source0:        %{url}/archive/v%{version}/%{reponame}-%{version}.tar.gz
 BuildArch:      noarch
 
 # validation only (no compilation: pure Python + data)
+BuildRequires:  python3
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 
