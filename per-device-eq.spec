@@ -2,8 +2,8 @@
 %global reponame calibrate-room-rew
 
 Name:           per-device-eq
-Version:        1.0.0
-Release:        1%{?dist}
+Version:        1.0.1
+Release:        %autorelease
 Summary:        Per-output-device parametric EQ for PipeWire
 
 # The application code is GPL-3.0-or-later; confirm and ship a LICENSE file.
@@ -72,5 +72,4 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 %{_metainfodir}/%{appid}.metainfo.xml
 
 %changelog
-* Tue Jun 30 2026 Mikhail Gavrilov <mikhail.v.gavrilov@gmail.com> - 1.0.0-1
-- Initial package
+%autochangelog

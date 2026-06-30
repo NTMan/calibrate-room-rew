@@ -31,23 +31,60 @@ EasyEffects — хорошая штука, но он не подошёл под 
 
 ## Требования и установка
 
-**PipeWire ≥ 1.6** (нужен in-node `audioconvert.filter-graph`), **WirePlumber**, **GTK 4**, **PyGObject**, **Python 3**.
+**PipeWire ≥ 1.6** (нужен in-node `audioconvert.filter-graph`), **WirePlumber**, **GTK 4**, **PyGObject**, **PyCairo**, **Python 3**. В работе приложение также вызывает утилиты командной строки PipeWire `pw-metadata` и `pw-dump`; если какого-то из них нет, оно сообщит об этом при запуске.
 
-В работе приложение вызывает утилиты командной строки PipeWire `pw-metadata` и `pw-dump`. Если какой-то из них нет, оно скажет об этом при запуске — поставьте утилиты PipeWire так, как принято в вашем дистрибутиве (имена утилит везде одинаковы, а вот пакет с ними называется по-разному). Например, для Fedora:
-
-```
-sudo dnf install gtk4 python3-gobject pipewire pipewire-utils wireplumber
-```
-
-Клонируйте репозиторий и сделайте скрипт исполняемым:
+### Fedora (COPR) — рекомендуется
 
 ```
+sudo dnf copr enable mikhail/per-device-eq
+sudo dnf install per-device-eq
+```
+
+Ставит лаунчер `per-device-eq`, хук WirePlumber (в `/usr/share/per-device-eq/`) и ярлык с иконкой. Запускайте из меню приложений как **Per-Device EQ** или командой `per-device-eq`. При первом запуске приложение копирует свой хук WirePlumber в пользовательскую сессию и один раз перезапускает WirePlumber; после этого EQ восстанавливается автоматически при каждой перезагрузке и переподключении.
+
+### Запуск из исходников
+
+Чтобы запускать скрипт напрямую, без пакета:
+
+```
+# Fedora; в других дистрибутивах те же утилиты называются иначе:
+sudo dnf install gtk4 python3-gobject python3-cairo pipewire pipewire-utils wireplumber
 git clone https://github.com/NTMan/calibrate-room-rew.git
 cd calibrate-room-rew
 chmod +x per-device-eq.py
+./per-device-eq.py
 ```
 
-Встроенный профиль `Clean` лежит в [`profiles/clean.json`](profiles/) рядом со скриптом. Общесистемные профили можно положить в `/usr/share/per-device-eq/profiles/`.
+Чтобы при запуске из исходников получить ещё и пункт меню/дока с иконкой, поставьте desktop-интеграцию в домашний каталог (обратимо, пишет только в `~/.local/share`):
+
+```
+./per-device-eq.py --install-desktop      # добавить .desktop и иконку
+./per-device-eq.py --uninstall-desktop    # удалить их обратно
+```
+
+Если установлен пакет из COPR, это не нужно — системный ярлык уже есть, и приложение не трогает `~/.local/share`.
+
+### Собрать RPM самостоятельно
+
+В репозитории есть `per-device-eq.spec`. Локальная сборка на Fedora:
+
+```
+sudo dnf install rpm-build rpmdevtools desktop-file-utils libappstream-glib
+rpmdev-setuptree
+git archive --format=tar.gz --prefix=calibrate-room-rew-1.0.0/ \
+    -o ~/rpmbuild/SOURCES/calibrate-room-rew-1.0.0.tar.gz v1.0.0
+rpmbuild -ba per-device-eq.spec
+```
+
+Готовый `per-device-eq-*.noarch.rpm` появится в `~/rpmbuild/RPMS/noarch/`.
+
+### Flatpak
+
+В планах. Flatpak'у нужно «прокинуть» хук WirePlumber из песочницы наружу, что требует дополнительной возни; пока на Fedora самый простой путь — COPR.
+
+### Профили
+
+Встроенный профиль `Clean` приложение генерирует само — файл не нужен. Дополнительные общесистемные профили можно положить в `/usr/share/per-device-eq/profiles/`.
 
 ---
 
