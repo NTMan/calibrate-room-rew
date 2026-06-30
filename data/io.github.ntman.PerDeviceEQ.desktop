@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Per-Device EQ
+GenericName=Equalizer
+Comment=Per-output-device parametric EQ for PipeWire
+Exec=per-device-eq
+Icon=io.github.ntman.PerDeviceEQ
+Terminal=false
+Categories=AudioVideo;Audio;Mixer;Settings;
+Keywords=equalizer;EQ;PipeWire;parametric;audio;sound;
+StartupNotify=true
+StartupWMClass=io.github.ntman.PerDeviceEQ

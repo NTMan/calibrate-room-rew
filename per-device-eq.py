@@ -61,6 +61,22 @@ HOOK_SRC_CANDIDATES = [os.path.join(_SCRIPT_DIR, "wireplumber", WP_SCRIPT_NAME),
 # bindings.json into WpState (after that the hook owns the file)
 WPSTATE_FILE   = os.path.expanduser("~/.local/state/wireplumber/" + METADATA_NAME)
 
+# desktop integration (so the launcher/dock shows our name + icon). The window's
+# Wayland app_id equals APP_ID, so the .desktop must be named <APP_ID>.desktop
+# and ship an icon themed as <APP_ID>.
+APP_ID = "io.github.ntman.PerDeviceEQ"
+DESKTOP_FILE_NAME = APP_ID + ".desktop"
+ICON_FILE_NAME    = APP_ID + ".svg"
+DESKTOP_SRC_CANDIDATES = [os.path.join(_SCRIPT_DIR, "data", DESKTOP_FILE_NAME),
+                          "/usr/share/applications/" + DESKTOP_FILE_NAME]
+ICON_SRC_CANDIDATES = [
+    os.path.join(_SCRIPT_DIR, "data", "icons", "hicolor", "scalable", "apps", ICON_FILE_NAME),
+    "/usr/share/icons/hicolor/scalable/apps/" + ICON_FILE_NAME]
+USER_DESKTOP_FILE = os.path.expanduser("~/.local/share/applications/" + DESKTOP_FILE_NAME)
+USER_ICON_FILE    = os.path.expanduser(
+    "~/.local/share/icons/hicolor/scalable/apps/" + ICON_FILE_NAME)
+SYS_DESKTOP_FILE  = "/usr/share/applications/" + DESKTOP_FILE_NAME
+
 TYPE_TO_LABEL = {"PK": "bq_peaking", "LSC": "bq_lowshelf", "HSC": "bq_highshelf"}
 TYPE_NAMES = ["PK", "LSC", "HSC"]
 CLEAN_ID = "clean"
@@ -611,6 +627,74 @@ def install_hook():
 
 def restart_wireplumber():
     return _run(["systemctl", "--user", "restart", "wireplumber"]).returncode == 0
+
+
+def _first_existing(paths):
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    return None
+
+def _launcher_exec():
+    launcher = os.path.abspath(sys.argv[0])
+    if os.access(launcher, os.X_OK):
+        return launcher
+    return (sys.executable or "python3") + " " + launcher
+
+def install_desktop_integration():
+    """Install the .desktop entry + themed icon into ~/.local/share so the
+    launcher/dock show 'Per-Device EQ' with our icon (the window's Wayland app_id
+    is APP_ID, so the entry is <APP_ID>.desktop and the icon is themed <APP_ID>).
+    Both files are copied from the shipped data/ dir; this is intentionally strict
+    -- a missing source is a packaging error and is reported, not hidden. No-op
+    when a system package already provides the entry. Raises FileNotFoundError if
+    a source file is missing; returns True if anything was written."""
+    if os.path.exists(SYS_DESKTOP_FILE):
+        return False                       # packaged install owns this; leave it
+    isrc = _first_existing(ICON_SRC_CANDIDATES)
+    dsrc = _first_existing(DESKTOP_SRC_CANDIDATES)
+    if isrc is None or dsrc is None:
+        missing = []
+        if dsrc is None:
+            missing.append("desktop entry, expected:\n    "
+                           + "\n    ".join(DESKTOP_SRC_CANDIDATES))
+        if isrc is None:
+            missing.append("icon, expected:\n    "
+                           + "\n    ".join(ICON_SRC_CANDIDATES))
+        raise FileNotFoundError("missing data file(s):\n  " + "\n  ".join(missing))
+    changed = False
+    with open(isrc, encoding="utf-8") as f:
+        changed |= _write_if_changed(USER_ICON_FILE, f.read())
+    # take the shipped .desktop but point Exec= at how we were actually launched
+    # (so it works when run from a source checkout, not only when in PATH)
+    with open(dsrc, encoding="utf-8") as f:
+        text = re.sub(r"(?m)^Exec=.*$", "Exec=" + _launcher_exec(), f.read())
+    changed |= _write_if_changed(USER_DESKTOP_FILE, text)
+    if changed:                            # best-effort cache refresh (ignore if absent)
+        _run(["gtk-update-icon-cache", "-f", "-t",
+              os.path.expanduser("~/.local/share/icons/hicolor")])
+        _run(["update-desktop-database",
+              os.path.expanduser("~/.local/share/applications")])
+    return changed
+
+def uninstall_desktop_integration():
+    """Remove the user-local .desktop entry + icon that --install-desktop created.
+    Only ever touches ~/.local/share (never the system /usr/share files, which
+    belong to a package). Returns True if anything was removed."""
+    removed = False
+    for path in (USER_DESKTOP_FILE, USER_ICON_FILE):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                removed = True
+        except OSError:
+            pass
+    if removed:
+        _run(["gtk-update-icon-cache", "-f", "-t",
+              os.path.expanduser("~/.local/share/icons/hicolor")])
+        _run(["update-desktop-database",
+              os.path.expanduser("~/.local/share/applications")])
+    return removed
 
 
 # ============================ CLI ============================
@@ -1882,7 +1966,7 @@ def launch_gui():
 
     class EQApp(Gtk.Application):
         def __init__(self):
-            super().__init__(application_id="io.github.ntman.PerDeviceEQ",
+            super().__init__(application_id=APP_ID,
                              flags=Gio.ApplicationFlags.FLAGS_NONE)
         def _install_css(self):
             if getattr(self, "_css_done", False):
@@ -1902,6 +1986,10 @@ def launch_gui():
                     disp, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         def do_activate(self):
             self._install_css()
+            try:
+                Gtk.Window.set_default_icon_name(APP_ID)
+            except Exception:
+                pass
             win = self.props.active_window or EQWindow(self)
             win.present()
 
@@ -1924,6 +2012,10 @@ def main():
                    help="push bound profiles into the per-device-eq metadata now")
     g.add_argument("--install-hook", action="store_true",
                    help="install/refresh the WirePlumber hook + metadata config")
+    g.add_argument("--install-desktop", action="store_true",
+                   help="install the .desktop entry + icon into ~/.local/share")
+    g.add_argument("--uninstall-desktop", action="store_true",
+                   help="remove the .desktop entry + icon from ~/.local/share")
     args = ap.parse_args()
 
     if (args.list or args.inspect or args.apply):
@@ -1951,6 +2043,29 @@ def main():
             restart_wireplumber()
         else:
             print("hook already up to date (no restart needed)")
+        return 0
+    if args.install_desktop:
+        if os.path.exists(SYS_DESKTOP_FILE):
+            print("a system .desktop entry is already installed (%s); nothing to do"
+                  % SYS_DESKTOP_FILE)
+            return 0
+        try:
+            install_desktop_integration()
+        except FileNotFoundError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        print("installed: %s" % USER_DESKTOP_FILE)
+        print("installed: %s" % USER_ICON_FILE)
+        print("(reopen the app to see the icon; run --uninstall-desktop to remove)")
+        return 0
+    if args.uninstall_desktop:
+        if os.path.exists(SYS_DESKTOP_FILE):
+            print("the .desktop entry is provided by a system package (%s); remove it "
+                  "with your package manager, not this command" % SYS_DESKTOP_FILE)
+            return 0
+        removed = uninstall_desktop_integration()
+        print("desktop entry + icon %s"
+              % ("removed from ~/.local/share" if removed else "were not installed"))
         return 0
     return launch_gui()
 

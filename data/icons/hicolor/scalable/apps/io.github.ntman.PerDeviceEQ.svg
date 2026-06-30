@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4338ca"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded app tile -->
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)"/>
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#sheen)"/>
+
+  <!-- faint graph grid -->
+  <g stroke="#ffffff" stroke-opacity="0.18" stroke-width="2" stroke-linecap="round">
+    <line x1="24" y1="72" x2="104" y2="72"/>
+    <line x1="50.7" y1="30" x2="50.7" y2="98"/>
+    <line x1="77.3" y1="30" x2="77.3" y2="98"/>
+  </g>
+
+  <!-- EQ frequency-response curve: one boost, one cut -->
+  <path d="M 22 70 C 34 70 38 44 52 44 C 66 44 70 94 86 94 C 98 94 102 66 106 66"
+        fill="none" stroke="#ffffff" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- band handles -->
+  <g fill="#ffffff" stroke="#0e7490" stroke-width="2.5">
+    <circle cx="52" cy="44" r="6"/>
+    <circle cx="86" cy="94" r="6"/>
+    <circle cx="106" cy="66" r="6"/>
+  </g>
+</svg>
