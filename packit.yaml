@@ -10,7 +10,7 @@ upstream_tag_template: "v{version}"
 jobs:
   - job: copr_build
     trigger: release
-    owner: ntman            # <-- your COPR/FAS owner name
+    owner: mikhail            # <-- your COPR/FAS owner name
     project: per-device-eq
     targets:
       - fedora-all
