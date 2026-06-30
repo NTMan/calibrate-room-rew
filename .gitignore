@@ -1,0 +1,16 @@
+# RPM / fedpkg / mock build artifacts
+/*.tar.gz
+/*.src.rpm
+/*.rpm
+/results_*/
+/x86_64/
+/noarch/
+/.build-*.log
+/*.spec.rpmlintrc
+
+# editor / OS junk
+*~
+*.swp
+.DS_Store
+__pycache__/
+*.pyc
