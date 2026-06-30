@@ -4,7 +4,6 @@
 # build for all active Fedora versions, hosted as a dnf repo users can enable.
 specfile_path: per-device-eq.spec
 upstream_package_name: calibrate-room-rew
-downstream_package_name: per-device-eq
 upstream_tag_template: "v{version}"
 
 jobs:
