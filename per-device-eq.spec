@@ -2,7 +2,7 @@
 %global reponame calibrate-room-rew
 
 Name:           per-device-eq
-Version:        2.0.1
+Version:        2.0.2
 Release:        %autorelease
 Summary:        Per-output-device parametric EQ for PipeWire
 
@@ -12,8 +12,9 @@ Source0:        %{url}/archive/v%{version}/%{reponame}-%{version}.tar.gz
 
 BuildArch:      noarch
 
-# validation only (no compilation: pure Python + data)
-BuildRequires:  python3
+# python3-devel: interpreter for the import check + python-rpm-macros
+# (provides the py_byte_compile macro used at install time)
+BuildRequires:  python3-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 
@@ -49,6 +50,8 @@ install -Dpm0755 per-device-eq.py %{buildroot}%{_bindir}/%{name}
 # Python implementation package, imported by the launcher
 install -d %{buildroot}%{_datadir}/%{name}/perdeviceeq
 install -pm0644 -t %{buildroot}%{_datadir}/%{name}/perdeviceeq perdeviceeq/*.py
+# byte-compile so .pyc ship next to the .py (Fedora-proper)
+%py_byte_compile %{python3} %{buildroot}%{_datadir}/%{name}/perdeviceeq
 
 # GtkBuilder design for the GUI (resolved at runtime via the package data root)
 install -Dpm0644 data/%{appid}.ui \
@@ -69,7 +72,8 @@ install -Dpm0644 data/%{appid}.metainfo.xml \
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/%{appid}.desktop
 appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metainfo.xml
-# byte-compile check: the package must import cleanly (no GTK needed here)
+# import check: the package must import cleanly (no GTK needed here);
+# the .pyc were produced by the byte-compile step above and are packaged.
 %{python3} -c "import sys; sys.path.insert(0, '%{buildroot}%{_datadir}/%{name}'); \
 import perdeviceeq.config, perdeviceeq.eq, perdeviceeq.profiles, \
 perdeviceeq.pipewire, perdeviceeq.integration, perdeviceeq.cli"
@@ -79,8 +83,7 @@ perdeviceeq.pipewire, perdeviceeq.integration, perdeviceeq.cli"
 %doc README.md README.ru.md
 %{_bindir}/%{name}
 %dir %{_datadir}/%{name}
-%dir %{_datadir}/%{name}/perdeviceeq
-%{_datadir}/%{name}/perdeviceeq/*.py
+%{_datadir}/%{name}/perdeviceeq/
 %dir %{_datadir}/%{name}/data
 %{_datadir}/%{name}/data/%{appid}.ui
 %dir %{_datadir}/%{name}/wireplumber
