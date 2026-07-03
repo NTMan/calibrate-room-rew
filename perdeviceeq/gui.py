@@ -158,7 +158,13 @@ class EqWindow(Adw.ApplicationWindow):
 
         self._init_devices()
         self.current_pid = self.store.binding_for(self.node) or CLEAN_ID
-        self._load_profile(self.current_pid, apply=False)
+        # apply=True primes the session metadata key for the startup device.
+        # Before the app starts, EQ is applied by the WP hook from its own
+        # saved state and the metadata key does not exist yet; clearing a
+        # non-existent key emits no change event, so the first Bypass would
+        # silently do nothing. Publishing the (identical) graph here is
+        # inaudible and keeps the hook and the GUI in sync from turn one.
+        self._load_profile(self.current_pid, apply=True)
         self._populate_picker()
         if self.live:
             GLib.timeout_add_seconds(2, self._poll)
