@@ -50,6 +50,7 @@ _HISTORY_CAP = 100
 
 
 def _ui_path():
+    """Return the first existing .ui path from UI_FILE_CANDIDATES."""
     for p in UI_FILE_CANDIDATES:
         if os.path.exists(p):
             return p
@@ -58,12 +59,14 @@ def _ui_path():
 
 
 def _log_freqs(n=240):
+    """n log-spaced frequencies over FMIN..FMAX for plotting the response."""
     import math
     a, b = math.log10(FMIN), math.log10(FMAX)
     return [10 ** (a + (b - a) * i / (n - 1)) for i in range(n)]
 
 
 def _load_favorites():
+    """Read the pinned built-in profile ids from FAVORITES_FILE."""
     try:
         with open(FAVORITES_FILE, encoding="utf-8") as f:
             data = json.load(f)
@@ -73,6 +76,7 @@ def _load_favorites():
 
 
 def _save_favorites(ids):
+    """Persist the pinned built-in profile ids to FAVORITES_FILE."""
     try:
         os.makedirs(config.CONFIG_DIR, exist_ok=True)
         tmp = FAVORITES_FILE + ".tmp"
@@ -84,16 +88,19 @@ def _save_favorites(ids):
 
 
 def _new_slot():
+    """Fresh empty per-channel slot (preamp 0, no bands)."""
     return {"preamp": 0.0, "bands": []}
 
 
 def _copy_slot(s):
+    """Deep copy of a slot with independent Band objects."""
     return {"preamp": float(s.get("preamp", 0.0)),
             "bands": [eq.Band.from_dict(b.to_dict()) for b in s.get("bands", [])]}
 
 
 class EqWindow(Adw.ApplicationWindow):
     def __init__(self, app):
+        """Build the window from the .ui design and wire all behavior to it."""
         super().__init__(application=app)
         self.set_title("Per-Device EQ")
         self.set_default_size(640, 820)
@@ -171,6 +178,7 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- widget construction ----------------------------------------------
     def _build_header_buttons(self):
+        """Add the undo/redo buttons to the end of the header bar."""
         self.undo_btn = Gtk.Button.new_from_icon_name("edit-undo-symbolic")
         self.undo_btn.set_tooltip_text("Undo (Ctrl+Z)")
         self.undo_btn.connect("clicked", lambda *_: self._undo())
@@ -182,6 +190,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.header_bar.pack_end(self.undo_btn)
 
     def _build_graph(self):
+        """Create the response plot (DrawingArea) with drag + right-click gestures."""
         self.graph_area = Gtk.DrawingArea()
         self.graph_area.set_content_height(240)
         self.graph_area.set_hexpand(True)
@@ -201,15 +210,18 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- graph geometry / interaction (drag band handles) ------------------
     def _x_of(self, f):
+        """Map a frequency in Hz to a plot x pixel."""
         ml, mt, pw_, ph = self._plot
         return ml + (math.log10(f) - math.log10(FMIN)) / \
             (math.log10(FMAX) - math.log10(FMIN)) * pw_
 
     def _y_of(self, db):
+        """Map a dB value to a plot y pixel."""
         ml, mt, pw_, ph = self._plot
         return mt + (DB_MAX - db) / (2 * DB_MAX) * ph
 
     def _f_of(self, x):
+        """Inverse of _x_of: plot x pixel back to frequency (clamped)."""
         ml, mt, pw_, ph = self._plot
         if pw_ <= 0:
             return None
@@ -217,6 +229,7 @@ class EqWindow(Adw.ApplicationWindow):
         return 10 ** (math.log10(FMIN) + t * (math.log10(FMAX) - math.log10(FMIN)))
 
     def _db_of(self, y):
+        """Inverse of _y_of: plot y pixel back to dB (clamped)."""
         ml, mt, pw_, ph = self._plot
         if ph <= 0:
             return None
@@ -225,17 +238,20 @@ class EqWindow(Adw.ApplicationWindow):
 
     @staticmethod
     def _hsv(h, s, v):
+        """Tiny HSV->RGB helper for band colors."""
         i = int(h * 6.0); f = h * 6.0 - i
         p, q, t = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
         return [(v, t, p), (q, v, p), (p, v, t),
                 (p, q, v), (t, p, v), (v, p, q)][i % 6]
 
     def _band_color(self, f):
+        """Rainbow color for a band by log frequency (blue=low .. red=high)."""
         lf = math.log10(min(FMAX, max(FMIN, f)))
         t = (lf - math.log10(FMIN)) / (math.log10(FMAX) - math.log10(FMIN))
         return self._hsv((1.0 - t) * 0.66, 0.65, 1.0)
 
     def _hit_band(self, x, y, r=11):
+        """The band whose handle covers (x, y), or None (11 px hit radius)."""
         if not self._plot:
             return None
         best, bestd = None, r * r
@@ -248,12 +264,14 @@ class EqWindow(Adw.ApplicationWindow):
         return best
 
     def _ensure_audible(self):
+        """Drop Bypass so a graph edit is heard immediately."""
         if self.bypass_row.get_active():
             self._loading = True
             self.bypass_row.set_active(False)
             self._loading = False
 
     def _on_drag_begin(self, gesture, sx, sy):
+        """Grab the band handle under the pointer, or create a band on empty plot."""
         self._drag_band = None
         if not self._plot:
             return
@@ -274,6 +292,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.graph_area.queue_draw()
 
     def _on_drag_update(self, gesture, ox, oy):
+        """Move the dragged band with the pointer (freq/gain), applying live."""
         if self._drag_band is None or not self._plot:
             return
         ok, sx, sy = gesture.get_start_point()
@@ -288,6 +307,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._on_edit()                     # live apply (debounced); no row rebuild
 
     def _on_drag_end(self, gesture, ox, oy):
+        """Finish a drag: rebuild the (sorted) table and settle the save."""
         if self._drag_band is None:
             return
         self._drag_band = None
@@ -295,6 +315,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._on_edit()
 
     def _on_right_click(self, gesture, n, x, y):
+        """Remove the band nearest to a right click (within hit radius)."""
         b = self._hit_band(x, y)
         if b is not None and b in self.bands:
             self.bands.remove(b)
@@ -302,6 +323,7 @@ class EqWindow(Adw.ApplicationWindow):
             self._on_edit()
 
     def _build_preamp(self):
+        """Put the preamp SpinButton and the Auto button onto preamp_row."""
         self.preamp_spin = Gtk.SpinButton.new_with_range(-DB_MAX, DB_MAX, 0.5)
         self.preamp_spin.set_digits(1)
         self.preamp_spin.set_valign(Gtk.Align.CENTER)
@@ -318,8 +340,9 @@ class EqWindow(Adw.ApplicationWindow):
     _CSS_INSTALLED = False
 
     def _install_css(self):
-        # Compact band rows (ported from the monolith's ".eqrow" styling) so the
-        # spin buttons / dropdowns are tighter than the libadwaita default.
+        """Install the compact .eqrow style, once per process (ported from the
+        monolith): spin buttons / dropdowns tighter than the libadwaita default.
+        """
         if EqWindow._CSS_INSTALLED:
             return
         EqWindow._CSS_INSTALLED = True
@@ -340,6 +363,7 @@ class EqWindow(Adw.ApplicationWindow):
                 disp, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def _build_bands_area(self):
+        """Build the Bands header actions (Clear/Import REW/add) and the band grid."""
         suffix = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         clear_btn = Gtk.Button.new_from_icon_name("edit-clear-all-symbolic")
         clear_btn.add_css_class("flat")
@@ -367,6 +391,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.bands_group.add(self.bands_grid)
 
     def _build_picker_footer(self):
+        """Create the picker footer actions (new / import / export profile)."""
         new_btn = Gtk.Button(label="Create new…")
         new_btn.add_css_class("flat")
         new_btn.set_halign(Gtk.Align.START)
@@ -387,6 +412,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.profile_list.connect("row-activated", self._on_pick_row)
 
     def _install_shortcuts(self, app):
+        """Register win.undo / win.redo actions with their accelerators."""
         for name, cb, accels in (("undo", self._undo, ["<Control>z"]),
                                  ("redo", self._redo,
                                   ["<Control><Shift>z", "<Control>y"])):
@@ -397,6 +423,7 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- scroll taming (wheel must not change spin/dropdown values) --------
     def _tame_scroll(self, widget):
+        """Keep the wheel from editing a value; scroll the page instead."""
         ctrl = Gtk.EventControllerScroll.new(
             Gtk.EventControllerScrollFlags.VERTICAL)
         ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
@@ -404,8 +431,10 @@ class EqWindow(Adw.ApplicationWindow):
         widget.add_controller(ctrl)
 
     def _on_widget_scroll(self, ctrl, dx, dy):
-        # forward the wheel to the enclosing scrolled page, swallow it here so
-        # the spin button / dropdown value is left untouched
+        """CAPTURE-phase scroll handler backing _tame_scroll: forward the
+        wheel to the enclosing scrolled page and swallow it here, so the
+        spin button / dropdown value is left untouched.
+        """
         w = ctrl.get_widget()
         sw = w.get_ancestor(Gtk.ScrolledWindow) if w else None
         if sw is not None:
@@ -423,6 +452,7 @@ class EqWindow(Adw.ApplicationWindow):
     # ---- device ------------------------------------------------------------
     # ---- device picker (header) + follow default (live) -------------------
     def _init_devices(self):
+        """Fill the device dropdown from PipeWire and select the default sink."""
         self.sinks = []
         miss = pipewire.missing_tools()
         if miss:
@@ -446,6 +476,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.device_dd.set_sensitive(not self.follow_btn.get_active())
 
     def _refresh_device_model(self):
+        """Rebuild the dropdown model after the sink set changed."""
         self._dev_guard = True
         try:
             model = Gtk.StringList()
@@ -459,6 +490,7 @@ class EqWindow(Adw.ApplicationWindow):
             self._dev_guard = False
 
     def _select_device(self, name, load=True):
+        """Programmatically select a sink; optionally load its bound profile."""
         idx = next((i for i, s in enumerate(self.sinks) if s["name"] == name), -1)
         if idx < 0:
             return
@@ -470,6 +502,7 @@ class EqWindow(Adw.ApplicationWindow):
             self._load_profile(self.store.binding_for(name) or CLEAN_ID)
 
     def _on_device_changed(self, *_):
+        """Manual sink pick from the dropdown (ignored while following default)."""
         if self._dev_guard or self.follow_btn.get_active():
             return
         i = self.device_dd.get_selected()
@@ -478,12 +511,14 @@ class EqWindow(Adw.ApplicationWindow):
             self._load_profile(self.store.binding_for(self.node) or CLEAN_ID)
 
     def _on_follow_toggled(self, *_):
+        """Follow-default toggled; snap to the current default when turned on."""
         follow = self.follow_btn.get_active()
         self.device_dd.set_sensitive(not follow)
         if follow and self.live:
             self._poll()                    # snap to the current default now
 
     def _poll(self):
+        """2 s heartbeat: fetch sinks and the default sink off the main thread."""
         if self._poll_busy:
             return True                      # previous poll still running
         self._poll_busy = True
@@ -500,6 +535,7 @@ class EqWindow(Adw.ApplicationWindow):
         return True                          # keep the timer running
 
     def _apply_poll(self, sinks, default):
+        """Consume poll results on the main loop (refresh model, follow default)."""
         self._poll_busy = False
         if sinks is None:
             return False
@@ -514,14 +550,17 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- slots / working profile body -------------------------------------
     def _slot(self, ch):
+        """The slot dict for a channel key."""
         return self.slots.setdefault(ch, _new_slot())
 
     def _slot_to_dict(self, ch):
+        """Serialize a slot into the plain profile-body form."""
         s = self.slots.get(ch) or _new_slot()
         return {"preamp": float(s["preamp"]),
                 "bands": [bnd.to_dict() for bnd in s["bands"]]}
 
     def _working_body(self):
+        """Assemble the full profile body from the current editor state."""
         p = self.store.get(self.current_pid)
         return {"id": self.current_pid,
                 "name": p.get("name", self.current_pid),
@@ -531,6 +570,7 @@ class EqWindow(Adw.ApplicationWindow):
                 "channels": {k: self._slot_to_dict(k) for k in self.ch_keys}}
 
     def _load_slot(self, ch):
+        """Show one channel slot in the editor (preamp, table, graph, title)."""
         prev = self._loading
         self._loading = True
         try:
@@ -548,6 +588,7 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- channel selector --------------------------------------------------
     def _clear_box(self, box):
+        """Remove every child of a container widget."""
         child = box.get_first_child()
         while child is not None:
             nxt = child.get_next_sibling()
@@ -555,6 +596,7 @@ class EqWindow(Adw.ApplicationWindow):
             child = nxt
 
     def _build_channel_bar(self):
+        """Rebuild the FL/FR toggle bar (hidden while channels are linked)."""
         self._clear_box(self.channel_bar)
         self._chan_buttons = {}
         first = None
@@ -571,12 +613,14 @@ class EqWindow(Adw.ApplicationWindow):
         self.channel_bar.set_visible(not self.apply_all and len(self.ch_keys) > 1)
 
     def _make_chan_cb(self, key):
+        """Factory: switch the edited channel to `ch`."""
         def cb(btn):
             if btn.get_active() and not self._loading:
                 self._load_slot(key)     # view change only; nothing to re-apply
         return cb
 
     def _on_link(self, *_):
+        """Handle the 'Same EQ for all channels' switch (profile apply_all)."""
         if self._loading:
             return
         self.apply_all = self.link_row.get_active()
@@ -597,15 +641,21 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- profile load / edit ----------------------------------------------
     def _display_name(self, p):
+        """Profile name for display ('Default (no EQ)' for Clean)."""
         if p["id"] == CLEAN_ID:
             return "Default (no EQ)"
         return p.get("name", p["id"])
 
     def _editable(self, pid):
+        """True when the profile may be edited in place (a user profile)."""
         p = self.store.profiles.get(pid)
         return bool(p and not p.get("builtin") and pid != CLEAN_ID)
 
     def _load_profile(self, pid, apply=True):
+        """Load profile `pid` into the editor and bind it to the device.
+        With apply=True also publish its graph to the session metadata
+        (primes the key for the first Bypass; see _apply_now).
+        """
         self._loading = True
         try:
             self.current_pid = pid
@@ -674,6 +724,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.profile_button.set_label(self._display_name(self.store.get(pid)))
 
     def _on_edit(self):
+        """Any edit: fork built-ins if needed, redraw, debounce the save."""
         if self._loading:
             return
         self._ensure_editable()
@@ -681,11 +732,13 @@ class EqWindow(Adw.ApplicationWindow):
         self._schedule_save()
 
     def _schedule_save(self):
+        """(Re)arm the save debounce timer."""
         if self._save_source:
             GLib.source_remove(self._save_source)
         self._save_source = GLib.timeout_add(_SAVE_DEBOUNCE_MS, self._save_now)
 
     def _save_now(self):
+        """Persist the working profile, apply it, and record undo history."""
         self._save_source = 0
         if self._editable(self.current_pid):
             self.store.save_user(self._working_body())
@@ -695,6 +748,9 @@ class EqWindow(Adw.ApplicationWindow):
         return GLib.SOURCE_REMOVE
 
     def _apply_now(self):
+        """Publish the device's live state to the per-device-eq metadata:
+        the graph string, or key removal when bypassed / empty.
+        """
         if not self.live or not self.node:
             return
         node = self.node
@@ -707,12 +763,14 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- undo / redo -------------------------------------------------------
     def _snapshot(self):
+        """Serialize editor state for undo (the viewed channel is left out)."""
         keys = ["all"] + list(self.ch_keys)
         return {"apply_all": self.apply_all,
                 "ch_keys": list(self.ch_keys),
                 "slots": {k: self._slot_to_dict(k) for k in keys}}
 
     def _restore(self, snap):
+        """Load an undo snapshot back into the editor."""
         view = self.cur_ch          # keep the user's current tab if still valid
         self._loading = True
         try:
@@ -742,6 +800,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._apply_now()
 
     def _push_history(self):
+        """Append a snapshot, dropping any redo tail (cap _HISTORY_CAP)."""
         snap = self._snapshot()
         if self._hidx < len(self._hist) - 1:        # drop the redo branch
             del self._hist[self._hidx + 1:]
@@ -754,6 +813,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._update_undo_buttons()
 
     def _undo(self, *_):
+        """Step one snapshot back in history."""
         if self._hidx <= 0:
             return
         self._hidx -= 1
@@ -765,6 +825,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._update_undo_buttons()
 
     def _redo(self, *_):
+        """Step one snapshot forward in history."""
         if self._hidx >= len(self._hist) - 1:
             return
         self._hidx += 1
@@ -776,11 +837,13 @@ class EqWindow(Adw.ApplicationWindow):
         self._update_undo_buttons()
 
     def _update_undo_buttons(self):
+        """Sync undo/redo button sensitivity with the history position."""
         self.undo_btn.set_sensitive(self._hidx > 0)
         self.redo_btn.set_sensitive(self._hidx < len(self._hist) - 1)
 
     # ---- band table --------------------------------------------------------
     def _rebuild_bands(self):
+        """Rebuild the band table as a freq-sorted view of self.bands."""
         self._clear_box(self.bands_grid)
         headers = ["", "Type", "Freq (Hz)", "Gain (dB)", "Q", "On", ""]
         for col, text in enumerate(headers):
@@ -788,10 +851,23 @@ class EqWindow(Adw.ApplicationWindow):
             lbl.add_css_class("dim-label")
             lbl.add_css_class("caption")
             self.bands_grid.attach(lbl, col, 0, 1, 1)
-        for i, bnd in enumerate(self.bands):
+        # The table is a freq-sorted VIEW; self.bands keeps its own order
+        # (data order does not matter to the graph or the saved profile).
+        self._row_bands = sorted(self.bands, key=lambda b: b.freq)
+        for i, bnd in enumerate(self._row_bands):
             self._attach_band_row(i, bnd)
 
+    def _maybe_resort(self):
+        """Rebuild the table only if the sorted order actually changed;
+        called on focus leaving a Freq field so rows never jump mid-typing.
+        """
+        want = sorted(self.bands, key=lambda b: b.freq)
+        if [id(b) for b in want] != [id(b) for b in getattr(self, "_row_bands", [])]:
+            self._rebuild_bands()
+        return False
+
     def _attach_band_row(self, i, bnd):
+        """Create one table row: dot, type, freq, gain, Q, On, remove."""
         row = i + 1
         dot = Gtk.Label()
         dot.set_use_markup(True)
@@ -812,6 +888,9 @@ class EqWindow(Adw.ApplicationWindow):
         freq.set_hexpand(True); freq.set_halign(Gtk.Align.START)
         freq.set_valign(Gtk.Align.CENTER)
         freq.connect("value-changed", self._make_num_cb(bnd, "freq", dot))
+        ffoc = Gtk.EventControllerFocus()
+        ffoc.connect("leave", lambda *_: GLib.idle_add(self._maybe_resort))
+        freq.add_controller(ffoc)
         self._tame_scroll(freq)
         self.bands_grid.attach(freq, 2, row, 1, 1)
 
@@ -846,11 +925,13 @@ class EqWindow(Adw.ApplicationWindow):
         self.bands_grid.attach(rm, 6, row, 1, 1)
 
     def _dot_markup(self, freq):
+        """Pango markup for the colored legend dot of a frequency."""
         r, g, bl = self._band_color(freq)
         return ("<span foreground='#%02x%02x%02x' size='large'>\u25cf</span>"
                 % (int(r * 255), int(g * 255), int(bl * 255)))
 
     def _make_type_cb(self, bnd):
+        """Factory: apply a filter-type change from the row's DropDown."""
         def cb(dd, _p):
             idx = dd.get_selected()
             if 0 <= idx < len(TYPE_NAMES):
@@ -859,6 +940,7 @@ class EqWindow(Adw.ApplicationWindow):
         return cb
 
     def _make_num_cb(self, bnd, attr, dot=None):
+        """Factory: apply a numeric change; freq changes also recolor the dot."""
         def cb(spin):
             setattr(bnd, attr, float(spin.get_value()))
             if dot is not None and attr == "freq":
@@ -867,12 +949,14 @@ class EqWindow(Adw.ApplicationWindow):
         return cb
 
     def _make_enable_cb(self, bnd):
+        """Factory: toggle a band on/off from the row's Switch."""
         def cb(sw, _p):
             bnd.enabled = sw.get_active()
             self._on_edit()
         return cb
 
     def _make_remove_cb(self, bnd):
+        """Factory: delete the row's band."""
         def cb(_btn):
             if bnd in self.bands:
                 self.bands.remove(bnd)
@@ -881,11 +965,13 @@ class EqWindow(Adw.ApplicationWindow):
         return cb
 
     def _on_add_band(self, _btn):
+        """Append a fresh 1 kHz band and re-render."""
         self.bands.append(eq.Band("PK", 1000.0, 0.0, 1.0, True))
         self._rebuild_bands()
         self._on_edit()
 
     def _on_clear_bands(self, _btn):
+        """Remove all bands of the shown slot (Ctrl+Z restores them)."""
         if not self.bands:
             return
         self.bands.clear()
@@ -893,30 +979,37 @@ class EqWindow(Adw.ApplicationWindow):
         self._on_edit()
 
     def _on_preamp(self, spin):
+        """Preamp spin changed: store per-channel and save."""
         self.preamp = float(spin.get_value())
         self._slot(self.cur_ch)["preamp"] = self.preamp
         self._on_edit()
 
     def _on_auto(self, _btn):
+        """Auto headroom: preamp = -(largest positive band gain)."""
         peak = max([0.0] + [bnd.gain for bnd in self.bands if bnd.enabled and bnd.gain > 0])
         self.preamp_spin.set_value(round(-peak, 1))  # triggers _on_preamp
 
     def _on_bypass(self, *_):
+        """Bypass toggled: republish the device state."""
         if not self._loading:
             self._apply_now()
 
     # ---- profile picker ----------------------------------------------------
     def _on_picker_toggle(self, *_):
+        """Refill the picker whenever the popover opens (GTK4 has no 'show')."""
         if self.profile_button.get_active():
             self._populate_picker()
 
     def _removable(self, p):
-        # x on user profiles (delete from disk) and on built-ins you've pinned
+        """True when a picker row gets an X: user profiles (delete from disk)
+        and built-ins you've pinned (unpin from favorites).
+        """
         if p["id"] == CLEAN_ID:
             return False
         return (not p.get("builtin")) or (p["id"] in self.favorites)
 
     def _populate_picker(self):
+        """Fill the profile list for the current search query."""
         self._clear_box(self.profile_list)
         query = self.search_entry.get_text().strip().lower()
         allp = self.store.ordered()
@@ -936,6 +1029,7 @@ class EqWindow(Adw.ApplicationWindow):
             self.profile_list.append(self._picker_row(p))
 
     def _picker_row(self, p):
+        """Build one picker row: check, name, clone/rename/delete buttons."""
         pid = p["id"]
         row = Gtk.ListBoxRow()
         row.pid = pid
@@ -979,6 +1073,7 @@ class EqWindow(Adw.ApplicationWindow):
         return row
 
     def _on_pick_row(self, _listbox, row):
+        """A profile row was activated: close the popover and load it."""
         pid = getattr(row, "pid", None)
         if pid is None:
             return
@@ -986,6 +1081,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._load_profile(pid)
 
     def _make_remove_fav_cb(self, p):
+        """Factory: unpin a built-in profile from favorites."""
         def cb(_btn):
             pid = p["id"]
             if not p.get("builtin"):     # user profile -> delete from disk (confirm)
@@ -997,6 +1093,7 @@ class EqWindow(Adw.ApplicationWindow):
         return cb
 
     def _confirm_delete(self, p):
+        """Confirm (AlertDialog) and delete a user profile from disk."""
         pid = p["id"]
         self.profile_popover.popdown()      # popovers sit above dialogs in GTK4
         dlg = Adw.AlertDialog(
@@ -1022,11 +1119,13 @@ class EqWindow(Adw.ApplicationWindow):
         dlg.present(self)
 
     def _make_rename_cb(self, p):
+        """Factory: open the rename dialog for the row's profile."""
         def cb(_btn):
             self._rename_profile(p)
         return cb
 
     def _rename_profile(self, p):
+        """Rename a user profile in place (same id) via a dialog."""
         pid = p["id"]
         entry = Gtk.Entry()
         entry.set_text(p.get("name", ""))
@@ -1057,11 +1156,13 @@ class EqWindow(Adw.ApplicationWindow):
         dlg.present(self)
 
     def _make_clone_cb(self, p):
+        """Factory: duplicate the row's profile."""
         def cb(_btn):
             self._clone_profile(p)
         return cb
 
     def _clone_profile(self, p):
+        """Deep-copy a profile into a new user profile and switch to it."""
         src = self.store.get(p["id"])
         body = {"name": self._unique_name(self._display_name(p) + " copy"),
                 "apply_all": bool(src.get("apply_all", True)),
@@ -1075,6 +1176,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._load_profile(pid)              # switch to the new copy to edit it
 
     def _unique_name(self, base):
+        """First of `base`, `base 2`, ... not taken by an existing profile."""
         names = {pp.get("name") for pp in self.store.profiles.values()}
         if base not in names:
             return base
@@ -1085,6 +1187,7 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- create / import ---------------------------------------------------
     def _on_create_new(self, _btn):
+        """Create and load a fresh empty user profile."""
         self.profile_popover.popdown()
         body = {"name": self._unique_name("New profile"), "apply_all": True,
                 "ch_keys": [], "channels": {}, "all": {"preamp": 0.0, "bands": []}}
@@ -1094,6 +1197,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._load_profile(pid)
 
     def _import_rew(self):
+        """Import a mono REW/AutoEQ text file into the CURRENT slot."""
         dialog = Gtk.FileDialog()
         dialog.set_title("Import REW / AutoEQ")
 
@@ -1181,11 +1285,13 @@ class EqWindow(Adw.ApplicationWindow):
 
     @staticmethod
     def _safe_filename(name):
+        """Filesystem-safe stem for export file names."""
         s = "".join(c if (c.isalnum() or c in " ._-") else "_" for c in name).strip()
         return s.replace(" ", "_") or "profile"
 
     # ---- FR graph ----------------------------------------------------------
     def _draw_graph(self, _area, cr, w, h, *_):
+        """Cairo draw: grid + axis labels, response curve, band handles."""
         ml, mr, mt, mb = 44, 10, 10, 22
         pw_, ph = max(1, w - ml - mr), max(1, h - mt - mb)
         self._plot = (ml, mt, pw_, ph)
@@ -1247,17 +1353,20 @@ class EqWindow(Adw.ApplicationWindow):
 
 class EqApplication(Adw.Application):
     def __init__(self):
+        """Single-instance Adw application wrapper."""
         super().__init__(application_id=APP_ID,
                          flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.win = None
 
     def do_activate(self):
+        """Present the (single) main window."""
         if self.win is None:
             self.win = EqWindow(self)
         self.win.present()
 
 
 def launch_gui():
+    """Entry point used by the launcher: run the Adw application."""
     try:                      # `kill -USR1 <pid>` dumps a live stack to stderr
         import faulthandler, signal
         faulthandler.register(signal.SIGUSR1)
