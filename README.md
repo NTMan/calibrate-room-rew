@@ -178,14 +178,54 @@ Click **Import REW/AutoEQ…** and choose the text file exported in Part A (or a
 
 ## Files
 
-| Path | What |
-| --- | --- |
-| `~/.config/per-device-eq/profiles/*.json` | your profiles |
-| `~/.config/per-device-eq/bindings.json` | device (`node.name`) → profile map |
-| `~/.local/share/wireplumber/scripts/90-per-device-eq.lua` | the persistence hook (a static script, installed verbatim from the repo) |
-| `~/.local/state/wireplumber/per-device-eq` | the hook's saved graphs (written by the hook; restored at startup) |
-| `~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf` | loads the hook and creates the `per-device-eq` metadata object |
-| `profiles/clean.json`, `/usr/share/per-device-eq/profiles/` | built-in / system profiles |
+| Path                                                             | What                                                                     |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `~/.config/per-device-eq/profiles/*.json`                        | your profiles                                                            |
+| `~/.config/per-device-eq/bindings.json`                          | device (`node.name`) → profile map                                       |
+| `~/.local/share/wireplumber/scripts/90-per-device-eq.lua`        | the persistence hook (a static script, installed verbatim from the repo) |
+| `~/.local/state/wireplumber/per-device-eq`                       | the hook's saved graphs (written by the hook; restored at startup)       |
+| `~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf` | loads the hook and creates the `per-device-eq` metadata object           |
+| `profiles/clean.json`, `/usr/share/per-device-eq/profiles/`      | built-in / system profiles                                               |
+
+## Development: audit tools & tests
+
+The `tools/` directory contains the measurement/clipping audit toolkit; the development plan lives in [ROADMAP.md](ROADMAP.md).
+
+| Tool                      | Purpose                                                                    |
+| ------------------------- | -------------------------------------------------------------------------- |
+| `tools/pde_audit.py`      | shared RBJ biquad library, clip statistics, demo profile                   |
+| `tools/audit_peaks.py`    | peak / clip counter for float32 captures                                   |
+| `tools/audit_headroom.py` | pre-EQ capture × profile → post-EQ peak, clip count, recommended preamp    |
+| `tools/make_fixtures.py`  | deterministic clean/hot-master test fixtures (seed-pinned)                 |
+
+These are **developer tools**: the per-device-eq app itself does not need them. (Once the headroom meter from ROADMAP Task 2 lands, NumPy/SciPy will become runtime dependencies of the app as well — the spec file will be updated then.)
+
+### Dependencies
+
+```
+sudo dnf install python3-numpy python3-scipy python3-soundfile
+```
+
+(`python3-soundfile` pulls in libsndfile.)
+
+### Capturing audio for audits
+
+The sink monitor taps **pre-EQ** in the in-node topology, so a capture shows what *enters* the EQ; `audit_headroom.py` computes what *leaves* it:
+
+```
+pw-record -P '{ stream.capture.sink = true }' \
+          --target <sink-name> --format f32 capture.wav
+```
+
+`--format f32` is mandatory — integer formats destroy over-full-scale peaks at write time, and those peaks are the whole point of the audit. Real captures (including copyrighted material) belong in `tests/fixtures-local/` (gitignored), never in the repository.
+
+### Tests
+
+```
+python3 -m pytest tests/
+```
+
+Fixtures are generated on the fly by `tests/conftest.py` — deterministic and seed-pinned, so no binary test data is stored in git.
 
 ## Known issues
 

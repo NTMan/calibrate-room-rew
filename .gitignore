@@ -8,6 +8,11 @@
 /.build-*.log
 /*.spec.rpmlintrc
 
+# test data: generated fixtures and local (never-committed) captures
+/tests/fixtures/
+/tests/fixtures-local/*
+!/tests/fixtures-local/README.md
+
 # editor / OS junk
 *~
 *.swp
