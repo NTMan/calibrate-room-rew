@@ -1,8 +1,10 @@
 """Regression tests for the headroom audit math (ROADMAP Task 2).
 
-Reference numbers come from the ROADMAP table (seed 20260704) and were
-reproduced bit-identically on two independent machines; dB values are
-asserted to ±0.1 dB to survive minor scipy resampler changes.
+Reference numbers come from the ROADMAP table (seed 20260704); dB values are
+asserted to ±0.1 dB to survive minor scipy resampler changes. Re-derived
+2026-07-05 after the shelf-parameterization fix (see pde_audit._shelf: the
+slope form diverged from PipeWire's Q-form biquads); the -7.5 preamp
+recommendation survived the fix unchanged.
 """
 import numpy as np
 import pytest
@@ -28,8 +30,8 @@ def test_clean_master_has_headroom(fixtures_dir):
     r = run_demo(fixtures_dir / "clean_master.wav")
     assert r["FL"]["pre"] == pytest.approx(-4.28, abs=0.1)
     assert r["FR"]["pre"] == pytest.approx(-5.67, abs=0.1)
-    assert r["FL"]["post"] == pytest.approx(-2.64, abs=0.1)
-    assert r["FR"]["post"] == pytest.approx(-2.62, abs=0.1)
+    assert r["FL"]["post"] == pytest.approx(-2.82, abs=0.1)
+    assert r["FR"]["post"] == pytest.approx(-2.76, abs=0.1)
     assert r["FL"]["clips"] == 0
     assert r["FR"]["clips"] == 0
     # recommended preamp: no change needed
@@ -42,7 +44,7 @@ def test_hot_master_clips_and_preamp_recommendation(fixtures_dir):
     # intersample overshoot: input alone already exceeds full scale
     assert r["FL"]["pre"] > 0
     assert r["FR"]["pre"] > 0
-    assert r["FL"]["post"] == pytest.approx(7.23, abs=0.1)
+    assert r["FL"]["post"] == pytest.approx(7.10, abs=0.1)
     assert r["FR"]["post"] == pytest.approx(7.49, abs=0.1)
     assert r["FL"]["pct"] > 5.0
     assert r["FR"]["pct"] > 5.0

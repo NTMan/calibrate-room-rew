@@ -25,9 +25,13 @@ def _peaking(f0, gain, q, fs):
 
 
 def _shelf(f0, gain, q, fs, high):
+    # Q parameterization, exactly as PipeWire's biquad_{low,high}shelf
+    # (spa/plugins/audioconvert/biquad.c, linked into filter-graph/param_eq).
+    # NOT the RBJ "shelf slope" form sqrt((A+1/A)(1/S-1)+2) -- that one was
+    # used here before 2026-07 and diverged from the real DSP by up to ~2 dB.
     A = 10 ** (gain / 40)
     w = 2 * np.pi * f0 / fs
-    al = np.sin(w) / 2 * np.sqrt((A + 1 / A) * (1 / q - 1) + 2)
+    al = np.sin(w) / (2 * q)
     c = np.cos(w)
     s2A = 2 * np.sqrt(A) * al
     sgn = -1 if high else 1

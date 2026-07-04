@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """EQ model: bands, the inline PipeWire filter-graph builders, the biquad
-frequency response (for the GUI plot) and REW/AutoEQ text import/export.
+frequency response (GUI plot + the tier-1 headroom / clip estimate) and
+REW/AutoEQ text import/export.
 
 Pure computation -- no GTK, no subprocess, no filesystem.
 """
 
 import math, cmath, re
 
-from .config import FS, TYPE_TO_LABEL
+from .config import FS, FMIN, FMAX, TYPE_TO_LABEL
 
 
 # ============================ EQ model ============================
@@ -64,33 +65,32 @@ def build_graph_channels(channel_sets):
 
 
 def profile_graph(p):
-    """Inline graph string for a profile dict (apply_all or per-channel)."""
+    """Inline graph string for a schema-v2 profile dict: ONE shared preamp,
+    slots carry bands only (apply_all or per-channel)."""
+    g = float(p.get("preamp", 0.0))
     if p.get("apply_all", True):
-        a = p.get("all") or {"preamp": 0.0, "bands": []}
-        return build_graph(a.get("preamp", 0.0),
-                           [Band.from_dict(b) for b in a.get("bands", [])])
+        a = p.get("all") or {"bands": []}
+        return build_graph(g, [Band.from_dict(b) for b in a.get("bands", [])])
     chans = p.get("channels") or {}
     keys = p.get("ch_keys") or list(chans.keys())
-    sets = []
-    for k in keys:
-        e = chans.get(k) or {"preamp": 0.0, "bands": []}
-        sets.append((e.get("preamp", 0.0),
-                     [Band.from_dict(b) for b in e.get("bands", [])]))
+    sets = [(g, [Band.from_dict(b)
+                 for b in (chans.get(k) or {}).get("bands", [])])
+            for k in keys]
     if not sets:
-        a = p.get("all") or {"preamp": 0.0, "bands": []}
-        return build_graph(a.get("preamp", 0.0),
-                           [Band.from_dict(b) for b in a.get("bands", [])])
+        a = p.get("all") or {"bands": []}
+        return build_graph(g, [Band.from_dict(b) for b in a.get("bands", [])])
     return build_graph_channels(sets)
 
 
 def _set_has_content(s):
-    return (abs(float((s or {}).get("preamp", 0.0))) > 1e-9
-            or any(b.get("enabled", True) for b in (s or {}).get("bands", [])))
+    return any(b.get("enabled", True) for b in (s or {}).get("bands", []))
 
 
 def profile_has_content(p):
     """True if the profile actually changes the sound (some enabled band or a
     non-zero preamp). A flat profile is equivalent to Clean / no binding."""
+    if abs(float(p.get("preamp", 0.0))) > 1e-9:   # schema v2 shared preamp
+        return True
     if p.get("apply_all", True):
         return _set_has_content(p.get("all"))
     chans = p.get("channels") or {}
@@ -100,7 +100,13 @@ def profile_has_content(p):
     return False
 
 
-# ---- biquad frequency response (Audio EQ Cookbook), for the FR plot only ----
+# ---- biquad frequency response: FR plot + tier-1 headroom estimate ---------
+# Audio EQ Cookbook with the Q parameterization for shelves -- coefficient-
+# identical to PipeWire's biquad_{peaking,lowshelf,highshelf}
+# (spa/plugins/audioconvert/biquad.c, linked into filter-graph's param_eq;
+# verified against the 1.6.2 tag and master). Note this is NOT the RBJ "shelf
+# slope" form sqrt((A+1/A)(1/S-1)+2): with S=q that one drifts up to ~2 dB
+# from the real DSP on high-Q shelves.
 def biquad(btype, f0, gain_db, q, fs=FS):
     f0 = min(max(f0, 1.0), fs / 2 - 1.0)
     q = max(q, 0.05)
@@ -148,6 +154,31 @@ def response_db(preamp, bands, freqs):
             s += mag_db(c, f)
         out.append(s)
     return out
+
+
+# ---- headroom / clip estimate (ROADMAP Task 2, tier 1) ---------------------
+def curve_max_db(preamp, bands, n=240, fmin=FMIN, fmax=FMAX):
+    """Max of the total EQ curve (preamp + enabled bands) in dB: the largest
+    gain the chain applies to any single frequency. Evaluated on an n-point
+    log grid PLUS every enabled band's center frequency, so narrow (high-Q)
+    peaks cannot fall between grid points. Pinned to the scipy reference
+    (tools/pde_audit.chain_curve) by tests/test_headroom_bound.py."""
+    la, lb = math.log10(fmin), math.log10(fmax)
+    freqs = [10 ** (la + (lb - la) * i / (n - 1)) for i in range(n)]
+    freqs += [min(max(b.freq, fmin), fmax) for b in bands if b.enabled]
+    return max(response_db(preamp, bands, freqs))
+
+
+def headroom_bound_db(preamp, bands, monitor_peak_db=0.0):
+    """Instant post-EQ peak estimate in dBFS (ROADMAP Task 2, tier 1):
+    monitor_peak + max(total EQ curve). Until the live capture meter
+    (tier 2) exists the monitor peak is taken as 0 dBFS -- legal full-scale
+    content, the worst case. Two honest limitations, both handled by the
+    capture tiers: inputs can overshoot FS on their own (hot lossy masters
+    after any resampler -- the hot_master fixture sits at pre-EQ +1.7 dBFS),
+    and a broadband crest can in principle recombine above this sine-gain
+    figure; on the fixtures the estimate stays conservative (see tests)."""
+    return monitor_peak_db + curve_max_db(preamp, bands)
 
 
 # ============================ REW / AutoEQ text ============================

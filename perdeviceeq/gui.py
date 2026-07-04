@@ -44,7 +44,7 @@ from .config import (APP_ID, TYPE_NAMES, CLEAN_ID, FAVORITES_FILE,
 from .profiles import ProfileStore
 
 DB_MAX = 24.0
-FMIN, FMAX = 20.0, 20000.0
+FMIN, FMAX = config.FMIN, config.FMAX
 _SAVE_DEBOUNCE_MS = 200
 _HISTORY_CAP = 100
 
@@ -89,13 +89,13 @@ def _save_favorites(ids):
 
 def _new_slot():
     """Fresh empty per-channel slot (preamp 0, no bands)."""
-    return {"preamp": 0.0, "bands": []}
+    return {"bands": []}
 
 
 def _copy_slot(s):
     """Deep copy of a slot with independent Band objects."""
-    return {"preamp": float(s.get("preamp", 0.0)),
-            "bands": [eq.Band.from_dict(b.to_dict()) for b in s.get("bands", [])]}
+    return {"bands": [eq.Band.from_dict(b.to_dict())
+                      for b in s.get("bands", [])]}
 
 
 class EqWindow(Adw.ApplicationWindow):
@@ -331,11 +331,23 @@ class EqWindow(Adw.ApplicationWindow):
         self._tame_scroll(self.preamp_spin)
         self.auto_button = Gtk.Button(label="Auto")
         self.auto_button.set_valign(Gtk.Align.CENTER)
-        self.auto_button.set_tooltip_text("Set preamp to avoid clipping")
+        self.auto_button.set_tooltip_text(
+            "Set preamp to -(max of the EQ curve), so full-scale content "
+            "stays below 0 dBFS after EQ. With per-channel EQ, sets the "
+            "SAME value on every channel (the worst channel's requirement) "
+            "so the balance encoded by the curves survives")
         self.auto_button.connect("clicked", self._on_auto)
+        # tier-1 clip lamp (ROADMAP Task 2): shown when the headroom estimate
+        # crosses 0 dBFS; the row subtitle carries the estimate readout.
+        self.clip_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        self.clip_icon.add_css_class("error")
+        self.clip_icon.set_valign(Gtk.Align.CENTER)
+        self.clip_icon.set_visible(False)
+        self.preamp_row.add_suffix(self.clip_icon)
         self.preamp_row.add_suffix(self.preamp_spin)
         self.preamp_row.add_suffix(self.auto_button)
         self.preamp_row.set_activatable_widget(self.preamp_spin)
+        self._preamp_subtitle = self.preamp_row.get_subtitle() or ""
 
     _CSS_INSTALLED = False
 
@@ -351,7 +363,12 @@ class EqWindow(Adw.ApplicationWindow):
             " .eqrow dropdown > button { min-height: 24px; }"
             " .eqrow spinbutton text, .eqrow spinbutton entry,"
             " .eqrow dropdown > button, .eqrow button"
-            " { min-height: 24px; padding-top: 1px; padding-bottom: 1px; }")
+            " { min-height: 24px; padding-top: 1px; padding-bottom: 1px; }"
+            # tier-1 clip lamp: paint the Preamp row with the theme error color
+            " row.clip-risk label.subtitle { color: @error_color; }"
+            " row.clip-risk spinbutton text { color: @error_color; }"
+            # ...and flag every over-0 channel on its tab in the channel bar
+            " button.clip-risk label { color: @error_color; font-weight: 600; }")
         css = Gtk.CssProvider()
         if hasattr(css, "load_from_string"):
             css.load_from_string(data)
@@ -556,8 +573,7 @@ class EqWindow(Adw.ApplicationWindow):
     def _slot_to_dict(self, ch):
         """Serialize a slot into the plain profile-body form."""
         s = self.slots.get(ch) or _new_slot()
-        return {"preamp": float(s["preamp"]),
-                "bands": [bnd.to_dict() for bnd in s["bands"]]}
+        return {"bands": [bnd.to_dict() for bnd in s["bands"]]}
 
     def _working_body(self):
         """Assemble the full profile body from the current editor state."""
@@ -565,6 +581,7 @@ class EqWindow(Adw.ApplicationWindow):
         return {"id": self.current_pid,
                 "name": p.get("name", self.current_pid),
                 "apply_all": self.apply_all,
+                "preamp": float(self.preamp),
                 "ch_keys": list(self.ch_keys),
                 "all": self._slot_to_dict("all"),
                 "channels": {k: self._slot_to_dict(k) for k in self.ch_keys}}
@@ -576,13 +593,13 @@ class EqWindow(Adw.ApplicationWindow):
         try:
             self.cur_ch = ch
             slot = self._slot(ch)
-            self.preamp = float(slot["preamp"])
             self.bands = slot["bands"]               # alias: edits mutate the slot
             self.bands_group.set_title("Bands" if self.apply_all
                                        else "Bands · %s" % ch)
             self.preamp_spin.set_value(self.preamp)
             self._rebuild_bands()
             self.graph_area.queue_draw()
+            self._update_headroom()
         finally:
             self._loading = prev
 
@@ -631,7 +648,7 @@ class EqWindow(Adw.ApplicationWindow):
             base = self._slot("all")
             for k in self.ch_keys:                 # seed empty channels from "all"
                 s = self.slots.get(k)
-                if not s or (not s["bands"] and abs(s["preamp"]) < 1e-9):
+                if not s or not s["bands"]:
                     self.slots[k] = _copy_slot(base)
             self.cur_ch = self.ch_keys[0] if self.ch_keys else "all"
             self._build_channel_bar()
@@ -671,15 +688,14 @@ class EqWindow(Adw.ApplicationWindow):
             pch = list(p.get("ch_keys") or list((p.get("channels") or {}).keys()))
             self.ch_keys = dev or pch or ["FL", "FR"]
 
-            a = p.get("all") or {"preamp": 0.0, "bands": []}
-            self.slots = {"all": {"preamp": float(a.get("preamp", 0.0)),
-                                  "bands": [eq.Band.from_dict(x)
+            self.preamp = float(p.get("preamp", 0.0))
+            a = p.get("all") or {"bands": []}
+            self.slots = {"all": {"bands": [eq.Band.from_dict(x)
                                             for x in a.get("bands", [])]}}
             pchan = p.get("channels") or {}
             for k in self.ch_keys:
-                src = pchan.get(k) or {"preamp": 0.0, "bands": []}
-                self.slots[k] = {"preamp": float(src.get("preamp", 0.0)),
-                                 "bands": [eq.Band.from_dict(x)
+                src = pchan.get(k) or {"bands": []}
+                self.slots[k] = {"bands": [eq.Band.from_dict(x)
                                            for x in src.get("bands", [])]}
 
             self.cur_ch = "all" if self.apply_all else (self.ch_keys[0]
@@ -729,6 +745,7 @@ class EqWindow(Adw.ApplicationWindow):
             return
         self._ensure_editable()
         self.graph_area.queue_draw()
+        self._update_headroom()
         self._schedule_save()
 
     def _schedule_save(self):
@@ -766,6 +783,7 @@ class EqWindow(Adw.ApplicationWindow):
         """Serialize editor state for undo (the viewed channel is left out)."""
         keys = ["all"] + list(self.ch_keys)
         return {"apply_all": self.apply_all,
+                "preamp": float(self.preamp),
                 "ch_keys": list(self.ch_keys),
                 "slots": {k: self._slot_to_dict(k) for k in keys}}
 
@@ -775,11 +793,11 @@ class EqWindow(Adw.ApplicationWindow):
         self._loading = True
         try:
             self.apply_all = bool(snap["apply_all"])
+            self.preamp = float(snap.get("preamp", 0.0))
             self.ch_keys = list(snap["ch_keys"])
             self.slots = {}
             for k, sd in snap["slots"].items():
-                self.slots[k] = {"preamp": float(sd.get("preamp", 0.0)),
-                                 "bands": [eq.Band.from_dict(x)
+                self.slots[k] = {"bands": [eq.Band.from_dict(x)
                                            for x in sd.get("bands", [])]}
             self.slots.setdefault("all", _new_slot())
             for k in self.ch_keys:
@@ -979,20 +997,120 @@ class EqWindow(Adw.ApplicationWindow):
         self._on_edit()
 
     def _on_preamp(self, spin):
-        """Preamp spin changed: store per-channel and save."""
+        """Preamp spin changed: one shared value for the whole profile."""
         self.preamp = float(spin.get_value())
-        self._slot(self.cur_ch)["preamp"] = self.preamp
         self._on_edit()
 
+    def _auto_preamp_db(self):
+        """Preamp that zeroes the tier-1 estimate: the max of the edited
+        chain's band curve (no preamp) -- or, with unlinked channels, of
+        the WORST channel's curve, so one shared value clears every slot.
+        Rounded UP to the 0.1 dB step the spin can express, so the result
+        lands at or below 0 dBFS."""
+        if self.apply_all:
+            peak = eq.curve_max_db(0.0, self.bands)
+        else:
+            peak = max(eq.curve_max_db(0.0, self._slot(k)["bands"])
+                       for k in self.ch_keys)
+        return max(0.0, math.ceil(peak * 10.0 - 1e-9) / 10.0)
+
     def _on_auto(self, _btn):
-        """Auto headroom: preamp = -(largest positive band gain)."""
-        peak = max([0.0] + [bnd.gain for bnd in self.bands if bnd.enabled and bnd.gain > 0])
-        self.preamp_spin.set_value(round(-peak, 1))  # triggers _on_preamp
+        """Auto headroom (ROADMAP Task 2, tier 1): preamp = -(max of the
+        summed EQ curve). Dueling boosts/cuts cancel in the sum, unlike the
+        old -(largest single positive gain), which over-attenuated stacked-
+        filter profiles by 2x and more (demo FR: -16.1 vs the correct -8.5).
+
+        The preamp is ONE shared per-profile value (per-channel curves
+        encode the driver matching; unequal preamps would shift the
+        interchannel balance right back out of match), so with unlinked
+        channels the requirement is the WORST channel's curve max.
+        Deliberate offsets belong in the curves."""
+        v = self._auto_preamp_db()
+        self.preamp_spin.set_value(-v if v else 0.0)  # triggers _on_preamp
 
     def _on_bypass(self, *_):
         """Bypass toggled: republish the device state."""
         if not self._loading:
             self._apply_now()
+        self._update_headroom()
+
+    # ---- headroom / clip estimate (ROADMAP Task 2, tier 1) -----------------
+    _CLIP_EPS_DB = 0.05     # "crossed 0 dBFS" once it can show as +0.1 dB
+
+    def _applied_chains(self):
+        """(key, slot) pairs the device actually runs: the linked "all" slot,
+        or every per-channel slot when channels are unlinked."""
+        if self.apply_all:
+            return [("all", self._slot("all"))]
+        return ([(k, self._slot(k)) for k in self.ch_keys]
+                or [("all", self._slot("all"))])
+
+    def _update_headroom(self):
+        """Tier-1 clip estimate, no capture running:  monitor_peak +
+        max(total EQ curve)  per applied chain, with the monitor peak pinned
+        to 0 dBFS (legal full-scale content) until the live meter (tier 2)
+        exists. The preamp is ONE shared per-profile value, so the row
+        reads out the WORST applied chain -- exactly what its spin and
+        Auto act on -- and turns error-red past 0 dBFS. Clipping is still
+        per output channel: every over-0 channel is also flagged on its
+        tab in the channel bar, with the numbers in the tab tooltips. In Bypass
+        tier 1 has nothing to warn about -- the profile adds no gain and the
+        input level is not measured yet -- so everything goes back to
+        neutral (the tier-2 meter will keep flagging hot inputs here)."""
+        chan_btns = getattr(self, "_chan_buttons", {})
+        if self.bypass_row.get_active():
+            self.clip_icon.set_visible(False)
+            self.preamp_row.remove_css_class("clip-risk")
+            self.preamp_spin.remove_css_class("error")
+            self.preamp_row.set_subtitle(self._preamp_subtitle)
+            self.preamp_row.set_tooltip_text(None)
+            for b in chan_btns.values():
+                b.remove_css_class("clip-risk")
+                b.set_tooltip_text(None)
+            return
+        bounds = {k: eq.headroom_bound_db(self.preamp, s["bands"])
+                  for k, s in self._applied_chains()}
+        bound, key = max(((v, k) for k, v in bounds.items()),
+                         key=lambda t: t[0])
+        over = bound > self._CLIP_EPS_DB
+        shown = bound if abs(bound) >= self._CLIP_EPS_DB else 0.0  # no "-0.0"
+        where = "" if key in ("all", self.cur_ch) else " on %s" % key
+        offenders = [(k, v) for k, v in bounds.items()
+                     if v > self._CLIP_EPS_DB]
+
+        self.clip_icon.set_visible(over)
+        if over:
+            self.preamp_row.add_css_class("clip-risk")
+            self.preamp_spin.add_css_class("error")
+            self.preamp_row.set_subtitle(
+                "Worst-case post-EQ peak %+.1f dBFS%s — can clip"
+                % (shown, where))
+        else:
+            self.preamp_row.remove_css_class("clip-risk")
+            self.preamp_spin.remove_css_class("error")
+            self.preamp_row.set_subtitle(
+                "Worst-case post-EQ peak %+.1f dBFS%s" % (shown, where))
+
+        tip = None
+        if over:
+            tip = ("Estimated for content peaking at 0 dBFS: the profile "
+                   "pushes it past full scale (the input side is not "
+                   "measured yet). Lower the shared preamp — Auto does it.")
+            if len(offenders) > 1:
+                listed = ", ".join("%s %+.1f" % (k, v) for k, v in offenders)
+                tip += "\nOver 0 dBFS: %s." % listed
+        self.preamp_row.set_tooltip_text(tip)
+        self.clip_icon.set_tooltip_text(tip if over else None)
+
+        for k, btn in chan_btns.items():
+            v = bounds.get(k)
+            if v is not None and v > self._CLIP_EPS_DB:
+                btn.add_css_class("clip-risk")
+                btn.set_tooltip_text(
+                    "Worst-case post-EQ peak %+.1f dBFS — can clip" % v)
+            else:
+                btn.remove_css_class("clip-risk")
+                btn.set_tooltip_text(None)
 
     # ---- profile picker ----------------------------------------------------
     def _on_picker_toggle(self, *_):
@@ -1166,6 +1284,7 @@ class EqWindow(Adw.ApplicationWindow):
         src = self.store.get(p["id"])
         body = {"name": self._unique_name(self._display_name(p) + " copy"),
                 "apply_all": bool(src.get("apply_all", True)),
+                "preamp": float(src.get("preamp", 0.0)),
                 "ch_keys": list(src.get("ch_keys") or []),
                 "channels": json.loads(json.dumps(src.get("channels") or {})),
                 "all": json.loads(json.dumps(src.get("all") or {"preamp": 0.0, "bands": []}))}
@@ -1190,7 +1309,8 @@ class EqWindow(Adw.ApplicationWindow):
         """Create and load a fresh empty user profile."""
         self.profile_popover.popdown()
         body = {"name": self._unique_name("New profile"), "apply_all": True,
-                "ch_keys": [], "channels": {}, "all": {"preamp": 0.0, "bands": []}}
+                "preamp": 0.0, "ch_keys": [], "channels": {},
+                "all": {"bands": []}}
         pid = self.store.save_user(body)
         self.favorites.add(pid)
         _save_favorites(self.favorites)
@@ -1215,10 +1335,26 @@ class EqWindow(Adw.ApplicationWindow):
             except OSError:
                 return
             preamp, bands = eq.parse_autoeq(text)     # REW/AutoEQ is mono
-            self.slots[self.cur_ch] = {"preamp": preamp, "bands": bands}
-            self._load_slot(self.cur_ch)
-            self._on_edit()
+            self._apply_rew_import(preamp, bands)
         dialog.open(self, None, done)
+
+    def _apply_rew_import(self, preamp, bands):
+        """Load a parsed REW/AutoEQ result into the CURRENT slot. The file's
+        preamp is honored only where the file sees the whole picture -- a
+        linked profile's single chain. A per-ear file cannot know the other
+        channels, so with unlinked channels its number is ignored and the
+        shared preamp is recomputed from ALL channels' curves (the
+        balanced-Auto requirement): exact, never stale, and better math
+        than REW's -(largest gain) anyway. The content-aware tier-3 audit
+        stays the authority for refining below this static bound."""
+        self.slots[self.cur_ch] = {"bands": bands}
+        if self.apply_all:
+            self.preamp = float(preamp)
+        else:
+            v = self._auto_preamp_db()
+            self.preamp = -v if v else 0.0
+        self._load_slot(self.cur_ch)
+        self._on_edit()
 
     def _import_profile(self):
         """Import a per-device-eq profile (our JSON, may be per-channel)."""
@@ -1241,12 +1377,19 @@ class EqWindow(Adw.ApplicationWindow):
                 return
             if not isinstance(data, dict):
                 return
+            if data.get("version") != config.SCHEMA_VERSION:
+                print("per-device-eq: not importing %s (profile schema v%s; "
+                      "run tools/migrate_profiles_v1_to_v2.py once to "
+                      "convert)" % (path, data.get("version", 1)),
+                      file=sys.stderr)
+                return
             fallback = os.path.splitext(os.path.basename(path))[0] or "Imported"
             body = {"name": self._unique_name(str(data.get("name") or fallback)),
                     "apply_all": bool(data.get("apply_all", True)),
+                    "preamp": float(data.get("preamp", 0.0)),
                     "ch_keys": list(data.get("ch_keys") or []),
                     "channels": data.get("channels") or {},
-                    "all": data.get("all") or {"preamp": 0.0, "bands": []}}
+                    "all": data.get("all") or {"bands": []}}
             pid = self.store.save_user(body)
             self.favorites.add(pid)
             _save_favorites(self.favorites)
@@ -1258,10 +1401,12 @@ class EqWindow(Adw.ApplicationWindow):
         self.profile_popover.popdown()
         p = self.store.get(self.current_pid)
         body = {"name": self._display_name(p),
+                "version": config.SCHEMA_VERSION,
                 "apply_all": bool(p.get("apply_all", True)),
+                "preamp": float(p.get("preamp", 0.0)),
                 "ch_keys": list(p.get("ch_keys") or []),
                 "channels": p.get("channels") or {},
-                "all": p.get("all") or {"preamp": 0.0, "bands": []}}
+                "all": p.get("all") or {"bands": []}}
         dialog = Gtk.FileDialog()
         dialog.set_title("Export profile")
         dialog.set_initial_name(self._safe_filename(body["name"]) + ".json")

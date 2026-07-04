@@ -5,10 +5,10 @@ read-write), the built-in Clean profile, and the node.name -> profile bindings.
 No GTK. Filesystem + JSON only.
 """
 
-import os, json, uuid
+import os, sys, json, uuid
 
 from .config import (SYS_PROFILE_DIRS, USER_PROFILES_DIR, BINDINGS_FILE,
-                     CONFIG_DIR, CLEAN_ID)
+                     CONFIG_DIR, CLEAN_ID, SCHEMA_VERSION)
 from .eq import profile_graph, profile_has_content
 
 
@@ -18,8 +18,9 @@ def _new_id():
 
 def _clean_profile():
     return {"id": CLEAN_ID, "name": "Clean (no EQ)", "apply_all": True,
-            "ch_keys": [], "all": {"preamp": 0.0, "bands": []},
-            "channels": {}, "builtin": True, "path": None}
+            "version": SCHEMA_VERSION, "preamp": 0.0, "ch_keys": [],
+            "all": {"bands": []}, "channels": {}, "builtin": True,
+            "path": None}
 
 
 class ProfileStore:
@@ -55,6 +56,11 @@ class ProfileStore:
                 continue
             if not isinstance(p, dict):
                 continue
+            if p.get("version") != SCHEMA_VERSION:
+                print("per-device-eq: skipping %s (profile schema v%s; run "
+                      "tools/migrate_profiles_v1_to_v2.py once to convert)"
+                      % (path, p.get("version", 1)), file=sys.stderr)
+                continue
             pid = p.get("id") or os.path.splitext(fn)[0]
             p["id"] = pid
             p.setdefault("name", pid)
@@ -76,12 +82,19 @@ class ProfileStore:
         return sorted(self.profiles.values(), key=key)
 
     @staticmethod
-    def _body(p):
+    def _sane_slot(s):
+        return {"bands": list((s or {}).get("bands") or [])}
+
+    @classmethod
+    def _body(cls, p):
         return {"id": p["id"], "name": p.get("name", p["id"]),
+                "version": SCHEMA_VERSION,
                 "apply_all": bool(p.get("apply_all", True)),
+                "preamp": float(p.get("preamp", 0.0)),
                 "ch_keys": list(p.get("ch_keys") or []),
-                "all": p.get("all") or {"preamp": 0.0, "bands": []},
-                "channels": p.get("channels") or {}}
+                "all": cls._sane_slot(p.get("all")),
+                "channels": {k: cls._sane_slot(v)
+                             for k, v in (p.get("channels") or {}).items()}}
 
     def save_user(self, prof):
         """Write/overwrite a user profile (.json named by id). Returns the id."""

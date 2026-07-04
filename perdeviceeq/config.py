@@ -8,6 +8,7 @@ GUI) without pulling in GTK.
 import os
 
 FS = 48000.0
+FMIN, FMAX = 20.0, 20000.0   # audible range: FR plot grid + headroom curve scan
 CONFIG_DIR        = os.path.expanduser("~/.config/per-device-eq")
 USER_PROFILES_DIR = os.path.join(CONFIG_DIR, "profiles")
 BINDINGS_FILE     = os.path.join(CONFIG_DIR, "bindings.json")
@@ -70,6 +71,7 @@ FAVORITES_FILE = os.path.join(CONFIG_DIR, "favorites.json")
 
 TYPE_TO_LABEL = {"PK": "bq_peaking", "LSC": "bq_lowshelf", "HSC": "bq_highshelf"}
 TYPE_NAMES = ["PK", "LSC", "HSC"]
+SCHEMA_VERSION = 2      # profile body schema; see tools/migrate_profiles_v1_to_v2.py
 CLEAN_ID = "clean"
 
 

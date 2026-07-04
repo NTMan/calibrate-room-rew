@@ -168,7 +168,7 @@
                     <child>
                       <object class="AdwActionRow" id="preamp_row">
                         <property name="title" translatable="yes">Preamp (dB)</property>
-                        <property name="subtitle" translatable="yes">Headroom for this channel</property>
+                        <property name="subtitle" translatable="yes">Headroom for this device</property>
                       </object>
                     </child>
                   </object>

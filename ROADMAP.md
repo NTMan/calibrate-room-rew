@@ -25,17 +25,26 @@ Goal: any output device (speakers, wired headphones, TWS) corrected through per-
 **Spec.**
 - Passive observer only: read-only capture stream on the device monitor (`stream.capture.sink = true`, f32). No node inserted into the playback path — tooling, not a processing hop.
 - Three tiers, implementation order 1 → 3 → 2:
-  1. Instant upper bound (no capture): `monitor_peak + max(total EQ curve)`; color the Preamp field when it crosses 0 dBFS.
+  1. Instant upper bound (no capture): `monitor_peak + max(total EQ curve)` per applied chain. The preamp is ONE shared per-profile value (profile schema v2, `version: 2`; v1 files convert once via `tools/migrate_profiles_v1_to_v2.py`): the field reads out the worst chain's estimate, colors past 0 dBFS, and every over-0 channel is flagged on its tab. Auto = −(worst channel's curve max); unequal preamps would shift the balance the curves encode.
   2. Live meter (device window open): capture → profile's biquads (RBJ, `tools/pde_audit.py`) → count `|x| >= 1.0` → clip lamp + post-EQ peak.
-  3. "Check headroom" button: 15–30 s capture, report pre/post peak, clip count, `recommended preamp = -(post-EQ peak dBFS)`. Prototype: `tools/audit_headroom.py`.
+  3. "Check headroom" button: 15–30 s capture, report pre/post peak, clip count, `recommended preamp = -(post-EQ peak dBFS)`. Prototype: `tools/audit_headroom.py` (reads saved v2 app profiles: `--profile NAME`; the suggestion is one shared value set by the worst channel).
 - Lamp works in Bypass too: input alone can exceed FS (hot lossy masters overshoot after any honest resampler — see hot_master fixture).
 - Tooltip distinguishes "clipping at input" (pre-EQ peak >= FS) from "clipping caused by profile" (appears only after biquads).
 
 **Reference numbers (deterministic fixtures, seed 20260704).**
 | fixture × demo profile | pre-EQ peak | post-EQ peak | clipped | verdict |
 |---|---|---|---|---|
-| clean_master (L/R) | −4.28 / −5.67 | −2.64 / −2.62 | 0 | preamp 0.0 OK |
-| hot_master (L/R) | +1.72 / +1.35 | +7.23 / +7.49 | 11.0% / 8.5% | preamp −7.5 |
+| clean_master (L/R) | −4.28 / −5.67 | −2.82 / −2.76 | 0 | preamp 0.0 OK |
+| hot_master (L/R) | +1.72 / +1.35 | +7.10 / +7.49 | 9.8% / 8.4% | preamp −7.5 |
+
+*Re-derived 2026-07-05: `pde_audit` shelves used the RBJ slope form while
+PipeWire's param_eq uses plain Q — `alpha = sin(w0)/(2Q)` in
+`spa/plugins/audioconvert/biquad.c`, linked into filter-graph (verified on the
+1.6.2 tag and master; up to ~2 dB apart on the demo chains). The audit now
+matches PipeWire and `perdeviceeq.eq` to 1e-10; the −7.5 verdict is unchanged.
+Tier-1 numbers: max(total curve) = FL +9.57 dB @ 200 Hz, FR +8.48 dB @ 196 Hz.
+The local-capture calibration below predates the fix — re-run `audit_headroom`
+before comparing against old notes.*
 
 Real-world calibration from the investigation (captures kept local-only, copyrighted material): own masters (−4.3 ceiling) → post ≈ −1 dBFS, fine at preamp 0; hot commercial master → post +5.5 dBFS, 2.3% clipped, preamp ≈ −6. Static worst-case auto (≈ −16) is 2–3× overkill — content-aware recommendation is the point.
 
