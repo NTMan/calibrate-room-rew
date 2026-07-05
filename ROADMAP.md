@@ -106,13 +106,18 @@ Capture recipe (the point being audited is pre-EQ by design): `pw-record -P '{ s
 
 ## Upstream notes
 
-* gnome-shell: the mic privacy indicator should honor `stream.monitor =
-  true` (or a meter media.role) instead of an application.id allowlist —
-  third-party output meters (like our `per-device-eq-meter` capture)
-  currently trip it; spoofing `org.gnome.VolumeControl` is the only
-  workaround and we refuse it.
 * WirePlumber: a fresh `stream.capture.sink` stream against a settled
   BT sink with an in-node filter-graph deterministically comes up with
   one monitor port unlinked; only a node reconfigure (graph republish)
   completes the links. Repro + workaround live in per-device-eq
   (the 400 ms republish nudge and the dead-channel watchdog).
+* gnome-shell (observed once, repro unknown): the quick-settings output
+  picker's checkmark desynced from the actual default sink (Settings and
+  playback agreed on the BT sink, the picker claimed USB speakers) while
+  per-device-eq was active. Suspicion: our graph republishes reconfigure
+  the sink node, pipewire-pulse re-registers the PA sink, and the
+  shell's gvc resolves default-sink against a stale object. Capture kit
+  for the next occurrence: `pw-metadata 0 default.audio.sink` (graph
+  truth) vs `pactl get-default-sink` (pipewire-pulse view) vs the
+  picker's checkmark -- whichever disagrees is the stale layer; run
+  `pactl subscribe` during EQ edits to see sink remove/add storms.

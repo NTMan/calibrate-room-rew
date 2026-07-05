@@ -51,13 +51,15 @@ def monitor_capture(node, channels, rate=48000):
     topology) streaming raw interleaved f32 to stdout. Returns the Popen;
     the caller owns its lifetime and reads .stdout.
 
-    Privacy note: GNOME Shell's microphone indicator counts every
-    source-output minus a hardcoded application.id allowlist (its own
-    org.gnome.VolumeControl meter stream is excluded that way); it does
-    NOT honor stream.monitor. So this stream lights the icon even though
-    it only taps what is already playing. We deliberately do not spoof
-    the allowlisted id -- the upstream ask (see ROADMAP, Upstream notes)
-    is for gnome-shell to respect `stream.monitor = true`."""
+    Privacy note (field-verified observations): this capture alone does
+    NOT light GNOME's microphone indicator (monitor-source recordings are
+    excluded), and gnome-control-center's Sound page alone does not
+    either -- the icon appears only when BOTH run, and dies with the
+    panel while this capture keeps going. The trigger is therefore an
+    interaction (likely an extra meter stream the panel creates in
+    reaction to a foreign recording); `pactl list source-outputs` while
+    the icon is lit names the culprit. The stream stays named anyway, so
+    mixer UIs show who is listening to what."""
     cmd = ["pw-record", "--target", str(node),
            "-P", "{ stream.capture.sink = true, node.name = per-device-eq-meter,"
                  " application.name = \"Per-Device EQ\" }",
