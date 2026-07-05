@@ -154,7 +154,11 @@ def test_count_changing_swap_is_deferred_to_restart():
     crash the worker (device-switch regression): it stays pending until
     stop() clears the state, and the next start picks it up."""
     frames = []
-    eng = MeterEngine(frames.append, fs=48000)
+    got_frame = threading.Event()
+    def pub(fr):
+        frames.append(fr)
+        got_frame.set()
+    eng = MeterEngine(pub, fs=48000)
     eng.set_chains(0.0, [[]])                   # 1 channel, identity
     r, w = os.pipe()
     sine = (0.5 * np.sin(2 * np.pi * 500 * np.arange(4096) / 48000)
@@ -162,6 +166,7 @@ def test_count_changing_swap_is_deferred_to_restart():
     def feed():
         with os.fdopen(w, "wb") as fw:
             fw.write(sine.tobytes()); fw.flush()
+            assert got_frame.wait(5.0)          # worker latched 1-ch config
             eng.set_chains(0.0, [[], []])       # 2 channels mid-stream
             fw.write(sine.tobytes())
     th = threading.Thread(target=feed); th.start()
