@@ -69,6 +69,8 @@ def check(a):
         assert "clip-risk" in w.preamp_row.get_css_classes()
         assert "error" in w.preamp_spin.get_css_classes()
         assert w.preamp_row.get_tooltip_text()
+        # the lone [All] tab exists in linked mode and carries the badge
+        assert "clip-risk" in w._chan_buttons["all"].get_css_classes()
 
         # 3. Auto zeroes the estimate (curve max, not largest gain)
         w._on_auto(None)
@@ -84,7 +86,7 @@ def check(a):
 
         # 5. Per-channel: the shared preamp's readout shows the WORST
         #    chain; every over-0 channel is flagged on its tab
-        w.link_row.set_active(False)          # unlink; editor shows FL
+        w.sep_switch.set_active(True)         # separate channels; editor shows FL
         assert w.cur_ch == "FL"
         w.slots["FR"]["bands"].append(eq.Band("PK", 1000.0, 12.0, 1.0, True))
         w._update_headroom()
@@ -132,7 +134,7 @@ def check(a):
         # 6. Linked import overwrites the preamp (single chain, the file's
         #    number is the whole story); old-Auto regression: dueling
         #    demo-FR boosts/cuts must not over-attenuate (old rule: -16.1)
-        w.link_row.set_active(True)
+        w.sep_switch.set_active(False)
         w._apply_rew_import(-4.0, [eq.Band(d["type"], d["freq"], d["gain"],
                                            d["q"], True) for d in DEMO_FR])
         assert w.preamp == -4.0

@@ -7,8 +7,8 @@ liftable into gnome-control-center):
   * a Weather-style profile picker in the header (empty query = favorites,
     typing = the whole catalog; check on the active one, x to remove),
   * the EQ controls inline on the page (FR graph + bands + preamp + bypass),
-  * a "Same EQ for all channels" switch; turn it off to reveal per-channel
-    (FL | FR | ...) tabs and tune each channel separately,
+  * channel tabs ([All], or FL | FR | ... with the inline "Separate
+    channels" switch at the end of the same row),
   * undo/redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y; buttons in the header).
 
 The static shell is loaded from data/<APP_ID>.ui; everything dynamic (graph,
@@ -141,7 +141,8 @@ class EqWindow(Adw.ApplicationWindow):
         self.popover_footer = b.get_object("popover_footer")
         self.device_dd = b.get_object("device_dd")
         self.follow_btn = b.get_object("follow_btn")
-        self.link_row = b.get_object("link_row")
+        self.sep_switch = b.get_object("sep_switch")
+        self.channel_row = b.get_object("channel_row")
         self.preamp_row = b.get_object("preamp_row")
         self.bypass_row = b.get_object("bypass_row")
         self.channel_bar = b.get_object("channel_bar")
@@ -157,7 +158,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._install_shortcuts(app)
 
         self.search_entry.connect("search-changed", lambda *_: self._populate_picker())
-        self.link_row.connect("notify::active", self._on_link)
+        self.sep_switch.connect("notify::active", self._on_link)
         self.bypass_row.connect("notify::active", self._on_bypass)
         self.profile_button.connect("notify::active", self._on_picker_toggle)
         self.device_dd.connect("notify::selected", self._on_device_changed)
@@ -613,21 +614,27 @@ class EqWindow(Adw.ApplicationWindow):
             child = nxt
 
     def _build_channel_bar(self):
-        """Rebuild the FL/FR toggle bar (hidden while channels are linked)."""
+        """Rebuild the channel tab bar: a lone [All] tab while channels are
+        linked, FL | FR | ... when separated. The row also hosts the
+        "Separate channels" switch, so it is always visible on multichannel
+        devices -- which gives the clip badge a home in both modes."""
         self._clear_box(self.channel_bar)
         self._chan_buttons = {}
+        keys = ["all"] if self.apply_all else list(self.ch_keys)
         first = None
-        for k in self.ch_keys:
-            btn = Gtk.ToggleButton(label=k)
+        for k in keys:
+            btn = Gtk.ToggleButton(label="All" if k == "all" else k)
             if first is None:
                 first = btn
             else:
                 btn.set_group(first)
             btn.set_active(k == self.cur_ch)
+            if len(keys) == 1:
+                btn.set_can_target(False)   # lone [All]: a tab, not a control
             btn.connect("toggled", self._make_chan_cb(k))
             self.channel_bar.append(btn)
             self._chan_buttons[k] = btn
-        self.channel_bar.set_visible(not self.apply_all and len(self.ch_keys) > 1)
+        self.channel_row.set_visible(len(self.ch_keys) > 1)
 
     def _make_chan_cb(self, key):
         """Factory: switch the edited channel to `ch`."""
@@ -640,9 +647,10 @@ class EqWindow(Adw.ApplicationWindow):
         """Handle the 'Same EQ for all channels' switch (profile apply_all)."""
         if self._loading:
             return
-        self.apply_all = self.link_row.get_active()
+        self.apply_all = not self.sep_switch.get_active()
         if self.apply_all:
-            self.channel_bar.set_visible(False)
+            self.cur_ch = "all"
+            self._build_channel_bar()
             self._load_slot("all")
         else:
             base = self._slot("all")
@@ -652,7 +660,6 @@ class EqWindow(Adw.ApplicationWindow):
                     self.slots[k] = _copy_slot(base)
             self.cur_ch = self.ch_keys[0] if self.ch_keys else "all"
             self._build_channel_bar()
-            self.channel_bar.set_visible(len(self.ch_keys) > 1)
             self._load_slot(self.cur_ch)
         self._on_edit()
 
@@ -702,7 +709,7 @@ class EqWindow(Adw.ApplicationWindow):
                                                         if self.ch_keys else "all")
             self.profile_button.set_label(self._display_name(p))
             self.bypass_row.set_active(False)
-            self.link_row.set_active(self.apply_all)
+            self.sep_switch.set_active(not self.apply_all)
             self._build_channel_bar()
             self._load_slot(self.cur_ch)
             self.store.set_binding(self.node, pid)
@@ -808,7 +815,7 @@ class EqWindow(Adw.ApplicationWindow):
                 self.cur_ch = view
             else:
                 self.cur_ch = self.ch_keys[0] if self.ch_keys else "all"
-            self.link_row.set_active(self.apply_all)
+            self.sep_switch.set_active(not self.apply_all)
             self._build_channel_bar()
             self._load_slot(self.cur_ch)
         finally:

@@ -130,27 +130,40 @@
                   </object>
                 </child>
 
-                <!-- channel-link toggle (stored with the profile) -->
+                <!-- channel tabs ([All] or FL | FR | ...; built in code) with
+                     the link toggle inlined at the end of the same row -->
                 <child>
-                  <object class="AdwPreferencesGroup" id="group_eq">
+                  <object class="GtkBox" id="channel_row">
+                    <property name="visible">false</property>
+                    <property name="spacing">12</property>
                     <child>
-                      <object class="AdwSwitchRow" id="link_row">
-                        <property name="title" translatable="yes">Same EQ for all channels</property>
-                        <property name="subtitle" translatable="yes">Turn off to tune each channel separately</property>
-                        <property name="active">true</property>
+                      <object class="GtkBox" id="channel_bar">
+                        <style>
+                          <class name="linked"/>
+                        </style>
                       </object>
                     </child>
-                  </object>
-                </child>
-
-                <!-- per-channel selector (FL | FR | …); built + shown in code -->
-                <child>
-                  <object class="GtkBox" id="channel_bar">
-                    <property name="halign">center</property>
-                    <property name="visible">false</property>
-                    <style>
-                      <class name="linked"/>
-                    </style>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="hexpand">true</property>
+                        <property name="halign">end</property>
+                        <property name="spacing">8</property>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label" translatable="yes">Separate channels</property>
+                            <style>
+                              <class name="dim-label"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkSwitch" id="sep_switch">
+                            <property name="valign">center</property>
+                            <property name="tooltip-text" translatable="yes">Tune each channel with its own EQ curve; the preamp stays shared</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
                   </object>
                 </child>
 
