@@ -35,6 +35,7 @@ from perdeviceeq import eq, pipewire
 from perdeviceeq.gui import EqApplication
 
 pipewire.missing_tools = lambda *a, **k: ["pw-dump"]     # force offline mode
+pipewire.meter_available = lambda: True                  # tabs get mini-bars
 
 RC = [1]
 
@@ -57,26 +58,25 @@ def check(a):
         # 1. Clean profile: neutral readout, no lamp
         assert not w.clip_icon.get_visible()
         st = w.preamp_row.get_subtitle()
-        assert "post-EQ peak +0.0 dBFS" in st, st
-        assert "clip-risk" not in w.preamp_row.get_css_classes()
+        assert "Headroom 0.0 dB" in st, st
 
         # 2. A +9.6 dB PK crosses 0 -> lamp + red + tooltip
         w.bands.append(eq.Band("PK", 200.0, 9.6, 2.25, True))
         w._on_edit()
         st = w.preamp_row.get_subtitle()
         assert w.clip_icon.get_visible()
-        assert "+9.6 dBFS" in st and "can clip" in st, st
-        assert "clip-risk" in w.preamp_row.get_css_classes()
-        assert "error" in w.preamp_spin.get_css_classes()
+        assert "Over 0 dBFS by 9.6 dB" in st and "Auto fixes" in st, st
         assert w.preamp_row.get_tooltip_text()
-        # the lone [All] tab exists in linked mode and carries the badge
-        assert "clip-risk" in w._chan_buttons["all"].get_css_classes()
+        # the lone [All] tab exists in linked mode; the estimate is in its
+        # tooltip -- red paint is reserved for FACTS (the tier-2 latch)
+        assert "clip-risk" not in w._chan_buttons["all"].get_css_classes()
+        assert w._chan_buttons["all"].get_tooltip_text() is None
 
         # 3. Auto zeroes the estimate (curve max, not largest gain)
         w._on_auto(None)
         assert abs(w.preamp + 9.6) < 1e-6, w.preamp
         assert not w.clip_icon.get_visible(), w.preamp_row.get_subtitle()
-        assert "+0.0 dBFS" in w.preamp_row.get_subtitle()
+        assert "Headroom 0.0 dB" in w.preamp_row.get_subtitle()
 
         # 4. Bypass -> neutral subtitle, no lamp
         w.bypass_row.set_active(True)
@@ -93,17 +93,15 @@ def check(a):
         exp = eq.headroom_bound_db(w.preamp, w.slots["FR"]["bands"])
         assert exp > 2.0, exp                 # scenario is meaningfully over
         st = w.preamp_row.get_subtitle()
-        assert ("%+.1f dBFS on FR" % exp) in st and "can clip" in st, st
+        assert ("by %.1f dB on FR" % exp) in st and "Auto fixes" in st, st
         assert w.clip_icon.get_visible()
-        assert "clip-risk" not in w._chan_buttons["FL"].get_css_classes()
-        assert "clip-risk" in w._chan_buttons["FR"].get_css_classes()
-        assert ("%+.1f" % exp) in w._chan_buttons["FR"].get_tooltip_text()
+        assert "clip-risk" not in w._chan_buttons["FR"].get_css_classes()
         # the spin is shared: switching tabs changes neither it nor the
         # number -- only the "on FR" suffix drops on FR's own tab
         v_before = w.preamp_spin.get_value()
         w._chan_buttons["FR"].set_active(True)
         st = w.preamp_row.get_subtitle()
-        assert ("%+.1f dBFS — can clip" % exp) in st and " on " not in st, st
+        assert ("by %.1f dB — Auto fixes" % exp) in st and " on " not in st, st
         assert w.preamp_spin.get_value() == v_before
         w._chan_buttons["FL"].set_active(True)
 
@@ -140,6 +138,50 @@ def check(a):
         assert w.preamp == -4.0
         w._on_auto(None)
         assert abs(w.preamp + 8.5) < 1e-6, w.preamp
+
+        # 7. Tier-2 wiring: engine frames drive the tab bars, the clip
+        #    latch and the throttled live readout -- no PipeWire needed
+        from perdeviceeq.meter import Ballistics
+        import time as _t
+        assert set(w._meter_areas) == {"all"}       # linked: one tab, 2 bars
+        w.sep_switch.set_active(True)
+        assert set(w._meter_areas) == {"FL", "FR"}
+        w._bal = [Ballistics(), Ballistics()]
+        w._meter_node = "fake.sink"                 # readout treats it live
+        now = _t.monotonic()
+        pre0 = w.preamp
+        w._on_meter_frame({"peaks_db": [-6.0, 1.5], "clips": [0, 200], "samples": 1600,
+                           "t": now})
+        assert "clip-live" in w._chan_buttons["FR"].get_css_classes()
+        assert "clip-live" not in w._chan_buttons["FL"].get_css_classes()
+        assert "FR 12.500% clipped" in w._chan_buttons["FR"].get_tooltip_text()
+        assert "Clipped up to +1.5 dBFS" in w.preamp_row.get_subtitle()
+        assert w.fix_btn.get_visible()
+        lbl = w.fix_btn.get_label().replace("\u2212", "-")
+        assert "Session" in lbl and ("%.1f" % (pre0 - 1.5)) in lbl, lbl
+        assert "Safe" in w.auto_button.get_label()
+        w._on_fix(None)                     # consume the measured fix
+        assert abs(w.preamp - (pre0 - 1.5)) < 1e-9, w.preamp
+        assert not w.fix_btn.get_visible()
+        # a peak past the sine bound clamps Session at Safe: the loudness
+        # compromise may never end up quieter than safety
+        w._on_meter_frame({"peaks_db": [-60.0, 20.0], "clips": [0, 0], "samples": 1600,
+                           "t": now + 0.5})
+        safe_v = w.auto_button.get_label().split()[1]
+        assert w.fix_btn.get_label().split()[1] == safe_v, \
+            (w.fix_btn.get_label(), safe_v)
+        w._on_fix(None)
+        assert ("%.1f" % w.preamp) == safe_v, (w.preamp, safe_v)
+        # the fix was an edit: a new measurement era begins -- counters,
+        # denominator and the latch are all zeroed
+        assert w._sess_samples == 0 and w._bal[1].clip_total == 0
+        w._on_meter_frame({"peaks_db": [-60.0, -30.0], "clips": [0, 0],
+                           "samples": 1600, "t": now + 5.0})
+        assert "FR 0.000% clipped" in w._chan_buttons["FR"].get_tooltip_text()
+        assert "clip-live" not in w._chan_buttons["FR"].get_css_classes()
+        w._on_meter_frame({"peaks_db": [-60.0, -60.0], "clips": [0, 0], "samples": 1600,
+                           "t": now + 3.0})
+        assert "clip-live" not in w._chan_buttons["FR"].get_css_classes()
 
         print("GUI-SMOKE-OK")
         RC[0] = 0

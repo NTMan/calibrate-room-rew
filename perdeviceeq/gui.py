@@ -125,6 +125,20 @@ class EqWindow(Adw.ApplicationWindow):
         self.bands = self.slots["all"]["bands"]     # alias of the current slot
         self._chan_buttons = {}
 
+        # tier-2 live meter (engine created lazily: scipy is optional)
+        self._meter = None
+        self._meter_node = None
+        self._meter_state = None
+        self._meter_areas = {}
+        self._bal = []
+        self._sess_peak = None      # measured session max, post-EQ dBFS
+        self._dead_frames = []      # capture-link watchdog (see below)
+        self._meter_relinks = 0
+        self._sess_samples = 0      # metered samples per channel (session)
+        self.connect("map", lambda *_: self._update_meter())
+        self.connect("unmap", lambda *_: self._update_meter())
+        self.connect("close-request", self._stop_meter_on_close)
+
         # undo/redo history (serialized snapshots)
         self._hist = []
         self._hidx = -1
@@ -346,7 +360,21 @@ class EqWindow(Adw.ApplicationWindow):
         self.clip_icon.set_visible(False)
         self.preamp_row.add_suffix(self.clip_icon)
         self.preamp_row.add_suffix(self.preamp_spin)
-        self.preamp_row.add_suffix(self.auto_button)
+        # one linked pair, both labeled with ABSOLUTE preamp targets:
+        # Safe (static worst case) | Session (measured this session)
+        self.fix_btn = Gtk.Button()
+        self.fix_btn.set_valign(Gtk.Align.CENTER)
+        self.fix_btn.set_visible(False)
+        self.fix_btn.set_tooltip_text(
+            "Set preamp from the measured session peak. Usually milder "
+            "than Safe; when it is stronger, real broadband content "
+            "recombined above the sine-gain estimate -- trust the fact")
+        self.fix_btn.connect("clicked", self._on_fix)
+        pair = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
+        pair.add_css_class("linked")
+        pair.append(self.auto_button)
+        pair.append(self.fix_btn)
+        self.preamp_row.add_suffix(pair)
         self.preamp_row.set_activatable_widget(self.preamp_spin)
         self._preamp_subtitle = self.preamp_row.get_subtitle() or ""
 
@@ -365,11 +393,9 @@ class EqWindow(Adw.ApplicationWindow):
             " .eqrow spinbutton text, .eqrow spinbutton entry,"
             " .eqrow dropdown > button, .eqrow button"
             " { min-height: 24px; padding-top: 1px; padding-bottom: 1px; }"
-            # tier-1 clip lamp: paint the Preamp row with the theme error color
-            " row.clip-risk label.subtitle { color: @error_color; }"
-            " row.clip-risk spinbutton text { color: @error_color; }"
             # ...and flag every over-0 channel on its tab in the channel bar
-            " button.clip-risk label { color: @error_color; font-weight: 600; }")
+            # tabs go red only when the tier-2 meter LATCHED an actual clip
+            " button.clip-live label { color: @error_color; font-weight: 600; }")
         css = Gtk.CssProvider()
         if hasattr(css, "load_from_string"):
             css.load_from_string(data)
@@ -620,10 +646,24 @@ class EqWindow(Adw.ApplicationWindow):
         devices -- which gives the clip badge a home in both modes."""
         self._clear_box(self.channel_bar)
         self._chan_buttons = {}
+        self._meter_areas = {}
         keys = ["all"] if self.apply_all else list(self.ch_keys)
+        show_meters = pipewire.meter_available()
         first = None
         for k in keys:
-            btn = Gtk.ToggleButton(label="All" if k == "all" else k)
+            idxs = (tuple(range(len(self.ch_keys))) if k == "all"
+                    else (self.ch_keys.index(k),))
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            box.append(Gtk.Label(label="All" if k == "all" else k))
+            area = Gtk.DrawingArea()
+            area.set_content_width(6 * len(idxs) + 2 * (len(idxs) - 1))
+            area.set_content_height(22)
+            area.set_valign(Gtk.Align.CENTER)
+            area.set_draw_func(self._draw_tab_meter, idxs)
+            area.set_visible(show_meters)
+            box.append(area)
+            btn = Gtk.ToggleButton()
+            btn.set_child(box)
             if first is None:
                 first = btn
             else:
@@ -634,6 +674,7 @@ class EqWindow(Adw.ApplicationWindow):
             btn.connect("toggled", self._make_chan_cb(k))
             self.channel_bar.append(btn)
             self._chan_buttons[k] = btn
+            self._meter_areas[k] = area
         self.channel_row.set_visible(len(self.ch_keys) > 1)
 
     def _make_chan_cb(self, key):
@@ -752,6 +793,12 @@ class EqWindow(Adw.ApplicationWindow):
             return
         self._ensure_editable()
         self.graph_area.queue_draw()
+        # any edit starts a new measurement era: peak, percentages and
+        # the latch all belonged to the old chain
+        self._sess_peak = None
+        self._sess_samples = 0
+        for b in self._bal:
+            b.reset_session()
         self._update_headroom()
         self._schedule_save()
 
@@ -775,6 +822,7 @@ class EqWindow(Adw.ApplicationWindow):
         """Publish the device's live state to the per-device-eq metadata:
         the graph string, or key removal when bypassed / empty.
         """
+        self._update_meter()
         if not self.live or not self.node:
             return
         node = self.node
@@ -1060,20 +1108,17 @@ class EqWindow(Adw.ApplicationWindow):
         reads out the WORST applied chain -- exactly what its spin and
         Auto act on -- and turns error-red past 0 dBFS. Clipping is still
         per output channel: every over-0 channel is also flagged on its
-        tab in the channel bar, with the numbers in the tab tooltips. In Bypass
+        tab in the channel bar; the tab tooltip carries each channel's
+        clipped-sample percentage — the same metric audit_headroom prints. In Bypass
         tier 1 has nothing to warn about -- the profile adds no gain and the
         input level is not measured yet -- so everything goes back to
         neutral (the tier-2 meter will keep flagging hot inputs here)."""
         chan_btns = getattr(self, "_chan_buttons", {})
         if self.bypass_row.get_active():
             self.clip_icon.set_visible(False)
-            self.preamp_row.remove_css_class("clip-risk")
-            self.preamp_spin.remove_css_class("error")
+            self.fix_btn.set_visible(False)
             self.preamp_row.set_subtitle(self._preamp_subtitle)
             self.preamp_row.set_tooltip_text(None)
-            for b in chan_btns.values():
-                b.remove_css_class("clip-risk")
-                b.set_tooltip_text(None)
             return
         bounds = {k: eq.headroom_bound_db(self.preamp, s["bands"])
                   for k, s in self._applied_chains()}
@@ -1086,17 +1131,26 @@ class EqWindow(Adw.ApplicationWindow):
                      if v > self._CLIP_EPS_DB]
 
         self.clip_icon.set_visible(over)
-        if over:
-            self.preamp_row.add_css_class("clip-risk")
-            self.preamp_spin.add_css_class("error")
+        t = self._auto_preamp_db()
+        self.auto_button.set_label("Safe %.1f" % (-t if t else 0.0))
+        c = self._sess_c()
+        caught = c is not None and c > self._CLIP_EPS_DB
+        self.fix_btn.set_visible(caught)
+        if caught:
+            # a measured fact beats the estimate: show it, offer to consume
+            # Session may never end up quieter than Safe: a broadband
+            # transient can exceed the sine bound by the L1 gap, and a
+            # "compromise" louder than safety is nonsense.
+            self.fix_btn.set_label(
+                "Session %.1f" % max(-t if t else 0.0, self.preamp - c))
             self.preamp_row.set_subtitle(
-                "Worst-case post-EQ peak %+.1f dBFS%s — can clip"
-                % (shown, where))
+                "Clipped up to +%.1f dBFS this session" % c)
+        elif over:
+            self.preamp_row.set_subtitle(
+                "Over 0 dBFS by %.1f dB%s — Auto fixes" % (shown, where))
         else:
-            self.preamp_row.remove_css_class("clip-risk")
-            self.preamp_spin.remove_css_class("error")
             self.preamp_row.set_subtitle(
-                "Worst-case post-EQ peak %+.1f dBFS%s" % (shown, where))
+                "Headroom %.1f dB%s" % (0.0 - shown, where))
 
         tip = None
         if over:
@@ -1109,15 +1163,175 @@ class EqWindow(Adw.ApplicationWindow):
         self.preamp_row.set_tooltip_text(tip)
         self.clip_icon.set_tooltip_text(tip if over else None)
 
-        for k, btn in chan_btns.items():
-            v = bounds.get(k)
-            if v is not None and v > self._CLIP_EPS_DB:
-                btn.add_css_class("clip-risk")
-                btn.set_tooltip_text(
-                    "Worst-case post-EQ peak %+.1f dBFS — can clip" % v)
-            else:
-                btn.remove_css_class("clip-risk")
-                btn.set_tooltip_text(None)
+
+    # ---- live post-EQ meter (ROADMAP Task 2, tier 2) ------------------------
+    def _sess_c(self):
+        """The session peak on the 0.1 dB grid -- ONE formatter for the
+        subtitle, the button and the applied value, so they always agree."""
+        if self._sess_peak is None:
+            return None
+        return math.ceil(self._sess_peak * 10.0 - 1e-9) / 10.0
+
+    def _on_fix(self, _btn):
+        """Consume the caught session peak: pull it exactly to 0 dBFS."""
+        c = self._sess_c()
+        if c is None:
+            return
+        t = self._auto_preamp_db()
+        v = max(-t if t else 0.0, self.preamp - max(0.0, c))
+        self._sess_peak = None
+        self.preamp_spin.set_value(v)
+
+    def _meter_chains(self):
+        """(preamp, per-input-channel band lists) the device actually runs:
+        identity everywhere in Bypass -- the meter then shows the raw
+        input, closing the hot-master-in-bypass blind spot."""
+        if self.bypass_row.get_active():
+            return 0.0, [[] for _ in self.ch_keys]
+        if self.apply_all:
+            b = self._slot("all")["bands"]
+            return self.preamp, [b for _ in self.ch_keys]
+        return self.preamp, [self._slot(k)["bands"] for k in self.ch_keys]
+
+    def _update_meter(self):
+        """Single choke point (first line of _apply_now): keep the engine's
+        chains fresh and its lifecycle matched to window visibility and the
+        selected device. The capture holds the sink awake, so it runs only
+        while the window is mapped."""
+        want = bool(self.live and self.node and self.get_mapped()
+                    and pipewire.meter_available())
+        if want and self._meter is None:
+            try:
+                from .meter import Ballistics, MeterEngine  # lazy: scipy
+            except ImportError:
+                return
+            self._Ballistics = Ballistics
+            self._meter = MeterEngine(self._publish_meter)
+        if self._meter is None:
+            return
+        restart = want and self._meter_node != self.node
+        if restart:
+            self._meter.stop()      # never swap a running worker's count
+        pre, chains = self._meter_chains()
+        self._meter.set_chains(pre, chains)
+        if len(self._bal) != len(chains):
+            self._bal = [self._Ballistics() for _ in chains]
+            self._sess_samples = 0
+        if restart:
+            self._meter.start(self.node)
+            self._meter_node = self.node
+            self._dead_frames = []
+            self._meter_relinks = 0
+            # Empirically (BT sink, in-node graph): a capture stream comes
+            # up with one monitor port unlinked, and what completes the
+            # links is the WP hook's graph (re)apply -- a fresh stream does
+            # NOT help. Nudge once after the capture starts.
+            GLib.timeout_add(400, lambda: (self._apply_now(), False)[1])
+        elif not want and self._meter_node is not None:
+            self._meter.stop()
+            self._meter_node = None
+            self._live_db = None
+
+    def _stop_meter_on_close(self, *_):
+        if self._meter is not None:
+            self._meter.stop()
+        return False
+
+    def _publish_meter(self, frame):        # called from the worker thread
+        GLib.idle_add(self._on_meter_frame, frame)
+
+    def _on_meter_frame(self, frame):
+        """One aggregated engine frame (~30 Hz): ballistics, bars, the tab
+        latch, and a throttled numeric readout in the Preamp row."""
+        if not self._bal:
+            return False
+        if os.environ.get("PDE_METER_DEBUG"):
+            print("meter: frame peaks=%s clips=%s bal=%d areas=%s"
+                  % (["%.1f" % p for p in frame["peaks_db"]],
+                     frame["clips"], len(self._bal),
+                     list(self._meter_areas)), file=sys.stderr)
+        # Capture-link watchdog: publishing the graph reconfigures the sink
+        # at the same instant the capture links to its monitor, and
+        # WirePlumber can leave a monitor port unlinked -- that channel then
+        # reads EXACT digital zero forever while the others play. Real
+        # linked audio never holds a true zero for a second, so restart the
+        # capture (a fresh link) when we see it; cap the retries.
+        pks = frame["peaks_db"]
+        if len(self._dead_frames) != len(pks):
+            self._dead_frames = [0] * len(pks)
+        if max(pks) > -60.0:
+            for i, p in enumerate(pks):
+                self._dead_frames[i] = self._dead_frames[i] + 1 \
+                    if p <= -139.0 else 0
+            if (max(self._dead_frames) > 36 and self._meter_relinks < 3
+                    and self._meter is not None and self._meter_node):
+                self._meter_relinks += 1
+                self._dead_frames = [0] * len(pks)
+                if os.environ.get("PDE_METER_DEBUG"):
+                    print("meter: dead channel, republishing graph to"
+                          " relink (try %d)" % self._meter_relinks,
+                          file=sys.stderr)
+                self._apply_now()
+                return False
+        self._sess_samples += int(frame.get("samples", 0))
+        st = []
+        for i, (pk, cl) in enumerate(zip(frame["peaks_db"], frame["clips"])):
+            if i >= len(self._bal):
+                break
+            bar, latched = self._bal[i].update(frame["t"], pk, cl)
+            st.append((bar, latched, self._bal[i].clip_total))
+        self._meter_state = st
+        for key, area in self._meter_areas.items():
+            idxs = (range(len(st)) if key == "all"
+                    else [self.ch_keys.index(key)]
+                    if key in self.ch_keys else [])
+            idxs = [i for i in idxs if i < len(st)]
+            btn = self._chan_buttons.get(key)
+            if btn is not None and idxs:
+                if any(st[i][1] for i in idxs):
+                    btn.add_css_class("clip-live")
+                else:
+                    btn.remove_css_class("clip-live")
+                if self._sess_samples:
+                    btn.set_tooltip_text("\n".join(
+                        "%s %.3f%% clipped this session"
+                        % (self.ch_keys[i] if key == "all" else key,
+                           100.0 * st[i][2] / self._sess_samples)
+                        for i in idxs))
+            area.queue_draw()
+        if not self.bypass_row.get_active():
+            mx = max(frame["peaks_db"])
+            if mx > self._CLIP_EPS_DB and (self._sess_peak is None
+                                           or mx > self._sess_peak):
+                self._sess_peak = mx
+                self._update_headroom()
+        return False
+
+    def _draw_tab_meter(self, area, cr, w, h, idxs):
+        """Clip-guard bars, -24..+3 dB: blue below the 0 dBFS line, red
+        above it. One bar per input channel of this tab."""
+        LO, HI = -24.0, 3.0
+        st = self._meter_state
+        bw, gap = 6, 2
+        def y_of(v):
+            return h - (min(max(v, LO), HI) - LO) / (HI - LO) * h
+        zero = y_of(0.0)
+        for j, i in enumerate(idxs):
+            x = j * (bw + gap)
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.28)
+            cr.rectangle(x, 0, bw, h)
+            cr.fill()
+            db = st[i][0] if st and i < len(st) else LO
+            if db <= LO:
+                continue
+            top = y_of(db)
+            cr.set_source_rgba(0.22, 0.52, 0.90, 1.0)
+            cr.rectangle(x, max(top, zero), bw, h - max(top, zero))
+            cr.fill()
+            if db > 0.0:
+                cr.set_source_rgba(0.87, 0.19, 0.19, 1.0)
+                cr.rectangle(x, top, bw, zero - top)
+                cr.fill()
 
     # ---- profile picker ----------------------------------------------------
     def _on_picker_toggle(self, *_):

@@ -26,7 +26,7 @@ Goal: any output device (speakers, wired headphones, TWS) corrected through per-
 - Passive observer only: read-only capture stream on the device monitor (`stream.capture.sink = true`, f32). No node inserted into the playback path — tooling, not a processing hop.
 - Three tiers, implementation order 1 → 3 → 2:
   1. Instant upper bound (no capture): `monitor_peak + max(total EQ curve)` per applied chain. The preamp is ONE shared per-profile value (profile schema v2, `version: 2`; v1 files convert once via `tools/migrate_profiles_v1_to_v2.py`): the field reads out the worst chain's estimate, colors past 0 dBFS, and every over-0 channel is flagged on its tab. Auto = −(worst channel's curve max); unequal preamps would shift the balance the curves encode.
-  2. Live meter (device window open): capture → profile's biquads (RBJ, `tools/pde_audit.py`) → count `|x| >= 1.0` → clip lamp + post-EQ peak.
+  2. Live meter (device window open): `pipewire.monitor_capture` → `perdeviceeq/meter.py` (block-streamed `eq.biquad` chains, state carried across blocks; pinned to the offline audit below 1e-9) → per-channel mini-bars in the channel tabs (−24…+3 dB, red past 0), a 2 s clip latch with a session counter on the tab, and a throttled `live %+.1f dBFS` readout next to the worst-case estimate in the Preamp row. Bypass meters the raw input. Runs only while the window is mapped; degrades to tier 1 without `pw-record`/scipy.
   3. "Check headroom" button: 15–30 s capture, report pre/post peak, clip count, `recommended preamp = -(post-EQ peak dBFS)`. Prototype: `tools/audit_headroom.py` (reads saved v2 app profiles: `--profile NAME`; the suggestion is one shared value set by the worst channel).
 - Lamp works in Bypass too: input alone can exceed FS (hot lossy masters overshoot after any honest resampler — see hot_master fixture).
 - Tooltip distinguishes "clipping at input" (pre-EQ peak >= FS) from "clipping caused by profile" (appears only after biquads).
@@ -103,3 +103,16 @@ Capture recipe (the point being audited is pre-EQ by design): `pw-record -P '{ s
 - BT absolute volume does not protect against quantization clipping; software stream gain does.
 - Constant BT latency is harmless to sweep FR; clock drift and timing references are the actual hazards (hence Task 3 rules).
 - EARS: trust < ~2 kHz absolute, full range for same-rig deltas; the ~2.3 kHz cut is listener-validated by ear, the 14.4 kHz filter trio was rig resonance.
+
+## Upstream notes
+
+* gnome-shell: the mic privacy indicator should honor `stream.monitor =
+  true` (or a meter media.role) instead of an application.id allowlist —
+  third-party output meters (like our `per-device-eq-meter` capture)
+  currently trip it; spoofing `org.gnome.VolumeControl` is the only
+  workaround and we refuse it.
+* WirePlumber: a fresh `stream.capture.sink` stream against a settled
+  BT sink with an in-node filter-graph deterministically comes up with
+  one monitor port unlinked; only a node reconfigure (graph republish)
+  completes the links. Repro + workaround live in per-device-eq
+  (the 400 ms republish nudge and the dead-channel watchdog).

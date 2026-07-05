@@ -39,6 +39,33 @@ REQUIRED_TOOLS = ["pw-metadata", "pw-dump"]
 def missing_tools(tools=REQUIRED_TOOLS):
     return [t for t in tools if shutil.which(t) is None]
 
+
+def meter_available():
+    """pw-record is needed only by the tier-2 live meter: its absence
+    degrades the app to the static tier-1 estimate, nothing more."""
+    return shutil.which("pw-record") is not None
+
+
+def monitor_capture(node, channels, rate=48000):
+    """Spawn pw-record on a sink's monitor (PRE-EQ tap in the in-node
+    topology) streaming raw interleaved f32 to stdout. Returns the Popen;
+    the caller owns its lifetime and reads .stdout.
+
+    Privacy note: GNOME Shell's microphone indicator counts every
+    source-output minus a hardcoded application.id allowlist (its own
+    org.gnome.VolumeControl meter stream is excluded that way); it does
+    NOT honor stream.monitor. So this stream lights the icon even though
+    it only taps what is already playing. We deliberately do not spoof
+    the allowlisted id -- the upstream ask (see ROADMAP, Upstream notes)
+    is for gnome-shell to respect `stream.monitor = true`."""
+    cmd = ["pw-record", "--target", str(node),
+           "-P", "{ stream.capture.sink = true, node.name = per-device-eq-meter,"
+                 " application.name = \"Per-Device EQ\" }",
+           "--format", "f32", "--rate", str(int(rate)),
+           "--channels", str(int(channels)), "-"]
+    return subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL)
+
 def missing_tools_message(missing):
     return ("These PipeWire command-line tools are required but were not found "
             "in PATH:\n\n    %s\n\nInstall the PipeWire utilities with your "
