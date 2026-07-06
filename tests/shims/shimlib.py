@@ -20,7 +20,7 @@ Env knobs: PDE_SHIM_FOREIGN=1 adds a foreign stream on the sink,
 PDE_SHIM_PLAY_FAIL=1 makes pw-play exit 1 (mid-measure failure),
 PDE_SHIM_PLAY_SECONDS holds the fake stream alive for path verification,
 PDE_SHIM_NOISE / PDE_SHIM_DELAY_MS shape the fake capture, PDE_SHIM_REPO
-points at the checkout so pw-record can import tools/pde_audit.
+points at the checkout so pw-record imports perdeviceeq.pde_audit.
 """
 import json
 import os

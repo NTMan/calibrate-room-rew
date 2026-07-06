@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real-path measurement runner (ROADMAP Task 3, increment 2).
 
-Orchestrates a live sweep measurement on top of tools/measure_core.py:
+Orchestrates a live sweep measurement on top of perdeviceeq/measure_core.py:
 plays the Farina sweep through a PipeWire sink (pw-play) while capturing
 the measurement mic (pw-record), then feeds the takes to the offline core.
 CLI only; the GTK wizard is increment 4, the constrained fit increment 3.
@@ -25,9 +25,9 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import measure_core as mc
-from measure_session import (
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from perdeviceeq import measure_core as mc
+from perdeviceeq.measure_session import (
     AUTO_MAX_ADJUST, AUTO_START_VOLUME, AUTO_WINDOW, FaultyCaptureError,
     MeasureError, MeasureSession, RefusalError, SessionConfig)
 

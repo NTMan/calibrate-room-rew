@@ -193,7 +193,7 @@ The `tools/` directory contains the measurement/clipping audit toolkit; the deve
 
 | Tool                      | Purpose                                                                    |
 | ------------------------- | -------------------------------------------------------------------------- |
-| `tools/pde_audit.py`      | shared RBJ biquad library, clip statistics, demo profile                   |
+| `perdeviceeq/pde_audit.py`| shared RBJ biquad library, clip statistics, demo profile                   |
 | `tools/audit_peaks.py`    | peak / clip counter for float32 captures                                   |
 | `tools/audit_headroom.py` | pre-EQ capture × profile → post-EQ peak, clip count, recommended preamp    |
 | `tools/make_fixtures.py`  | deterministic clean/hot-master test fixtures (seed-pinned)                 |

@@ -162,7 +162,7 @@ def curve_max_db(preamp, bands, n=240, fmin=FMIN, fmax=FMAX):
     gain the chain applies to any single frequency. Evaluated on an n-point
     log grid PLUS every enabled band's center frequency, so narrow (high-Q)
     peaks cannot fall between grid points. Pinned to the scipy reference
-    (tools/pde_audit.chain_curve) by tests/test_headroom_bound.py."""
+    (perdeviceeq.pde_audit.chain_curve) by tests/test_headroom_bound.py."""
     la, lb = math.log10(fmin), math.log10(fmax)
     freqs = [10 ** (la + (lb - la) * i / (n - 1)) for i in range(n)]
     freqs += [min(max(b.freq, fmin), fmax) for b in bands if b.enabled]

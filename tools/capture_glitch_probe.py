@@ -25,13 +25,15 @@ Example:
   tools/capture_glitch_probe.py --source miniDSP --runs 50   # silent, no play
 """
 import argparse
+import os
 import subprocess
 import sys
 import time
 
 import numpy as np
 
-import measure_session as ms
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from perdeviceeq import measure_session as ms        # noqa: E402
 
 
 def _play(sink_id, wav):

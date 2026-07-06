@@ -87,7 +87,7 @@ Real-world calibration from the investigation (captures kept local-only, copyrig
 ## Repo layout for this work
 
 ```
-tools/pde_audit.py        shared RBJ biquads, clip stats, demo profile
+perdeviceeq/pde_audit.py  shared RBJ biquads, clip stats, demo profile
 tools/audit_peaks.py      peak/clip counter for f32 captures
 tools/audit_headroom.py   capture x profile -> post-EQ verdict (Task 2 t3)
 tools/make_fixtures.py    deterministic clean/hot master generator

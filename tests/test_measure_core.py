@@ -10,8 +10,9 @@ import json
 import numpy as np
 import pytest
 
-from pde_audit import DEMO_PROFILE, apply_chain, chain_curve
-import measure_core as mc
+from perdeviceeq.pde_audit import (
+    DEMO_PROFILE, apply_chain, chain_curve)
+from perdeviceeq import measure_core as mc
 
 FS = 48000
 F_LO_CHECK, F_HI_CHECK = 40.0, 16000.0

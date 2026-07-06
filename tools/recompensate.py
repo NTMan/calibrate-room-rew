@@ -25,8 +25,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import measure_core as mc                             # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from perdeviceeq import measure_core as mc           # noqa: E402
 
 
 def main(argv):

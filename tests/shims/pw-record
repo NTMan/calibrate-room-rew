@@ -18,11 +18,11 @@ import shimlib as sl
 
 repo = os.environ.get("PDE_SHIM_REPO")
 if repo:
-    sys.path.insert(0, os.path.join(repo, "tools"))
+    sys.path.insert(0, repo)
 
 import numpy as np
 import soundfile as sf
-from pde_audit import DEMO_PROFILE, apply_chain
+from perdeviceeq.pde_audit import DEMO_PROFILE, apply_chain
 
 
 def parse(argv):

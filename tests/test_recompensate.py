@@ -11,7 +11,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-import measure_core as mc                             # noqa: E402
+from perdeviceeq import measure_core as mc           # noqa: E402
 
 
 def _cal(path, pairs):

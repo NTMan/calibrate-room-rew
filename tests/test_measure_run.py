@@ -22,8 +22,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pde_audit import DEMO_PROFILE, chain_curve
-import measure_session as ms
+from perdeviceeq.pde_audit import DEMO_PROFILE, chain_curve
+from perdeviceeq import measure_session as ms
 
 ROOT = Path(__file__).resolve().parent.parent
 SHIMS = ROOT / "tests" / "shims"
@@ -423,7 +423,7 @@ def test_capture_glitch_probe_runs_against_shims(tmp_path):
     # hid an AttributeError on a constant that never shipped in
     # measure_run (the pre---raw warmup-drop draft)
     import soundfile as sf
-    import measure_core as mc
+    from perdeviceeq import measure_core as mc
     state = tmp_path / "state"
     state.mkdir()
     (state / "volume.json").write_text(json.dumps({"cubic": 0.30}))

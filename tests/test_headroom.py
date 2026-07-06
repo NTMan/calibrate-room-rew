@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from pde_audit import DEMO_PROFILE, apply_chain, chain_curve, clip_stats, dbfs
+from perdeviceeq.pde_audit import (
+    DEMO_PROFILE, apply_chain, chain_curve, clip_stats, dbfs)
 
 
 def run_demo(path):

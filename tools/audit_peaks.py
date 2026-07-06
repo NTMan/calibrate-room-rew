@@ -7,11 +7,12 @@ Usage:
 Captures must be float32 (pw-record --format f32), otherwise over-FS
 peaks were already destroyed by the recording itself.
 """
+import os
 import sys
-import numpy as np
 import soundfile as sf
 
-from pde_audit import dbfs, clip_stats
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from perdeviceeq.pde_audit import dbfs, clip_stats    # noqa: E402
 
 
 def main():

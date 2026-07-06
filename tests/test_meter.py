@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from pde_audit import DEMO_PROFILE, apply_chain, dbfs
+from perdeviceeq.pde_audit import DEMO_PROFILE, apply_chain, dbfs
 from perdeviceeq import eq
 from perdeviceeq.meter import BLOCK, Ballistics, MeterEngine, chain_sos
 

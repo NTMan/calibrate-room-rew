@@ -27,10 +27,11 @@ import math
 import os
 import sys
 
-import numpy as np
 import soundfile as sf
 
-from pde_audit import DEMO_PROFILE, apply_chain, clip_stats, dbfs, load_profile
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from perdeviceeq.pde_audit import (                   # noqa: E402
+    DEMO_PROFILE, apply_chain, clip_stats, dbfs, load_profile)
 
 CH_NAMES = ["FL", "FR", "FC", "LFE", "RL", "RR", "SL", "SR"]
 PROFILES_DIR = os.path.expanduser("~/.config/per-device-eq/profiles")

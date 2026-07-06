@@ -27,6 +27,11 @@ Requires:       pipewire
 Requires:       pipewire-utils
 Requires:       wireplumber
 Requires:       hicolor-icon-theme
+# measurement wizard math (perdeviceeq.measure_core/measure_session,
+# fit_peq, pde_audit); the core EQ app runs without them
+Recommends:     python3-numpy
+Recommends:     python3-scipy
+Recommends:     python3-soundfile
 
 %description
 Per-Device EQ applies a parametric equaliser directly inside the real PipeWire

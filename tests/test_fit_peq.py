@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT))
 
-import fit_peq                                        # noqa: E402
+from perdeviceeq import fit_peq                     # noqa: E402
 from perdeviceeq import eq                            # noqa: E402
 
 

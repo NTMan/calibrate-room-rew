@@ -25,7 +25,8 @@ import numpy as np
 from scipy import signal as sg
 import soundfile as sf
 
-from pde_audit import dbfs
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from perdeviceeq.pde_audit import dbfs                 # noqa: E402
 
 FS_SRC = 44100
 FS_OUT = 48000

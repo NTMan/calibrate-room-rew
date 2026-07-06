@@ -15,8 +15,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pde_audit import DEMO_PROFILE, chain_curve
-import measure_session as ms
+from perdeviceeq.pde_audit import DEMO_PROFILE, chain_curve
+from perdeviceeq import measure_session as ms
 
 ROOT = Path(__file__).resolve().parent.parent
 SHIMS = ROOT / "tests" / "shims"
