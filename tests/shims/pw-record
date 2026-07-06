@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Fake pw-record: waits for the pw-play deposit, runs the deposited
+sweep wav through a KNOWN pde_audit biquad chain (DEMO_PROFILE FL by
+default, override via PDE_SHIM_CHAIN=<json file>), scales by the sink
+volume (amplitude ~ cubic**3, like a real analog path behind a software
+volume), prepends a delay, adds noise and streams raw interleaved f32 to
+stdout -- exactly what the real `pw-record ... -` emits. After the
+payload it keeps streaming zeros until killed, so the runner's
+frame-count stop condition always wins."""
+import json
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import shimlib as sl
+
+repo = os.environ.get("PDE_SHIM_REPO")
+if repo:
+    sys.path.insert(0, os.path.join(repo, "tools"))
+
+import numpy as np
+import soundfile as sf
+from pde_audit import DEMO_PROFILE, apply_chain
+
+
+def parse(argv):
+    rate, channels, target = 48000, 1, None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--rate":
+            i += 1; rate = int(argv[i])
+        elif a == "--channels":
+            i += 1; channels = int(argv[i])
+        elif a == "-P":
+            i += 1
+            m = re.search(r"node\.target\s*=\s*(\d+)", argv[i])
+            if m:
+                target = int(m.group(1))
+        elif a in ("--target", "--format"):
+            i += 1
+        i += 1
+    return rate, channels, target
+
+
+def chain():
+    p = os.environ.get("PDE_SHIM_CHAIN")
+    if p:
+        with open(p) as f:
+            return json.load(f)
+    return DEMO_PROFILE["channels"]["FL"]
+
+
+def main(argv):
+    rate, channels, target = parse(argv)
+    # regression marker: the runner MUST pass --raw (else real pw-record
+    # prefixes a format header that decodes to a NaN); tests assert it
+    sl.write_json("raw_flag.json", {"raw": "--raw" in argv})
+    # announce the capture stream immediately (before waiting for the
+    # playback deposit) so verify_capture sees the node + its source link
+    sl.write_json("capturing.json",
+                  {"node_name": "pde-measure-capture",
+                   "target": target if target is not None else sl.SOURCE_ID})
+    deadline = time.monotonic() + 60
+    played = None
+    while time.monotonic() < deadline:
+        played = sl.read_json("played.json")
+        if played:
+            break
+        time.sleep(0.05)
+    if not played:
+        print("fake pw-record: no pw-play deposit", file=sys.stderr)
+        return 1
+
+    n = sl.bump("rec-counter")
+    x, fs = sf.read(played["wav"], dtype="float64", always_2d=True)
+    y = apply_chain(x[:, 0], chain(), fs) * float(played.get("volume", 1.0))
+    cubic = float(sl.read_json("volume.json", {"cubic": 0.3})["cubic"])
+    exp = float(os.environ.get("PDE_SHIM_GAIN_EXP", "3"))   # BT != cube law
+    y *= cubic ** exp
+    delay = int(float(os.environ.get("PDE_SHIM_DELAY_MS", "800"))
+                / 1000.0 * rate) + n * 17          # sub-ms per-take jitter
+    sig = np.concatenate([np.zeros(delay), y])
+    sig += float(os.environ.get("PDE_SHIM_NOISE", "3e-5")) \
+        * np.random.default_rng(20260704 + n).standard_normal(len(sig))
+    frames = np.repeat(sig[:, None], channels, axis=1).astype("<f4")
+
+    clip = os.environ.get("PDE_SHIM_CLIP")   # scale so |peak| >= 1.0
+    if clip:
+        peak = float(np.max(np.abs(frames))) or 1.0
+        frames = (frames / peak * float(clip)).astype("<f4")
+    nan_ch = os.environ.get("PDE_SHIM_NAN_CH")   # poison one channel
+    if nan_ch is not None:
+        k = int(os.environ.get("PDE_SHIM_NAN_COUNT", "1"))
+        # at the very start (warmup, index 1) or mid-stream, per the knob
+        start = 1 if os.environ.get("PDE_SHIM_NAN_AT_START") == "1" \
+            else len(frames) // 2
+        frames[start:start + k, int(nan_ch)] = np.float32("nan")
+
+    out = sys.stdout.buffer
+    try:
+        out.write(frames.tobytes())
+        out.flush()
+        zeros = np.zeros((rate // 10, channels), dtype="<f4").tobytes()
+        while True:                       # silence until terminated
+            out.write(zeros)
+            out.flush()
+            time.sleep(0.05)
+    except (BrokenPipeError, KeyboardInterrupt):
+        return 0
+    finally:
+        try:
+            os.remove(os.path.join(sl.state_dir(), "capturing.json"))
+        except OSError:
+            pass
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]) or 0)

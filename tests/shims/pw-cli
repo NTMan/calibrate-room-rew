@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Fake pw-cli: only `set-param <id> Props '{ mute = true|false }'`.
+Writes muted.json (current state) + muted_log.json (ordered history) so
+tests can assert both the mute AND the restore."""
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import shimlib as sl
+
+
+def main(argv):
+    if len(argv) >= 4 and argv[0] == "set-param" and argv[2] == "Props":
+        m = re.search(r"mute\s*=\s*(true|false)", argv[3])
+        if not m:
+            return 1
+        mute = m.group(1) == "true"
+        cur = sl.read_json("muted.json", {})
+        cur[argv[1]] = mute
+        sl.write_json("muted.json", cur)
+        sl.append_json("muted_log.json", {"id": argv[1], "mute": mute})
+        return 0
+    print("fake pw-cli: unsupported args %r" % argv, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

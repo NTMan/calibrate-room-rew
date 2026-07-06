@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Fake wpctl: get-volume prints the cubic value like the real tool,
+set-volume writes volume.json (which pw-dump exposes as channelVolumes =
+cubic**3 and pw-record uses as the analog gain)."""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import shimlib as sl
+
+
+def main(argv):
+    if len(argv) >= 2 and argv[0] == "get-volume":
+        print("Volume: %.2f" % sl.read_json("volume.json",
+                                            {"cubic": 0.3})["cubic"])
+        return 0
+    if len(argv) >= 3 and argv[0] == "set-volume":
+        v = float(argv[2].rstrip("%"))
+        if argv[2].endswith("%"):
+            v /= 100.0
+        sl.write_json("volume.json", {"cubic": v})
+        sl.append_json("volume_log.json", {"id": argv[1], "cubic": v})
+        return 0
+    print("fake wpctl: unsupported args %r" % argv, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Fake pw-metadata over metadata.json. Supports the four calls the app
+and measure_run make:
+
+    pw-metadata -n NAME 0              list
+    pw-metadata -n NAME 0 KEY          read one key
+    pw-metadata -n NAME 0 KEY VALUE    set
+    pw-metadata -n NAME -d 0 KEY       delete
+
+Output mirrors the real tool closely enough for the runner's parsers:
+the 'Found "NAME" metadata 0' header (metadata_set checks for it) and
+update lines `update: id:0 key:'K' value:'V' type:''`."""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import shimlib as sl
+
+
+def main(argv):
+    name, delete, rest = "default", False, []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "-n":
+            i += 1; name = argv[i]
+        elif a == "-d":
+            delete = True
+        else:
+            rest.append(a)
+        i += 1
+    if not rest or rest[0] != "0":
+        print("fake pw-metadata: expected id 0, got %r" % rest,
+              file=sys.stderr)
+        return 1
+    print('Found "%s" metadata 0' % name)
+    meta = sl.read_json("metadata.json", {})
+    args = rest[1:]
+    if delete:
+        if args:
+            meta.pop(args[0], None)
+            sl.write_json("metadata.json", meta)
+        return 0
+    if len(args) >= 2:
+        meta[args[0]] = args[1]
+        sl.write_json("metadata.json", meta)
+        print("update: id:0 key:'%s' value:'%s' type:''"
+              % (args[0], args[1]))
+        return 0
+    keys = [args[0]] if args else sorted(meta)
+    for k in keys:
+        if k in meta:
+            print("update: id:0 key:'%s' value:'%s' type:''" % (k, meta[k]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

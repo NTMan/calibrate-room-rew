@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Fake pw-dump: a minimal graph with one ALSA sink, one ALSA mic source,
+our sweep stream while the fake pw-play runs, and (opt-in) one foreign
+output stream. Shapes mirror what measure_run reads from the real tool."""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import shimlib as sl
+
+
+def node(nid, props, params=None):
+    return {"id": nid, "type": "PipeWire:Interface:Node",
+            "info": {"props": props, "params": params or {}}}
+
+
+def link(lid, out_node, in_node):
+    return {"id": lid, "type": "PipeWire:Interface:Link",
+            "info": {"output-node-id": out_node, "input-node-id": in_node}}
+
+
+def main():
+    cubic = float(sl.read_json("volume.json", {"cubic": 0.3})["cubic"])
+    cv = round(cubic ** 3, 6)
+    muted = sl.read_json("muted.json", {})
+    objs = [
+        node(sl.SINK_ID,
+             {"node.name": sl.SINK_NAME,
+              "node.description": "Test Sink (shim)",
+              "media.class": "Audio/Sink", "device.api": "alsa",
+              "priority.session": 1000},
+             {"Props": [{"volume": 1.0, "mute": False,
+                         "channelVolumes": [cv, cv]}]}),
+        node(sl.SOURCE_ID,
+             {"node.name": sl.SOURCE_NAME,
+              "node.description": "Test Measurement Mic (shim)",
+              "media.class": "Audio/Source", "device.api": "alsa"},
+             {"Props": [{"volume": 1.0, "mute": False,
+                         "channelVolumes": [1.0]}]}),
+    ]
+    if os.environ.get("PDE_SHIM_OTHER_SINK") == "1":
+        # a second sink that became the GNOME default mid-session
+        objs.append(node(sl.OTHER_SINK_ID,
+                         {"node.name": "alsa_output.other_default_sink",
+                          "node.description": "Other Default (shim)",
+                          "media.class": "Audio/Sink", "device.api": "alsa"},
+                         {"Props": [{"volume": 1.0, "mute": False,
+                                     "channelVolumes": [1.0, 1.0]}]}))
+    playing = sl.read_json("playing.json")
+    if playing:
+        objs.append(node(sl.PLAY_ID,
+                         {"node.name": playing.get("node_name", "?"),
+                          "media.class": "Stream/Output/Audio",
+                          "application.name": "per-device-eq measure"},
+                         {"Props": [{"volume": 1.0, "mute": False,
+                                     "channelVolumes": [1.0, 1.0]}]}))
+        tgt = playing.get("target") or sl.SINK_ID
+        objs.append(link(sl.PLAY_ID + 1, sl.PLAY_ID, tgt))
+        # an UNPINNED stream follows the new default and sprawls onto it;
+        # node.target + dont-reconnect (playing.pinned) must prevent that
+        if (os.environ.get("PDE_SHIM_OTHER_SINK") == "1"
+                and not playing.get("pinned")):
+            objs.append(link(sl.PLAY_ID + 2, sl.PLAY_ID, sl.OTHER_SINK_ID))
+    capturing = sl.read_json("capturing.json")
+    if capturing:
+        # the capture stream, linked FROM the source it targeted -- or,
+        # with PDE_SHIM_CAPTURE_WRONG=1, from a wrong (default) source, to
+        # exercise verify_capture's hijack detection
+        objs.append(node(sl.CAPTURE_ID,
+                         {"node.name": capturing.get("node_name", "?"),
+                          "media.class": "Stream/Input/Audio",
+                          "application.name": "per-device-eq measure"}))
+        if os.environ.get("PDE_SHIM_CAPTURE_WRONG") == "1":
+            objs.append(node(sl.WRONG_SOURCE_ID,
+                             {"node.name": "obsbot_wrong_default",
+                              "media.class": "Audio/Source",
+                              "device.api": "alsa"}))
+            objs.append(link(sl.CAPTURE_ID + 1, sl.WRONG_SOURCE_ID,
+                             sl.CAPTURE_ID))
+        else:
+            objs.append(link(sl.CAPTURE_ID + 1,
+                             capturing.get("target", sl.SOURCE_ID),
+                             sl.CAPTURE_ID))
+    if os.environ.get("PDE_SHIM_FOREIGN") == "1":
+        objs.append(node(sl.FOREIGN_ID,
+                         {"node.name": "firefox",
+                          "media.class": "Stream/Output/Audio",
+                          "application.name": "Firefox"},
+                         {"Props": [{"volume": 1.0,
+                                     "mute": bool(muted.get(
+                                         str(sl.FOREIGN_ID), False)),
+                                     "channelVolumes": [1.0, 1.0]}]}))
+        objs.append(link(sl.FOREIGN_ID + 1, sl.FOREIGN_ID, sl.SINK_ID))
+    json.dump(objs, sys.stdout)
+    print()
+
+
+if __name__ == "__main__":
+    main()

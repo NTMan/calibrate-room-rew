@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Fake pw-play: deposits the wav path for the pw-record shim, snapshots
+the metadata state (proof of bypass DURING the sound), keeps a
+'playing.json' marker alive long enough for the path verification
+pw-dump, then exits. PDE_SHIM_PLAY_FAIL=1 exits 1 instead (mid-measure
+failure for the restore-on-exception test)."""
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import shimlib as sl
+
+
+def main(argv):
+    target, volume, props, wav = None, 1.0, "", None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--target":
+            i += 1; target = argv[i]
+        elif a == "--volume":
+            i += 1; volume = float(argv[i])
+        elif a == "-P":
+            i += 1; props = argv[i]
+        elif not a.startswith("-"):
+            wav = a
+        i += 1
+    m = re.search(r"node\.name\s*=\s*([^\s,}]+)", props)
+    node_name = m.group(1) if m else "pw-play"
+    mt = re.search(r"node\.target\s*=\s*(\d+)", props)   # pinned target
+    pinned = mt is not None
+    if mt:
+        target = int(mt.group(1))
+
+    n = sl.bump("play-counter")
+    sl.write_json("meta_at_play_%d.json" % n,
+                  sl.read_json("metadata.json", {}))
+    sl.write_json("played.json", {"wav": os.path.realpath(wav),
+                                  "counter": n, "volume": volume,
+                                  "target": target})
+    if os.environ.get("PDE_SHIM_PLAY_FAIL") == "1":
+        print("fake pw-play: injected failure", file=sys.stderr)
+        return 1
+    sl.write_json("playing.json",
+                  {"node_name": node_name, "id": sl.PLAY_ID,
+                   "target": target if isinstance(target, int) else None,
+                   "pinned": pinned})
+    try:
+        time.sleep(float(os.environ.get("PDE_SHIM_PLAY_SECONDS", "1.2")))
+    finally:
+        try:
+            os.unlink(sl.path("playing.json"))
+        except OSError:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
