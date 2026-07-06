@@ -109,6 +109,28 @@ def list_sinks(dump=None):
     sinks.sort(key=lambda s: -(s["prio"] or 0))
     return sinks
 
+def list_sources(dump=None):
+    """Audio/Source nodes (measurement mics live here): id, name, desc,
+    priority.session, sorted by priority. No 'default' flag on purpose --
+    the system default source is the comms/webcam mic, never the
+    measurement rig, so the measure window pre-selects the last-used
+    source (per-sink recall) instead of the default."""
+    dump = dump if dump is not None else pw_dump()
+    sources = []
+    for o in dump:
+        if o.get("type") != "PipeWire:Interface:Node":
+            continue
+        p = (o.get("info") or {}).get("props") or {}
+        if p.get("media.class") == "Audio/Source":
+            name = p.get("node.name")
+            if not name:
+                continue
+            sources.append({"id": o["id"], "name": name,
+                            "desc": p.get("node.description") or name,
+                            "prio": p.get("priority.session") or 0})
+    sources.sort(key=lambda s: -(s["prio"] or 0))
+    return sources
+
 def node_params(name, dump=None):
     dump = dump if dump is not None else pw_dump()
     for o in dump:
