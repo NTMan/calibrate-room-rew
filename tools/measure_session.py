@@ -10,6 +10,16 @@ verbatim from tools/measure_run.py so the GTK wizard (increment 4) can
 drive takes from GUI callbacks without dragging in argparse, prompts
 or the batch loop; measure_run.py remains the CLI on top.
 
+MeasureSession is that wizard-facing API: preconditions in the
+constructor (refuses before any sound), profile bypass + foreign-stream
+muting + the quiet auto-level start on __enter__ (restored on ANY
+exit), take(channel) for one physical sweep returning a structured
+TakeOutcome -- the analyzed curve plus the running per-frequency spread
+across the channel's accepted takes, the GUI's live fan --, discard()
+to drop a bad take, accept_level() to keep measuring at a stuck level,
+finalize(channel) writing one result.json per channel (fit_peq
+--left/--right takes it from there). No printing, no prompts.
+
 Method notes (worth not re-deriving):
 
 - No clock synchronization between playback and capture is attempted: the
@@ -38,6 +48,45 @@ Method notes (worth not re-deriving):
   FROM the requested source and no other, or the run aborts (a wrong
   default source hijacking the recording is a common, silent failure). The
   verdict and any unknown node names are kept in `path_clean`.
+- Foreign streams: anything else playing into the sink during the sweep is
+  measured too. By default their presence refuses the run with a list;
+  --mute-others instead mutes them (Props mute=true via pw-cli) for the
+  duration and restores the previous mute state after. The list, muted or
+  not, goes into `foreign_streams` of the result.
+- Levels policy: the digital sweep level is FIXED at -6 dBFS (core), the
+  sweep stream volume is forced to 1.0 (pw-play --volume, verified from
+  the node's Props), and the sink volume is never touched -- the protocol
+  is to measure at the working listening level via the sink's own control.
+  The only exception is --auto-level: starting from a quiet volume
+  (min(current, 0.15) cubic) it adjusts the sink volume via wpctl until
+  the capture peak lands in the -12..-6 dBFS window, after an explicit
+  confirmation. It assumes nothing about the device's volume->gain law
+  (a BT sink's is nothing like the software cube law): it brackets the
+  window and interpolates in log-volume between a too-quiet and a
+  too-loud probe, stepping with the slope measured from the last two
+  probes until then, capped per step and held below any level seen to
+  clip -- so the first sound neither blasts nor overshoots into a clip
+  (see AutoLevel). Without --auto-level the sink volume is never raised
+  above its value at start (it is not written at all). Everything ends
+  up in `levels`.
+- SNR: pw-record is asked for a bare stream with --raw; without it the
+  stdout stream is prefixed with a format descriptor (rate/channels POD)
+  whose bytes decode to a NaN at the start of channel 0 on every
+  capture. Each take gets a quick pre-roll noise-floor check right after
+  capture (same threshold and wording as the core) so a noisy room is
+  caught on take 1, not after five reseats; up to REPAIR_MAX_MS of
+  isolated non-finite (NaN/Inf) samples on the analyzed channel are
+  interpolated as a capture xrun (with a warning) while a larger flood
+  aborts as a faulty input; the non-finite scan covers ALL channels, not
+  just the analyzed one, so a glitch on the other side is not invisible.
+  A full-scale sample count flags a genuinely clipped (unusable) take
+  and a peak above HOT_DBFS is only a low-headroom advisory. The
+  authoritative numbers are still computed by the core from the aligned
+  impulse.
+- Raw takes (float32 wav, all captured channels) plus the sweep wav, its
+  sidecar and the analytic inverse (REW cross-check) are saved under
+  tests/fixtures-local/<device>_<stamp>/ -- .gitignore'd, real captures
+  never enter git.
 """
 import json
 import math
@@ -48,6 +97,9 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import ExitStack
+from dataclasses import dataclass, field
+from datetime import datetime
 
 import numpy as np
 
@@ -82,6 +134,20 @@ class MeasureError(RuntimeError):
 
 class RefusalError(RuntimeError):
     """Precondition not met; nothing was played, nothing was changed."""
+
+
+class FaultyCaptureError(MeasureError):
+    """A flood of non-finite samples: a broken input, not a dropout.
+    Neutral wording; the CLI appends its --channel flag hint."""
+
+    def __init__(self, channel, channels, bad):
+        super().__init__(
+            "channel %d capture has %d non-finite sample(s) (NaN/Inf) -- "
+            "too many to be a dropout; the input is faulty, not merely "
+            "quiet." % (channel, bad))
+        self.channel = channel
+        self.channels = channels
+        self.bad = bad
 
 
 # --- subprocess plumbing -----------------------------------------------------
@@ -685,3 +751,375 @@ def default_save_base():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     local = os.path.join(root, "tests", "fixtures-local")
     return local if os.path.isdir(local) else os.getcwd()
+
+
+# --- session: the wizard-facing single-take API ---------------------------
+
+@dataclass
+class SessionConfig:
+    """Everything a measurement session needs up front. The analyzed
+    channel is deliberately NOT here: it is an argument of every take,
+    so one session accumulates L and R side by side."""
+    sink: str
+    source: str
+    channels: int = 1
+    samples: int = mc.DEFAULT_N
+    fs: int = mc.DEFAULT_FS
+    f_start: float = mc.DEFAULT_F_START
+    f_end: float = mc.DEFAULT_F_END
+    pre_silence: float = 1.0
+    post_silence: float = 0.5
+    cal: str = None
+    smoothing: int = 6
+    device: str = None
+    rig: str = None
+    mic: str = None
+    save_dir: str = None
+    mute_others: bool = False
+    auto_level: bool = False
+    raw_capture_dump: bool = False
+
+
+@dataclass
+class TakeRecord:
+    """One accepted take: the analyzed curve and its vital signs."""
+    id: int                   # monotonic; also the take%02d.wav number
+    channel: int              # the capture channel this take analyzed
+    freq_hz: np.ndarray       # analysis grid (log, shared per session)
+    mag_db: np.ndarray        # raw magnitude, no cal, no smoothing
+    delay_ms: float           # linear-IR peak position in the recording
+    snr_db: object            # core estimate from the aligned impulse
+    peak_dbfs: float
+    clipped: int              # full-scale sample count (0 = clean)
+    repaired: int             # interpolated non-finite samples
+    wav_path: str
+
+
+@dataclass
+class TakeOutcome:
+    """What one MeasureSession.take() call produced.
+
+    kind == "take": `take` is the accepted TakeRecord and `spread_db`
+    the per-frequency std (ddof=1) across the channel's accepted takes
+    (None until there are two) -- the live fan and its width.
+    kind == "level_probe": auto-level moved the sink volume and threw
+    the capture away; `level` says from/to/step. Just take() again.
+    kind == "level_stuck": auto-level cannot reach the target window;
+    the capture is held pending. accept_level() keeps it as a take at
+    the current level (the old confirm() path); the next take() drops
+    it instead.
+    `notes` are printable warnings in the CLI's exact wording.
+    """
+    kind: str
+    take: TakeRecord = None
+    spread_db: object = None
+    level: dict = None
+    notes: list = field(default_factory=list)
+
+
+class MeasureSession:
+    """Single-take measurement lifecycle for the CLI and the wizard.
+
+    Preconditions run in the constructor and raise RefusalError before
+    anything is played or changed. __enter__ writes the sweep files and
+    engages foreign-stream muting and the profile bypass (restored on
+    ANY exit) and, with auto_level, sets the quiet start volume.
+    take(channel) runs one physical sweep and returns a TakeOutcome;
+    discard() drops a bad take from the accumulation (the wav stays on
+    disk as evidence, ids are never reused); finalize(channel)
+    assembles the channel's result via measure_core and writes
+    result.json. No printing, no prompts: decisions surface as
+    outcomes, warning texts as `notes`.
+    """
+
+    def __init__(self, cfg):
+        if cfg.channels < 1:
+            raise RefusalError("channels must be >= 1")
+        tools = ["pw-dump", "pw-metadata", "pw-play", "pw-record"]
+        if cfg.auto_level:
+            tools.append("wpctl")
+        if cfg.mute_others:
+            tools.append("pw-cli")
+        require_tools(tools)
+        self.cfg = cfg
+        self.precondition_notes = []
+
+        dump = pw_dump()
+        self.sink = resolve_node(dump, cfg.sink, "Audio/Sink")
+        check_sink_identity(self.sink)
+        self.source = resolve_node(dump, cfg.source, "Audio/Source")
+        src_p = _props(self.source)
+        if src_p.get("media.class") != "Audio/Source":
+            raise RefusalError(
+                "capture target %r is %r, expected Audio/Source"
+                % (cfg.source, src_p.get("media.class")))
+        if not (src_p.get("device.api") or "").startswith("alsa"):
+            self.precondition_notes.append(
+                "WARNING: mic source device.api is %r; measurement mics "
+                "are expected on USB/ALSA" % src_p.get("device.api"))
+        self.sink_ident = node_ident(self.sink)
+        self.source_ident = node_ident(self.source)
+
+        v0, raw0, muted = sink_volume_state(dump, self.sink["id"])
+        if muted:
+            raise RefusalError("sink is muted; unmute it and set the "
+                               "working listening level first")
+        if v0 is None:
+            self.precondition_notes.append(
+                "WARNING: could not read the sink volume from pw-dump")
+        self.volume_start = v0
+        self._raw0 = raw0
+
+        self.foreign = foreign_streams(dump, self.sink["id"])
+        if self.foreign and not cfg.mute_others:
+            raise RefusalError(
+                "other streams are playing into this sink (a sweep on top "
+                "of them is not a measurement):\n  %s\nstop them or re-run "
+                "with --mute-others" % "\n  ".join(
+                    "id %(id)s  %(node_name)s  app=%(app)s" % s
+                    for s in self.foreign))
+
+        self.sweep = mc.generate_sweep(cfg.samples, cfg.fs, cfg.f_start,
+                                       cfg.f_end)
+        self.wav_duration = (cfg.pre_silence + self.sweep.duration_s
+                             + cfg.post_silence)
+        self.freqs = mc.log_grid()          # process_takes' exact grid
+        slug = re.sub(r"[^\w.+-]+", "_",
+                      cfg.device or self.sink_ident["name"]
+                      or "device").strip("_")
+        self.outdir = os.path.join(
+            cfg.save_dir or default_save_base(),
+            "%s_%s" % (slug, datetime.now().strftime("%Y%m%d-%H%M%S")))
+
+        self.wav = None                     # written on __enter__
+        self.path_clean = None
+        self.eq_state = None
+        self._stack = None
+        self._v_cur = v0
+        self._leveled = not cfg.auto_level
+        self._auto_ctl = AutoLevel()
+        self._auto_state = {"enabled": bool(cfg.auto_level),
+                            "adjustments": 0, "initial": None,
+                            "final": None, "in_window": None}
+        self._take_seq = 0                  # take%02d numbers, never reused
+        self._takes = {}                    # channel -> [(record, samples)]
+        self._pending = None                # capture awaiting accept_level
+
+    # -- lifecycle ----------------------------------------------------------
+
+    def __enter__(self):
+        os.makedirs(self.outdir, exist_ok=True)
+        self.wav = write_sweep_files(self.outdir, self.sweep,
+                                     self.cfg.pre_silence,
+                                     self.cfg.post_silence)
+        with ExitStack() as stack:
+            stack.enter_context(MuteOthers(self.foreign,
+                                           self.cfg.mute_others))
+            self.eq_state = stack.enter_context(
+                ProfileBypass(self.sink_ident["name"]))
+            if self.cfg.auto_level:
+                v = min(self.volume_start
+                        if self.volume_start is not None else 1.0,
+                        AUTO_START_VOLUME)
+                self._auto_state["initial"] = round(v, 4)
+                set_sink_volume(self.sink["id"], v)
+                self._v_cur = v
+            self._stack = stack.pop_all()
+        return self
+
+    def __exit__(self, *exc):
+        stack, self._stack = self._stack, None
+        if stack is not None:
+            return stack.__exit__(*exc)
+        return False
+
+    # -- one physical sweep --------------------------------------------------
+
+    def take(self, channel):
+        """One sweep played and captured, analyzed on `channel`."""
+        cfg = self.cfg
+        if not 0 <= channel < cfg.channels:
+            raise RefusalError("channel %d out of range for a %d-channel "
+                               "capture" % (channel, cfg.channels))
+        if self.wav is None:
+            raise MeasureError("session not entered (use `with session:`)")
+        self._pending = None                # a new sweep supersedes it
+        raw_path = (os.path.join(self.outdir,
+                                 "raw%02d.wav" % (self._take_seq + 1))
+                    if cfg.raw_capture_dump else None)
+        data, info = run_take(self.sink, self.source, self.wav,
+                              self.wav_duration, cfg.channels,
+                              self.sweep.fs,
+                              verify=self.path_clean is None,
+                              raw_dump_path=raw_path)
+        if info is not None:
+            self.path_clean = info
+
+        notes = []
+        # diagnostic: scan ALL channels, not just the one we analyze,
+        # so a glitch on the other channel isn't invisible
+        for c in range(data.shape[1]):
+            w = np.nonzero(~np.isfinite(data[:, c]))[0]
+            if w.size:
+                notes.append("note: %d non-finite sample(s) on channel %d "
+                             "at %s of %d"
+                             % (w.size, c, list(w[:6]), data.shape[0]))
+        chan = data[:, channel]
+        where = np.nonzero(~np.isfinite(chan))[0]
+        bad = int(where.size)
+        if bad:
+            limit = max(1, int(REPAIR_MAX_MS / 1000.0 * self.sweep.fs))
+            if bad > limit or bad >= len(chan):
+                raise FaultyCaptureError(channel, cfg.channels, bad)
+            chan = repair_nonfinite(chan)
+            data = data.copy()
+            data[:, channel] = chan         # keep the saved take finite
+            notes.append("WARNING: interpolated %d non-finite capture "
+                         "sample(s) on channel %d at %s of %d -- a benign "
+                         "single-sample glitch during the sweep; the take "
+                         "is unaffected."
+                         % (bad, channel, list(where[:6]), len(chan)))
+        pk = peak_dbfs(chan)
+        clipped = int(np.count_nonzero(np.abs(chan) >= FULLSCALE))
+        if clipped:
+            notes.append("WARNING: %d sample(s) at full scale -- the sweep "
+                         "is clipped and this take is unusable; lower the "
+                         "sink volume (or use --auto-level) and remeasure."
+                         % clipped)
+        elif pk >= HOT_DBFS:
+            notes.append("WARNING: capture peak %.1f dBFS leaves little "
+                         "headroom (risk of inter-sample clipping); "
+                         "consider a lower level or --auto-level (targets "
+                         "%g..%g dBFS)." % (pk, *AUTO_WINDOW))
+
+        if not self._leveled:
+            auto = self._auto_state
+            self._auto_ctl.observe(self._v_cur, pk, bool(clipped))
+            v_new = self._auto_ctl.next_volume(self._v_cur, pk)
+            stuck = abs(v_new - self._v_cur) < 1e-3
+            if not clipped and self._auto_ctl.in_window(pk):
+                self._leveled, auto["in_window"] = True, True
+            elif auto["adjustments"] >= AUTO_MAX_ADJUST or stuck:
+                auto["in_window"] = False
+                why = ("the level cannot be moved further (at %.0f%%)"
+                       % (100 * self._v_cur) if stuck
+                       else "%d adjustments" % AUTO_MAX_ADJUST)
+                notes.append("WARNING: auto-level gave up after %s (peak "
+                             "%.1f dBFS outside %g..%g)"
+                             % (why, pk, *AUTO_WINDOW))
+                self._pending = (channel, data, chan, pk, clipped, bad)
+                return TakeOutcome(
+                    "level_stuck", notes=notes,
+                    level={"peak_dbfs": pk, "volume": self._v_cur,
+                           "why": why, "window": AUTO_WINDOW})
+            else:
+                auto["adjustments"] += 1
+                level = {"peak_dbfs": pk, "volume_from": self._v_cur,
+                         "volume_to": v_new, "step": auto["adjustments"],
+                         "max_steps": AUTO_MAX_ADJUST}
+                set_sink_volume(self.sink["id"], v_new)
+                self._v_cur = v_new
+                return TakeOutcome("level_probe", level=level, notes=notes)
+        return self._accept(channel, data, chan, pk, clipped, bad, notes)
+
+    def accept_level(self):
+        """Keep the pending level_stuck capture as a take at the current
+        level -- the caller's 'continue anyway' decision."""
+        if self._pending is None:
+            raise MeasureError("no leveling decision is pending")
+        channel, data, chan, pk, clipped, repaired = self._pending
+        self._pending = None
+        self._leveled = True
+        return self._accept(channel, data, chan, pk, clipped, repaired, [])
+
+    def _accept(self, channel, data, chan, pk, clipped, repaired, notes):
+        snr = self._quick_snr(chan)
+        if snr is not None and snr < mc.SNR_WARN_DB:
+            notes.append("WARNING: low SNR (%.1f dB): raise the level or "
+                         "kill the noise source" % snr)
+        self._take_seq += 1
+        path = save_take_wav(self.outdir, self._take_seq, data,
+                             self.sweep.fs)
+        t = mc.analyze_take(chan, self.sweep, self.freqs)
+        rec = TakeRecord(self._take_seq, channel, self.freqs, t.mag_db,
+                         t.delay_ms, t.snr_db, pk, clipped, repaired, path)
+        self._takes.setdefault(channel, []).append((rec, chan))
+        return TakeOutcome("take", take=rec,
+                           spread_db=self.spread_db(channel), notes=notes)
+
+    def _quick_snr(self, chan):
+        """Fast per-take noise-floor check so a noisy room is caught
+        before the next reseat. Onset = first sustained crossing of 10x
+        the pre-roll RMS; threshold and wording match the core."""
+        fs = self.sweep.fs
+        head = chan[:int(0.4 * fs)]
+        noise = math.sqrt(float(np.mean(head ** 2))) if len(head) else 0.0
+        thr = max(10.0 * noise, 1e-6)
+        over = np.flatnonzero(np.abs(chan) > thr)
+        if not len(over):
+            return None
+        snr, _, _ = mc.estimate_snr(chan, int(over[0]), self.sweep)
+        return snr
+
+    # -- the accumulated fan --------------------------------------------------
+
+    def takes_of(self, channel):
+        """The channel's accepted TakeRecords, oldest first."""
+        return [rec for rec, _ in self._takes.get(channel, [])]
+
+    def spread_db(self, channel):
+        """Per-frequency std (ddof=1) across the channel's accepted
+        takes; None until there are two. The live fan's width."""
+        recs = self.takes_of(channel)
+        if len(recs) < 2:
+            return None
+        return mc.average_takes(recs)[1]
+
+    def discard(self, channel, take_id):
+        """Drop a bad take from the accumulation. The wav stays on disk
+        as evidence; ids and file numbers are never reused."""
+        entries = self._takes.get(channel, [])
+        for i, (rec, _) in enumerate(entries):
+            if rec.id == take_id:
+                del entries[i]
+                return rec
+        raise MeasureError("no take %s on channel %d" % (take_id, channel))
+
+    # -- result ---------------------------------------------------------------
+
+    def finalize(self, channel, out_path=None):
+        """Average the channel's accepted takes into a result dict via
+        measure_core.process_takes and write it as result.json."""
+        entries = self._takes.get(channel, [])
+        if not entries:
+            raise MeasureError("no accepted takes on channel %d" % channel)
+        dump = pw_dump()
+        v_final, raw_final, _ = sink_volume_state(dump, self.sink["id"])
+        v_report = v_final if v_final is not None else self._v_cur
+        auto = dict(self._auto_state)
+        auto["final"] = (round(v_report, 4) if self.cfg.auto_level
+                         else None)
+        levels = {
+            "sink_volume": (round(v_report, 4)
+                            if v_report is not None else None),
+            "sink_volume_start": (round(self.volume_start, 4)
+                                  if self.volume_start is not None
+                                  else None),
+            "sink_channel_volumes": raw_final or self._raw0,
+            "stream_volume": (self.path_clean or {}).get(
+                "playback_stream", {}).get("volume"),
+            "capture_peak_dbfs": [round(r.peak_dbfs, 2)
+                                  for r, _ in entries],
+            "auto_level": auto,
+        }
+        result = mc.process_takes(
+            [samples for _, samples in entries], self.sweep,
+            cal=self.cfg.cal, smoothing_fraction=self.cfg.smoothing,
+            device=(self.cfg.device or self.sink_ident["description"]
+                    or self.sink_ident["name"]),
+            rig=self.cfg.rig, mic=self.cfg.mic,
+            eq_profile_state=self.eq_state, levels=levels,
+            path_clean=self.path_clean, foreign_streams=self.foreign)
+        out = out_path or os.path.join(self.outdir, "result.json")
+        mc.save_result(result, out)
+        return result
