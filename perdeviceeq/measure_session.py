@@ -1109,9 +1109,15 @@ class MeasureSession:
 
     # -- result ---------------------------------------------------------------
 
-    def finalize(self, channel, out_path=None):
+    def finalize(self, channel, out_path=None, cal=None):
         """Average the channel's accepted takes into a result dict via
-        measure_core.process_takes and write it as result.json."""
+        measure_core.process_takes and write it as result.json.
+
+        cal defaults to the session's cfg.cal; pass cal= to override per
+        channel. The wizard measures both ears in one session but each
+        coupler has its own mic-cal file (L_RAW vs R_RAW), so it finalizes
+        each channel with that channel's cal. mag_db_uncal is stored
+        regardless, so a different cal can still be applied later."""
         entries = self._takes.get(channel, [])
         if not entries:
             raise MeasureError("no accepted takes on channel %d" % channel)
@@ -1136,7 +1142,8 @@ class MeasureSession:
         }
         result = mc.process_takes(
             [samples for _, samples in entries], self.sweep,
-            cal=self.cfg.cal, smoothing_fraction=self.cfg.smoothing,
+            cal=(cal if cal is not None else self.cfg.cal),
+            smoothing_fraction=self.cfg.smoothing,
             device=(self.cfg.device or self.sink_ident["description"]
                     or self.sink_ident["name"]),
             rig=self.cfg.rig, mic=self.cfg.mic,

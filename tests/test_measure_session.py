@@ -245,3 +245,32 @@ def test_take_quality_thresholds():
     assert ms.take_quality(_q_rec(snr_db=None)) == ms.TAKE_CLEAN
     # a repaired single-sample glitch stays clean
     assert ms.take_quality(_q_rec(repaired=1)) == ms.TAKE_CLEAN
+
+
+# --- finalize(cal=): per-channel calibration override ----------------------
+
+def test_finalize_cal_override_per_channel(shim_state, tmp_path):
+    import numpy as np
+    flat = tmp_path / "flat.txt"
+    flat.write_text("20 0.0\n1000 0.0\n20000 0.0\n")
+    tilt = tmp_path / "tilt.txt"                 # -6 dB by 20 kHz
+    tilt.write_text("20 0.0\n1000 -3.0\n20000 -6.0\n")
+    ses = ms.MeasureSession(make_cfg(tmp_path, cal=str(flat)))
+    with ses:
+        ses.take(0)
+    # explicit override wins over cfg.cal
+    r_flat = ses.finalize(0, str(tmp_path / "f.json"), cal=str(flat))
+    r_tilt = ses.finalize(0, str(tmp_path / "t.json"), cal=str(tilt))
+    assert os.path.basename(r_flat["cal_file"]) == "flat.txt"
+    assert os.path.basename(r_tilt["cal_file"]) == "tilt.txt"
+    # same capture, different cal subtracted -> raw curves differ, and the
+    # pre-cal magnitude is identical (only the cal application changed)
+    raw_flat = np.asarray(r_flat["data"]["mag_db_raw"], dtype=float)
+    raw_tilt = np.asarray(r_tilt["data"]["mag_db_raw"], dtype=float)
+    assert float(np.max(np.abs(raw_flat - raw_tilt))) > 2.0
+    unc_flat = np.asarray(r_flat["data"]["mag_db_uncal"], dtype=float)
+    unc_tilt = np.asarray(r_tilt["data"]["mag_db_uncal"], dtype=float)
+    assert float(np.max(np.abs(unc_flat - unc_tilt))) < 1e-9
+    # no cal argument falls back to the session's cfg.cal (flat here)
+    r_default = ses.finalize(0, str(tmp_path / "d.json"))
+    assert os.path.basename(r_default["cal_file"]) == "flat.txt"
