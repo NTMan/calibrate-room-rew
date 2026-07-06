@@ -416,3 +416,31 @@ def test_capture_glitch_probe_help():
          "--help"], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0
     assert "glitch" in r.stdout.lower()
+
+
+def test_capture_glitch_probe_runs_against_shims(tmp_path):
+    # the probe must actually EXECUTE end-to-end: the --help smoke once
+    # hid an AttributeError on a constant that never shipped in
+    # measure_run (the pre---raw warmup-drop draft)
+    import soundfile as sf
+    import measure_core as mc
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "volume.json").write_text(json.dumps({"cubic": 0.30}))
+    env = os.environ.copy()
+    env["PDE_SHIM_DIR"] = str(state)
+    env["PDE_SHIM_REPO"] = str(ROOT)
+    env["PDE_SHIM_PLAY_SECONDS"] = "0.5"
+    env["PDE_SHIM_NAN_CH"] = "0"          # one mid-stream NaN: a real
+    env["PATH"] = "%s%s%s" % (SHIMS, os.pathsep, env["PATH"])   # dropout
+    sw = mc.generate_sweep(16384)
+    wav = tmp_path / "sweep.wav"
+    sf.write(str(wav), sw.signal.astype("float32"), sw.fs, subtype="FLOAT")
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "capture_glitch_probe.py"),
+         "--source", "test_source", "--sink", "test_sink",
+         "--sweep", str(wav), "--runs", "1", "--seconds", "1.5"],
+        capture_output=True, text=True, env=env, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "1/1 runs had non-finite samples" in r.stdout
+    assert "dropout" in r.stdout

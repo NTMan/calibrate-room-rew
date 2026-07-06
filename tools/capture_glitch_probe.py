@@ -9,9 +9,10 @@ It reuses measure_run.CaptureStream verbatim (same node.target pinning, same
 reader thread and byte assembly), captures N times in a row -- optionally
 with a sweep playing concurrently on a sink, matching the measurement -- and
 reports, per channel, how many runs produced non-finite samples and where.
-Crucially it splits the counts into the warmup region (first
-CAPTURE_WARMUP_FRAMES, which the measurement drops) and after it (a real
-mid-stream dropout), and reads the UNTRIMMED capture so nothing is hidden.
+Since the --raw fix nothing is dropped from a capture any more (the
+measurement interpolates isolated non-finite samples and aborts on floods),
+so every non-finite sample seen here is a real anomaly; the per-channel
+counts and the first-index histogram localize it.
 
 If NaN shows up here at a real rate on a stable position, that is material
 for a PipeWire bug report (attach: pipewire --version, `pw-cli info 0`, the
@@ -50,12 +51,10 @@ def probe(a):
     if sink and a.sweep:
         print("playing %s on %s (id %d) during capture"
               % (a.sweep, sink["info"]["props"].get("node.name"), sink["id"]))
-    warmup = mr.CAPTURE_WARMUP_FRAMES
     need = int(a.seconds * a.rate)
 
     runs_with_nan = 0
-    warm_hits = [0] * a.channels        # NaN inside the dropped warmup
-    tail_hits = [0] * a.channels        # NaN after warmup (a real dropout)
+    hits = [0] * a.channels             # non-finite samples per channel
     first_idx = []                      # first non-finite index seen per run
 
     for r in range(a.runs):
@@ -70,15 +69,14 @@ def probe(a):
             if play is not None and play.poll() is None:
                 play.kill()
             cap.stop()
-        x = cap.data(warmup_drop=False)
+        x = cap.data()
         run_bad = False
         run_first = None
         for c in range(min(a.channels, x.shape[1])):
             idx = np.nonzero(~np.isfinite(x[:, c]))[0]
             if idx.size:
                 run_bad = True
-                warm_hits[c] += int(np.count_nonzero(idx < warmup))
-                tail_hits[c] += int(np.count_nonzero(idx >= warmup))
+                hits[c] += int(idx.size)
                 run_first = idx[0] if run_first is None \
                     else min(run_first, idx[0])
         if run_bad:
@@ -89,20 +87,14 @@ def probe(a):
 
     print("\n%d/%d runs had non-finite samples" % (runs_with_nan, a.runs))
     for c in range(a.channels):
-        print("  channel %d: %d in warmup (<%d, dropped), %d after (real)"
-              % (c, warm_hits[c], warmup, tail_hits[c]))
+        print("  channel %d: %d non-finite sample(s)" % (c, hits[c]))
     if first_idx:
         vals, cnt = np.unique(np.array(first_idx), return_counts=True)
         print("  first-index histogram:",
               dict(zip(vals.tolist(), cnt.tolist())))
-    if any(tail_hits):
-        print("VERDICT: non-finite samples AFTER the warmup -- a real "
-              "mid-stream capture dropout, worth a PipeWire report.")
-    elif runs_with_nan:
-        print("VERDICT: non-finite only in the start-of-stream warmup, "
-              "which the measurement drops. Reproducible here with the raw "
-              "path -> a PipeWire warmup artifact; the measurement is "
-              "unaffected.")
+    if any(hits):
+        print("VERDICT: non-finite samples in the raw capture path -- a "
+              "real capture dropout, worth a PipeWire report.")
     else:
         print("VERDICT: no non-finite samples in %d runs." % a.runs)
     return 0
