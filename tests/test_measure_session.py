@@ -215,3 +215,33 @@ def test_foreign_stream_refuses_in_the_constructor(shim_state, tmp_path,
     with pytest.raises(ms.MeasureError, match="not entered"):
         ses.take(0)                                   # guard: no `with` yet
     assert not (shim_state / "played.json").exists()
+
+
+# --- take quality classification: the single source of truth ---------------
+
+def _q_rec(clipped=0, peak_dbfs=-10.0, snr_db=50.0, repaired=0):
+    return ms.TakeRecord(id=1, channel=0, freq_hz=None, mag_db=None,
+                         delay_ms=0.0, snr_db=snr_db, peak_dbfs=peak_dbfs,
+                         clipped=clipped, repaired=repaired, wav_path="x")
+
+
+def test_take_quality_thresholds():
+    from perdeviceeq import measure_core as mc
+    assert ms.take_quality(_q_rec()) == ms.TAKE_CLEAN
+    # clipping is unusable, and wins over everything else
+    assert ms.take_quality(_q_rec(clipped=3)) == ms.TAKE_CLIPPED
+    assert ms.take_quality(
+        _q_rec(clipped=3, peak_dbfs=0.0, snr_db=1.0)) == ms.TAKE_CLIPPED
+    # a hot peak (at or above HOT_DBFS) is flagged, not clean
+    assert ms.take_quality(_q_rec(peak_dbfs=ms.HOT_DBFS)) == ms.TAKE_FLAGGED
+    assert ms.take_quality(
+        _q_rec(peak_dbfs=ms.HOT_DBFS + 0.5)) == ms.TAKE_FLAGGED
+    assert ms.take_quality(
+        _q_rec(peak_dbfs=ms.HOT_DBFS - 0.5)) == ms.TAKE_CLEAN
+    # low SNR is flagged; unknown (None) SNR is not
+    assert ms.take_quality(
+        _q_rec(snr_db=mc.SNR_WARN_DB - 1.0)) == ms.TAKE_FLAGGED
+    assert ms.take_quality(_q_rec(snr_db=mc.SNR_WARN_DB)) == ms.TAKE_CLEAN
+    assert ms.take_quality(_q_rec(snr_db=None)) == ms.TAKE_CLEAN
+    # a repaired single-sample glitch stays clean
+    assert ms.take_quality(_q_rec(repaired=1)) == ms.TAKE_CLEAN

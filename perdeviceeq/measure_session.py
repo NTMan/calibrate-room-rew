@@ -794,6 +794,29 @@ class TakeRecord:
     wav_path: str
 
 
+TAKE_CLEAN = "clean"        # counts toward a channel's three good takes
+TAKE_FLAGGED = "flagged"    # usable but not ideal; does NOT count
+TAKE_CLIPPED = "clipped"    # unusable
+
+
+def take_quality(rec):
+    """Classify an accepted take. Single source of truth for the wizard's
+    ring/row status and the 'three clean takes' rule -- CLI, GUI and tests
+    all judge quality here, using the same thresholds the live take() path
+    warns on. Clipping is unusable (red); a hot peak (>= HOT_DBFS) or low
+    SNR (< SNR_WARN_DB) is usable-but-flagged (amber) and does not count;
+    everything else is clean (green). A repaired single-sample glitch
+    stays clean -- the take is unaffected by an interpolated sample --
+    while a None SNR (no onset found) is treated as unknown, not low."""
+    if rec.clipped:
+        return TAKE_CLIPPED
+    if rec.peak_dbfs >= HOT_DBFS:
+        return TAKE_FLAGGED
+    if rec.snr_db is not None and rec.snr_db < mc.SNR_WARN_DB:
+        return TAKE_FLAGGED
+    return TAKE_CLEAN
+
+
 @dataclass
 class TakeOutcome:
     """What one MeasureSession.take() call produced.
