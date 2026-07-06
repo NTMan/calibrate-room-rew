@@ -315,6 +315,9 @@ def process_takes(recordings, sweep, cal=None, smoothing_fraction=6,
     takes = [analyze_take(r, sweep, freqs, pre_flat_ms, pre_taper_ms,
                           post_ms, reg) for r in recordings]
     avg, spread = average_takes(takes)
+    uncal = np.asarray(avg).copy()          # before any cal: lets a different
+    #                                         cal (HEQ/IDF/RAW/HPN) be applied
+    #                                         later without re-measuring
     if cal is not None:
         avg = apply_mic_cal(freqs, avg, cal[0], cal[1])
     smoothed = smooth_fractional_octave(avg, ppo, smoothing_fraction)
@@ -372,7 +375,8 @@ def process_takes(recordings, sweep, cal=None, smoothing_fraction=6,
         "foreign_streams": foreign_streams or [],
         "warnings": warnings,
         "data": {"freq_hz": freqs, "mag_db_raw": avg,
-                 "mag_db_smoothed": smoothed, "spread_db": spread},
+                 "mag_db_smoothed": smoothed, "mag_db_uncal": uncal,
+                 "spread_db": spread},
     }
     return _jsonable(result)
 
