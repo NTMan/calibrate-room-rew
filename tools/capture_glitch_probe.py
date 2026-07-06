@@ -5,8 +5,8 @@ Not part of the measurement pipeline -- a diagnostic to decide whether the
 occasional NaN in a capture is a PipeWire/driver artifact (reproducible by
 the raw capture path) or something in the measurement orchestration.
 
-It reuses measure_run.CaptureStream verbatim (same node.target pinning, same
-reader thread and byte assembly), captures N times in a row -- optionally
+It reuses measure_session.CaptureStream verbatim (same node.target pinning,
+same reader thread and byte assembly), captures N times in a row -- optionally
 with a sweep playing concurrently on a sink, matching the measurement -- and
 reports, per channel, how many runs produced non-finite samples and where.
 Since the --raw fix nothing is dropped from a capture any more (the
@@ -31,7 +31,7 @@ import time
 
 import numpy as np
 
-import measure_run as mr
+import measure_session as ms
 
 
 def _play(sink_id, wav):
@@ -43,9 +43,9 @@ def _play(sink_id, wav):
 
 
 def probe(a):
-    dump = mr.pw_dump()
-    src = mr.resolve_node(dump, a.source, "Audio/Source")
-    sink = mr.resolve_node(dump, a.sink, "Audio/Sink") if a.sink else None
+    dump = ms.pw_dump()
+    src = ms.resolve_node(dump, a.source, "Audio/Source")
+    sink = ms.resolve_node(dump, a.sink, "Audio/Sink") if a.sink else None
     print("source: %s (id %d)" % (src["info"]["props"].get("node.name"),
                                   src["id"]))
     if sink and a.sweep:
@@ -58,7 +58,7 @@ def probe(a):
     first_idx = []                      # first non-finite index seen per run
 
     for r in range(a.runs):
-        cap = mr.CaptureStream(src["id"], a.channels, a.rate)
+        cap = ms.CaptureStream(src["id"], a.channels, a.rate)
         play = None
         try:
             time.sleep(0.3)

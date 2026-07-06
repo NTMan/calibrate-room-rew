@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 
 from pde_audit import DEMO_PROFILE, chain_curve
-import measure_run as mr
+import measure_session as ms
 
 ROOT = Path(__file__).resolve().parent.parent
 SHIMS = ROOT / "tests" / "shims"
@@ -174,16 +174,16 @@ def test_auto_level_starts_quiet_and_lands_in_window(tmp_path):
     r = json.loads(out.read_text())
     auto = r["levels"]["auto_level"]
     assert auto["enabled"] is True
-    assert auto["initial"] == pytest.approx(mr.AUTO_START_VOLUME, abs=1e-3)
-    assert 1 <= auto["adjustments"] <= mr.AUTO_MAX_ADJUST
+    assert auto["initial"] == pytest.approx(ms.AUTO_START_VOLUME, abs=1e-3)
+    assert 1 <= auto["adjustments"] <= ms.AUTO_MAX_ADJUST
     assert auto["in_window"] is True
     pk = r["levels"]["capture_peak_dbfs"][-1]
-    assert mr.AUTO_WINDOW[0] <= pk <= mr.AUTO_WINDOW[1]
+    assert ms.AUTO_WINDOW[0] <= pk <= ms.AUTO_WINDOW[1]
     vol = json.loads((state / "volume.json").read_text())["cubic"]
     assert vol == pytest.approx(auto["final"], abs=1e-3)
     assert vol > 0.30                       # allowed to exceed the start
     log = json.loads((state / "volume_log.json").read_text())
-    assert log[0]["cubic"] == pytest.approx(mr.AUTO_START_VOLUME, abs=1e-3)
+    assert log[0]["cubic"] == pytest.approx(ms.AUTO_START_VOLUME, abs=1e-3)
 
 
 def test_auto_level_converges_on_a_nonlinear_gain(tmp_path):
@@ -196,14 +196,14 @@ def test_auto_level_converges_on_a_nonlinear_gain(tmp_path):
     r = json.loads(out.read_text())
     assert r["levels"]["auto_level"]["in_window"] is True
     pk = r["levels"]["capture_peak_dbfs"][-1]
-    assert mr.AUTO_WINDOW[0] <= pk <= mr.AUTO_WINDOW[1]
+    assert ms.AUTO_WINDOW[0] <= pk <= ms.AUTO_WINDOW[1]
     # the ceiling lifted past its start (the device needed more than 80%)
-    assert r["levels"]["auto_level"]["final"] > mr.AUTO_EXPLORE_CEIL
+    assert r["levels"]["auto_level"]["final"] > ms.AUTO_EXPLORE_CEIL
     # the accepted level must not be a clipped one
     outdir = next((tmp_path / "takes").iterdir())
     import soundfile as sf
     x, _ = sf.read(str(outdir / "take01.wav"), always_2d=True)
-    assert float(np.max(np.abs(x[:, 0]))) < mr.FULLSCALE
+    assert float(np.max(np.abs(x[:, 0]))) < ms.FULLSCALE
 
 
 def test_without_auto_level_volume_is_never_written(tmp_path):
@@ -296,7 +296,7 @@ def test_hot_but_unclipped_is_only_advisory(tmp_path):
     assert "headroom" in proc.stderr
     assert "clipped" not in proc.stderr
     pk = json.loads(out.read_text())["levels"]["capture_peak_dbfs"][0]
-    assert mr.HOT_DBFS <= pk < 0.0
+    assert ms.HOT_DBFS <= pk < 0.0
 
 
 # --- capture path: a hijacked source aborts, doesn't record garbage --------
@@ -362,49 +362,49 @@ def test_bypass_seeds_from_wpstate_when_metadata_empty(tmp_path):
 # --- pure helpers: the auto-level controller safety properties --------------
 
 def test_autolevel_steps_up_but_never_blasts_when_quiet():
-    ac = mr.AutoLevel()
+    ac = ms.AutoLevel()
     ac.observe(0.15, -45.0, False)
     nv = ac.next_volume(0.15, -45.0)
     assert nv > 0.15                                 # move toward the target
-    assert nv <= 0.15 * mr.AUTO_MAX_STEP             # bounded per step
-    assert nv <= mr.AUTO_EXPLORE_CEIL                # no full-volume probe
+    assert nv <= 0.15 * ms.AUTO_MAX_STEP             # bounded per step
+    assert nv <= ms.AUTO_EXPLORE_CEIL                # no full-volume probe
 
 
 def test_autolevel_brackets_and_stays_below_the_loud_side():
-    ac = mr.AutoLevel()
+    ac = ms.AutoLevel()
     ac.observe(0.2, -20.0, False)                    # below the window
     ac.observe(0.8, 0.0, True)                       # clipped -> loud bracket
     nv = ac.next_volume(0.8, 0.0)
     assert 0.2 < nv < 0.8                            # interpolated inside
-    assert nv <= 0.8 * mr.AUTO_CLIP_BACKOFF          # kept below the clip
+    assert nv <= 0.8 * ms.AUTO_CLIP_BACKOFF          # kept below the clip
 
 
 def test_autolevel_never_returns_to_a_clipping_level():
-    ac = mr.AutoLevel()
+    ac = ms.AutoLevel()
     ac.observe(0.3, -30.0, False)
     ac.observe(1.0, 0.5, True)
-    assert ac.next_volume(1.0, 0.5) <= 1.0 * mr.AUTO_CLIP_BACKOFF
+    assert ac.next_volume(1.0, 0.5) <= 1.0 * ms.AUTO_CLIP_BACKOFF
 
 
 def test_autolevel_ceiling_lifts_when_stuck_below_window():
     # a probe sitting at the explore ceiling but still below the window
     # means the device needs more: the ceiling must lift past its start
-    ac = mr.AutoLevel()
-    ac.observe(mr.AUTO_EXPLORE_CEIL, -20.0, False)   # at ceiling, too quiet
-    nv = ac.next_volume(mr.AUTO_EXPLORE_CEIL, -20.0)
-    assert nv > mr.AUTO_EXPLORE_CEIL                 # allowed to go higher now
+    ac = ms.AutoLevel()
+    ac.observe(ms.AUTO_EXPLORE_CEIL, -20.0, False)   # at ceiling, too quiet
+    nv = ac.next_volume(ms.AUTO_EXPLORE_CEIL, -20.0)
+    assert nv > ms.AUTO_EXPLORE_CEIL                 # allowed to go higher now
 
 
 def test_autolevel_uses_the_measured_slope():
     # two points 6 dB apart over 0.3 decades -> ~20 dB/decade, much shallower
     # than the 60 the old cube model assumed; the step must reflect that
-    ac = mr.AutoLevel()
+    ac = ms.AutoLevel()
     ac.observe(0.1, -40.0, False)
     ac.next_volume(0.1, -40.0)                        # seeds prev
     ac.observe(0.2, -34.0, False)
     nv = ac.next_volume(0.2, -34.0)
     assert nv > 0.2
-    assert nv <= 0.2 * mr.AUTO_MAX_STEP               # still bounded/safe
+    assert nv <= 0.2 * ms.AUTO_MAX_STEP               # still bounded/safe
 
 
 # --- the glitch probe imports and parses (hardware tool, smoke only) --------
