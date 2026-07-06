@@ -81,7 +81,8 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 # the .pyc were produced by the byte-compile step above and are packaged.
 %{python3} -c "import sys; sys.path.insert(0, '%{buildroot}%{_datadir}/%{name}'); \
 import perdeviceeq.config, perdeviceeq.eq, perdeviceeq.profiles, \
-perdeviceeq.pipewire, perdeviceeq.integration, perdeviceeq.cli"
+perdeviceeq.pipewire, perdeviceeq.integration, perdeviceeq.cli, \
+perdeviceeq.measure_prefs"
 
 %files
 %license LICENSE

@@ -69,10 +69,23 @@ UI_FILE_CANDIDATES = [os.path.join(_DATA_ROOT, "data", UI_FILE_NAME),
 # user's curated "favorites" set of profile ids (Weather-style quick list)
 FAVORITES_FILE = os.path.join(CONFIG_DIR, "favorites.json")
 
+# measurement wizard persistence (see perdeviceeq/measure_prefs.py):
+# reusable measurement-mic profiles, and per-sink recall of the last mic
+# and the last auto-level volume that measured that sink well.
+MIC_PROFILES_FILE  = os.path.join(CONFIG_DIR, "mic-profiles.json")
+MEASURE_STATE_FILE = os.path.join(CONFIG_DIR, "measure-state.json")
+
 TYPE_TO_LABEL = {"PK": "bq_peaking", "LSC": "bq_lowshelf", "HSC": "bq_highshelf"}
 TYPE_NAMES = ["PK", "LSC", "HSC"]
 SCHEMA_VERSION = 2      # profile body schema; see tools/migrate_profiles_v1_to_v2.py
 CLEAN_ID = "clean"
+
+# mic-cal compensation domains (a mic profile carries one). RAW is mic-cal
+# only (flat-in-RAW is bright -> the fit needs a target/tilt); HEQ/IDF/HPN
+# embed a preferred curve (neutral == flat -> the fit targets flat). Which
+# one is chosen shapes the fit target; stored here, consumed when the
+# window drives fit_peq (increment 3/4).
+COMPENSATION_TYPES = ["RAW", "HEQ", "IDF", "HPN"]
 
 
 # ============================ WirePlumber hook (config) ============================
