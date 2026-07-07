@@ -106,14 +106,6 @@ class MeasureWindow(Adw.Window):
         outer.append(self._build_fit_area())
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.relevel_btn = Gtk.Button()
-        self.relevel_btn.add_css_class("flat")
-        self.relevel_btn.set_child(Gtk.Image.new_from_icon_name(
-            "view-refresh-symbolic"))
-        self.relevel_btn.set_tooltip_text(
-            "Re-measure the playback level (auto-level the next sweep)")
-        self.relevel_btn.connect("clicked", self._on_relevel)
-        footer.append(self.relevel_btn)
         self.level_label = Gtk.Label(xalign=0.0)
         self.level_label.add_css_class("dim-label")
         self.level_label.set_hexpand(True)
@@ -187,10 +179,21 @@ class MeasureWindow(Adw.Window):
 
         center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         center_box.set_size_request(RING - 2 * SPEAKER, -1)
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        top.set_halign(Gtk.Align.CENTER)
         self.vol_label = Gtk.Label()
-        self.vol_label.set_halign(Gtk.Align.CENTER)
-        self.vol_label.set_justify(Gtk.Justification.CENTER)
-        center_box.append(self.vol_label)
+        top.append(self.vol_label)
+        self.relevel_btn = Gtk.Button()
+        self.relevel_btn.add_css_class("flat")
+        self.relevel_btn.add_css_class("circular")
+        self.relevel_btn.set_valign(Gtk.Align.CENTER)
+        self.relevel_btn.set_child(Gtk.Image.new_from_icon_name(
+            "view-refresh-symbolic"))
+        self.relevel_btn.set_tooltip_text(
+            "Re-measure the playback level (auto-level the next sweep)")
+        self.relevel_btn.connect("clicked", self._on_relevel)
+        top.append(self.relevel_btn)
+        center_box.append(top)
         self.center = Gtk.Label(label="Click a speaker to measure")
         self.center.add_css_class("dim-label")
         self.center.set_wrap(True)
