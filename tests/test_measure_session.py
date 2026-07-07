@@ -274,3 +274,24 @@ def test_finalize_cal_override_per_channel(shim_state, tmp_path):
     # no cal argument falls back to the session's cfg.cal (flat here)
     r_default = ses.finalize(0, str(tmp_path / "d.json"))
     assert os.path.basename(r_default["cal_file"]) == "flat.txt"
+
+
+# --- start_volume (apply a remembered level) and relevel() -----------------
+
+def test_start_volume_applied_when_not_autolevel(shim_state, tmp_path):
+    ses = ms.MeasureSession(make_cfg(tmp_path, auto_level=False,
+                                     start_volume=0.5))
+    with ses:
+        assert ses._v_cur == pytest.approx(0.5)
+
+
+def test_relevel_rearms_autolevel(shim_state, tmp_path):
+    ses = ms.MeasureSession(make_cfg(tmp_path, auto_level=True))
+    with ses:
+        ses._leveled = True          # pretend a level was already found
+        ses._v_cur = 0.9
+        ses.relevel()
+        assert ses._leveled is False
+        assert ses._v_cur <= ms.AUTO_START_VOLUME
+        assert ses._auto_state["adjustments"] == 0
+        assert ses._auto_state["enabled"] is True

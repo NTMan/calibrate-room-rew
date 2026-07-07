@@ -777,6 +777,7 @@ class SessionConfig:
     mute_others: bool = False
     auto_level: bool = False
     raw_capture_dump: bool = False
+    start_volume: float = None      # applied on enter when not auto_level
 
 
 @dataclass
@@ -946,6 +947,9 @@ class MeasureSession:
                 self._auto_state["initial"] = round(v, 4)
                 set_sink_volume(self.sink["id"], v)
                 self._v_cur = v
+            elif self.cfg.start_volume is not None:
+                set_sink_volume(self.sink["id"], self.cfg.start_volume)
+                self._v_cur = self.cfg.start_volume
             self._stack = stack.pop_all()
         return self
 
@@ -1053,6 +1057,24 @@ class MeasureSession:
         self._pending = None
         self._leveled = True
         return self._accept(channel, data, chan, pk, clipped, repaired, [])
+
+    def relevel(self):
+        """Re-arm auto-level: the next take() ramps from a safe-low volume
+        and finds the level again -- the wizard's 're-measure the level',
+        for when the remembered level no longer fits (mic moved, fit on
+        the rig changed). Existing takes are kept; only future sweeps
+        re-level. Only valid inside the session (after __enter__)."""
+        self._leveled = False
+        self._pending = None
+        self._auto_ctl = AutoLevel()
+        self._auto_state = {"enabled": True, "adjustments": 0,
+                            "initial": None, "final": None,
+                            "in_window": None}
+        v = min(self._v_cur if self._v_cur is not None else 1.0,
+                AUTO_START_VOLUME)
+        self._auto_state["initial"] = round(v, 4)
+        set_sink_volume(self.sink["id"], v)
+        self._v_cur = v
 
     def _accept(self, channel, data, chan, pk, clipped, repaired, notes):
         snr = self._quick_snr(chan)
