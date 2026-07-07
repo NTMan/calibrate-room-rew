@@ -954,8 +954,6 @@ class MeasureSession:
                                      self.cfg.pre_silence,
                                      self.cfg.post_silence)
         with ExitStack() as stack:
-            self.eq_state = stack.enter_context(
-                ProfileBypass(self.sink_ident["name"]))
             if self.cfg.auto_level:
                 v = min(self.volume_start
                         if self.volume_start is not None else 1.0,
@@ -1016,12 +1014,17 @@ class MeasureSession:
                     if cfg.raw_capture_dump else None)
         self._mute_foreign(True)            # silence others for THIS sweep
         try:
-            data, info = run_take(self.sink, self.source, self.wav,
-                                  self.wav_duration, cfg.channels,
-                                  self.sweep.fs,
-                                  verify=self.path_clean is None,
-                                  raw_dump_path=raw_path,
-                                  cancel=self._cancel)
+            eq = ProfileBypass(self.sink_ident["name"])
+            self.eq_state = eq.__enter__()  # bypass the device EQ for it
+            try:
+                data, info = run_take(self.sink, self.source, self.wav,
+                                      self.wav_duration, cfg.channels,
+                                      self.sweep.fs,
+                                      verify=self.path_clean is None,
+                                      raw_dump_path=raw_path,
+                                      cancel=self._cancel)
+            finally:
+                eq.__exit__(None, None, None)   # restore the EQ right after
         finally:
             self._mute_foreign(False)       # unmute right after the sweep
         if info is not None:
