@@ -295,3 +295,13 @@ def test_relevel_rearms_autolevel(shim_state, tmp_path):
         assert ses._v_cur <= ms.AUTO_START_VOLUME
         assert ses._auto_state["adjustments"] == 0
         assert ses._auto_state["enabled"] is True
+
+
+def test_take_analyze_column_decoupled(shim_state, tmp_path):
+    # analyze capture column 1 but store the take under profile channel 0
+    ses = ms.MeasureSession(make_cfg(tmp_path, channels=2, auto_level=False))
+    with ses:
+        out = ses.take(0, analyze=1)
+        assert out.kind == "take"
+        assert len(ses.takes_of(0)) == 1
+        assert ses.takes_of(1) == []

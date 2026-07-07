@@ -961,12 +961,16 @@ class MeasureSession:
 
     # -- one physical sweep --------------------------------------------------
 
-    def take(self, channel):
-        """One sweep played and captured, analyzed on `channel`."""
+    def take(self, channel, analyze=None):
+        """One sweep played and captured, analyzed on capture column
+        `analyze` (defaults to `channel`) but stored under `channel`, the
+        profile channel, so one capture column can feed several profile
+        channels (e.g. measure the left cup on the right mic)."""
         cfg = self.cfg
-        if not 0 <= channel < cfg.channels:
-            raise RefusalError("channel %d out of range for a %d-channel "
-                               "capture" % (channel, cfg.channels))
+        a = channel if analyze is None else analyze
+        if not 0 <= a < cfg.channels:
+            raise RefusalError("capture column %d out of range for a "
+                               "%d-channel capture" % (a, cfg.channels))
         if self.wav is None:
             raise MeasureError("session not entered (use `with session:`)")
         self._pending = None                # a new sweep supersedes it
@@ -990,21 +994,21 @@ class MeasureSession:
                 notes.append("note: %d non-finite sample(s) on channel %d "
                              "at %s of %d"
                              % (w.size, c, list(w[:6]), data.shape[0]))
-        chan = data[:, channel]
+        chan = data[:, a]
         where = np.nonzero(~np.isfinite(chan))[0]
         bad = int(where.size)
         if bad:
             limit = max(1, int(REPAIR_MAX_MS / 1000.0 * self.sweep.fs))
             if bad > limit or bad >= len(chan):
-                raise FaultyCaptureError(channel, cfg.channels, bad)
+                raise FaultyCaptureError(a, cfg.channels, bad)
             chan = repair_nonfinite(chan)
             data = data.copy()
-            data[:, channel] = chan         # keep the saved take finite
+            data[:, a] = chan               # keep the saved take finite
             notes.append("WARNING: interpolated %d non-finite capture "
-                         "sample(s) on channel %d at %s of %d -- a benign "
+                         "sample(s) on column %d at %s of %d -- a benign "
                          "single-sample glitch during the sweep; the take "
                          "is unaffected."
-                         % (bad, channel, list(where[:6]), len(chan)))
+                         % (bad, a, list(where[:6]), len(chan)))
         pk = peak_dbfs(chan)
         clipped = int(np.count_nonzero(np.abs(chan) >= FULLSCALE))
         if clipped:
