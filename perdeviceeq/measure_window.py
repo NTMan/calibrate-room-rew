@@ -66,7 +66,9 @@ class MeasureWindow(Adw.Window):
         self.n_ch = len(self.ch_keys)
 
         self.sources = pipewire.list_sources()
-        self.cal = {}               # capture-channel index -> cal path
+        self.cal = {}               # mic capture-channel idx -> cal
+        self.mic_ch = 2             # rig capture channels (1 or 2)
+        self.mic_of = {}            # sink channel -> analyzed mic ch
         self.session = None         # created on first measure
         self._entered = False
         self._busy = False
@@ -99,7 +101,17 @@ class MeasureWindow(Adw.Window):
         outer.set_margin_end(12)
 
         outer.append(self._build_source_area())
-        outer.append(self._build_ring())
+        self.map_left_slot = Gtk.Box()
+        self.map_left_slot.set_valign(Gtk.Align.CENTER)
+        self.map_right_slot = Gtk.Box()
+        self.map_right_slot.set_valign(Gtk.Align.CENTER)
+        ring_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        ring_row.set_halign(Gtk.Align.CENTER)
+        ring_row.append(self.map_left_slot)
+        ring_row.append(self._build_ring())
+        ring_row.append(self.map_right_slot)
+        outer.append(ring_row)
+        self._rebuild_map_slots()
         self.center = Gtk.Label(label="Click a speaker to measure")
         self.center.add_css_class("dim-label")
         self.center.set_wrap(True)
@@ -142,17 +154,11 @@ class MeasureWindow(Adw.Window):
         row.append(self.source_dd)
         box.append(row)
 
-        cal_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        cal_row.append(Gtk.Label(label="Calibration", xalign=0.0))
-        self.cal_btns = {}
-        for i, key in enumerate(self.ch_keys):
-            btn = Gtk.Button(label="%s cal…" % key)
-            btn.set_tooltip_text("The cal file's domain (RAW/HEQ/IDF/HPN) "
-                                 "is the compensation")
-            btn.connect("clicked", self._make_cal_cb(i))
-            cal_row.append(btn)
-            self.cal_btns[i] = btn
-        box.append(cal_row)
+        self._recompute_mic()
+        self.cal_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                               spacing=8)
+        self._rebuild_cal_row()
+        box.append(self.cal_row)
 
         return box
 
@@ -412,10 +418,11 @@ class MeasureWindow(Adw.Window):
         self._sync_cal_labels()
 
     def _sync_cal_labels(self):
-        for i, key in enumerate(self.ch_keys):
+        labels = self._mic_labels()
+        for i in range(self.mic_ch):
             path = self.cal.get(i)
             self.cal_btns[i].set_label(
-                os.path.basename(path) if path else "%s cal…" % key)
+                os.path.basename(path) if path else "%s cal…" % labels[i])
 
     def _selected_source(self):
         i = self.source_dd.get_selected()
@@ -607,20 +614,94 @@ class MeasureWindow(Adw.Window):
         src = self._selected_source()
         if not src:
             return
+        self._recompute_mic()
         prof = self.mic_store.match(src["name"])
         self.cal = {}
         if prof:
-            for i in range(self.n_ch):
+            for i in range(self.mic_ch):
                 path = prof.get("cal", {}).get(str(i))
                 if path:
                     self.cal[i] = path
+        self._rebuild_cal_row()
+        self._rebuild_map_slots()
         self._sync_cal_labels()
         self._persist_mic()
+
+    def _recompute_mic(self):
+        self.mic_ch = self._mic_channels()
+        self.mic_of = self._default_mic_of()
+
+    def _mic_channels(self):
+        src = self._selected_source()
+        if not src:
+            return 2
+        try:
+            n = len(pipewire.source_channels(src["name"]))
+        except Exception:
+            n = 2
+        return max(1, min(2, n))        # a measurement rig is 1- or 2-ch
+
+    def _mic_labels(self):
+        return ["L", "R"] if self.mic_ch >= 2 else ["Mono"]
+
+    def _default_mic_of(self):
+        m = {}
+        for k, key in enumerate(self.ch_keys):
+            right = self.mic_ch >= 2 and key.upper().endswith("R")
+            m[k] = 1 if right else 0
+        return m
+
+    def _rebuild_cal_row(self):
+        child = self.cal_row.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            self.cal_row.remove(child)
+            child = nxt
+        self.cal_row.append(Gtk.Label(label="Calibration", xalign=0.0))
+        self.cal_btns = {}
+        labels = self._mic_labels()
+        for i in range(self.mic_ch):
+            btn = Gtk.Button(label="%s cal…" % labels[i])
+            btn.set_tooltip_text("Calibration for the rig's %s capture "
+                                 "channel; its RAW/HEQ/IDF/HPN domain is "
+                                 "the compensation" % labels[i])
+            btn.connect("clicked", self._make_cal_cb(i))
+            self.cal_row.append(btn)
+            self.cal_btns[i] = btn
+
+    def _rebuild_map_slots(self):
+        for slot in (self.map_left_slot, self.map_right_slot):
+            child = slot.get_first_child()
+            while child:
+                nxt = child.get_next_sibling()
+                slot.remove(child)
+                child = nxt
+        self.map_dds = {}
+        if self.n_ch == 2 and self.mic_ch == 2:
+            for k, slot in ((0, self.map_left_slot),
+                            (1, self.map_right_slot)):
+                col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                              spacing=2)
+                col.append(Gtk.Label(label=self.ch_keys[k]))
+                dd = Gtk.DropDown.new_from_strings(["L", "R"])
+                dd.set_selected(self.mic_of.get(k, k))
+                dd.set_tooltip_text("Which rig channel captures %s"
+                                    % self.ch_keys[k])
+                dd.connect("notify::selected", self._make_map_cb(k))
+                col.append(dd)
+                slot.append(col)
+                self.map_dds[k] = dd
+
+    def _make_map_cb(self, k):
+        def cb(dd, _p):
+            self.mic_of[k] = dd.get_selected()
+        return cb
 
     def _make_cal_cb(self, ch):
         def cb(_btn):
             dialog = Gtk.FileDialog()
-            dialog.set_title("Choose cal for %s" % self.ch_keys[ch])
+            dialog.set_title("Choose cal for rig channel %s"
+                             % self._mic_labels()[ch])
 
             def done(d, res):
                 try:
@@ -661,7 +742,7 @@ class MeasureWindow(Adw.Window):
         remembered = self.memory.volume_for(self.sink_node, src["name"])
         use_auto = remembered is None or self._relevel_pending
         cfg = ms.SessionConfig(
-            sink=self.sink_node, source=src["name"], channels=self.n_ch,
+            sink=self.sink_node, source=src["name"], channels=self.mic_ch,
             auto_level=use_auto, mute_others=True, device=self.sink_desc,
             start_volume=(None if use_auto else remembered))
         self._relevel_pending = False
@@ -705,7 +786,8 @@ class MeasureWindow(Adw.Window):
             guard = 0
             while True:
                 guard += 1
-                out = self.session.take(ch)
+                out = self.session.take(
+                    ch, analyze=self.mic_of.get(ch, 0))
                 if out.kind == "level_probe" and guard < 12:
                     lv = out.level or {}
                     self._post_status(
@@ -762,7 +844,11 @@ class MeasureWindow(Adw.Window):
         name = self._profile_name()
         channels = {i: self.ch_keys[i] for i in range(self.n_ch)
                     if self.session.takes_of(i)}
-        cal = dict(self.cal)
+        cal = {}
+        for i in channels:
+            path = self.cal.get(self.mic_of.get(i, 0))
+            if path:
+                cal[i] = path
         bands = self.bands_spin.get_value_as_int()
         f_lo = float(self.fit_lo)
         f_hi = float(self.fit_hi)
@@ -802,9 +888,9 @@ class MeasureWindow(Adw.Window):
         return False
 
     def _persist_mic(self):
-        """Save the chosen mic + cal (bound to the source node) and
-        remember it for this sink as soon as either changes -- not only at
-        create. The compensation is read back from the cal filenames."""
+        """Save the chosen mic + its per-capture-channel cal (bound to the
+        source node) and remember the mic for this sink as soon as either
+        changes -- not only at create."""
         src = self._selected_source()
         if not src:
             return
