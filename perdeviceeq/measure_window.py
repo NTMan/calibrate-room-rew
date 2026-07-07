@@ -71,6 +71,7 @@ class MeasureWindow(Adw.Window):
         self._entered = False
         self._busy = False
         self._loud_ack = False
+        self._relevel_pending = False
         self._columns = {}          # ch index -> {box, header, ...}
         self._speakers = {}         # ch index -> Gtk.Button
 
@@ -103,6 +104,14 @@ class MeasureWindow(Adw.Window):
         outer.append(self._build_columns())
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.relevel_btn = Gtk.Button()
+        self.relevel_btn.add_css_class("flat")
+        self.relevel_btn.set_child(Gtk.Image.new_from_icon_name(
+            "view-refresh-symbolic"))
+        self.relevel_btn.set_tooltip_text(
+            "Re-measure the playback level (auto-level the next sweep)")
+        self.relevel_btn.connect("clicked", self._on_relevel)
+        footer.append(self.relevel_btn)
         self.level_label = Gtk.Label(xalign=0.0)
         self.level_label.add_css_class("dim-label")
         self.level_label.set_hexpand(True)
@@ -195,12 +204,19 @@ class MeasureWindow(Adw.Window):
             self.ring.put(spk, int(x), int(y))
             self._speakers[i] = spk
 
+        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        center_box.set_size_request(RING - 2 * SPEAKER, -1)
+        self.vol_label = Gtk.Label()
+        self.vol_label.set_halign(Gtk.Align.CENTER)
+        self.vol_label.set_justify(Gtk.Justification.CENTER)
+        center_box.append(self.vol_label)
         self.center = Gtk.Label(label="Click a speaker to measure")
         self.center.add_css_class("dim-label")
-        self.center.set_size_request(RING - 2 * SPEAKER, -1)
         self.center.set_wrap(True)
+        self.center.set_halign(Gtk.Align.CENTER)
         self.center.set_justify(Gtk.Justification.CENTER)
-        self.ring.put(self.center, SPEAKER, int(RING / 2 - 12))
+        center_box.append(self.center)
+        self.ring.put(center_box, SPEAKER, int(RING / 2 - 28))
         return self.ring
 
     def _build_columns(self):
@@ -297,6 +313,50 @@ class MeasureWindow(Adw.Window):
         s = self._selected_source()
         return s["name"] if s else None
 
+    def _query_volume(self):
+        try:
+            dump = pipewire.pw_dump()
+            sid = next((s["id"] for s in pipewire.list_sinks(dump)
+                        if s["name"] == self.sink_node), None)
+            if sid is None:
+                return None
+            v, _, _ = ms.sink_volume_state(dump, sid)
+            return v
+        except Exception:
+            return None
+
+    def _set_volume_display(self, v):
+        if v is None:
+            self.vol_label.set_markup("<span size='x-large'>—</span>")
+        else:
+            self.vol_label.set_markup(
+                "<span size='x-large'>%d%%</span>" % round(100 * v))
+
+    def _refresh_volume(self):
+        if self.session is not None:
+            v = getattr(self.session, "_v_cur", None)
+        else:
+            src = self._source_name()
+            v = (self.memory.volume_for(self.sink_node, src)
+                 if src else None)
+            if v is None:
+                v = self._query_volume()
+        self._set_volume_display(v)
+
+    def _on_relevel(self, _btn):
+        if self._busy:
+            return
+        src = self._source_name()
+        if src:
+            self.memory.forget_volume(self.sink_node, src)
+        if self.session is not None:
+            try:
+                self.session.relevel()
+            except Exception:
+                pass
+        self._relevel_pending = True
+        self._refresh_all()
+
     def _clean_count(self, ch):
         if self.session is None:
             return 0
@@ -331,6 +391,7 @@ class MeasureWindow(Adw.Window):
                                       % round(100 * v))
         else:
             self.level_label.set_text("")
+        self._refresh_volume()
 
     def _rebuild_column(self, ch):
         col = self._columns[ch]
@@ -450,10 +511,13 @@ class MeasureWindow(Adw.Window):
         if not src:
             self._error("Pick a measurement mic first.")
             return False
+        remembered = self.memory.volume_for(self.sink_node, src["name"])
+        use_auto = remembered is None or self._relevel_pending
         cfg = ms.SessionConfig(
             sink=self.sink_node, source=src["name"], channels=self.n_ch,
-            auto_level=True, mute_others=True,
-            device=self.sink_desc)
+            auto_level=use_auto, mute_others=True, device=self.sink_desc,
+            start_volume=(None if use_auto else remembered))
+        self._relevel_pending = False
         try:
             self.session = ms.MeasureSession(cfg)
             self.session.__enter__()
@@ -505,6 +569,8 @@ class MeasureWindow(Adw.Window):
                            round(100 * lv.get("volume_to", 0)),
                            lv.get("peak_dbfs", float("nan")),
                            lv.get("step", 0), lv.get("max_steps", 0)))
+                    GLib.idle_add(self._set_volume_display,
+                                  lv.get("volume_to"))
                     continue
                 if out.kind == "level_stuck":
                     lv = out.level or {}
