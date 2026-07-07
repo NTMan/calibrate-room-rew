@@ -954,8 +954,6 @@ class MeasureSession:
                                      self.cfg.pre_silence,
                                      self.cfg.post_silence)
         with ExitStack() as stack:
-            stack.enter_context(MuteOthers(self.foreign,
-                                           self.cfg.mute_others))
             self.eq_state = stack.enter_context(
                 ProfileBypass(self.sink_ident["name"]))
             if self.cfg.auto_level:
@@ -986,6 +984,19 @@ class MeasureSession:
         when nothing is playing -- take() clears the flag as it starts."""
         self._cancel.set()
 
+    def _mute_foreign(self, on):
+        """Mute (on) or restore (off) the foreign streams for ONE sweep, so
+        other audio is silenced only while the sweep plays and comes back
+        immediately after, not at window close. No-op unless mute_others."""
+        if not self.cfg.mute_others:
+            return
+        for s in self.foreign:
+            if on:
+                if MuteOthers._set_mute(s["id"], True):
+                    s["muted_for_measure"] = True
+            elif s["muted_for_measure"]:
+                MuteOthers._set_mute(s["id"], s["prior_mute"])
+
     def take(self, channel, analyze=None):
         """One sweep played and captured, analyzed on capture column
         `analyze` (defaults to `channel`) but stored under `channel`, the
@@ -1003,11 +1014,16 @@ class MeasureSession:
         raw_path = (os.path.join(self.outdir,
                                  "raw%02d.wav" % (self._take_seq + 1))
                     if cfg.raw_capture_dump else None)
-        data, info = run_take(self.sink, self.source, self.wav,
-                              self.wav_duration, cfg.channels,
-                              self.sweep.fs,
-                              verify=self.path_clean is None,
-                              raw_dump_path=raw_path, cancel=self._cancel)
+        self._mute_foreign(True)            # silence others for THIS sweep
+        try:
+            data, info = run_take(self.sink, self.source, self.wav,
+                                  self.wav_duration, cfg.channels,
+                                  self.sweep.fs,
+                                  verify=self.path_clean is None,
+                                  raw_dump_path=raw_path,
+                                  cancel=self._cancel)
+        finally:
+            self._mute_foreign(False)       # unmute right after the sweep
         if info is not None:
             self.path_clean = info
 
