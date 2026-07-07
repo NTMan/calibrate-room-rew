@@ -74,7 +74,6 @@ class MeasureWindow(Adw.Window):
         self._busy = False
         self._loud_ack = False
         self._relevel_pending = False
-        self._src_poll_busy = False
         self._sink_gone = False
         self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
         self._columns = {}          # ch index -> {box, header, ...}
@@ -84,7 +83,9 @@ class MeasureWindow(Adw.Window):
         self.connect("close-request", self._on_close)
         self._prefill_from_memory()
         self._refresh_all()
-        self._src_poll_id = GLib.timeout_add_seconds(2, self._poll_sources)
+        self._pw = pipewire.app_state()
+        self._pw_unsub = self._pw.subscribe(self._on_pw_state)
+        self._pw.start()
 
     # ---- layout -----------------------------------------------------------
     def _build_ui(self):
@@ -579,35 +580,20 @@ class MeasureWindow(Adw.Window):
         return card
 
     # ---- callbacks (config) -----------------------------------------------
-    def _poll_sources(self):
-        """2 s heartbeat: refresh the input-device list off the main
-        thread, the way the main window polls sinks (no manual rescan)."""
-        if self._src_poll_busy or self._busy:
-            return True                      # skip while measuring/in flight
-        self._src_poll_busy = True
+    def _on_pw_state(self, st):
+        """The shared PWState refresh drives the whole window: keep the
+        input list current and track whether the target sink is alive.
+        One poll in pipewire feeds this instead of a per-window timer."""
+        self._refresh_sources_from(st.sources)
+        alive = any(s["name"] == self.sink_node for s in st.sinks)
+        self._set_sink_gone(not alive)
+        return False
 
-        def work():
-            sources = None
-            sink_ok = True
-            try:
-                dump = pipewire.pw_dump()
-                sources = pipewire.list_sources(dump)
-                sink_ok = any(s["name"] == self.sink_node
-                              for s in pipewire.list_sinks(dump))
-            finally:
-                GLib.idle_add(self._apply_source_poll, sources, sink_ok)
-        pipewire._in_thread(work)
-        return True                          # keep the timer running
-
-    def _apply_source_poll(self, sources, sink_ok=True):
-        self._src_poll_busy = False
-        self._set_sink_gone(not sink_ok)
-        if sources is None:
-            return False
+    def _refresh_sources_from(self, sources):
         prev = [s["name"] for s in self.sources]
         new = [s["name"] for s in sources]
         if new == prev:
-            return False                     # nothing plugged/unplugged
+            return                           # nothing plugged/unplugged
         cur = self._source_name()
         self.sources = sources
         names = [s["desc"] for s in sources] or ["(no sources found)"]
@@ -620,14 +606,9 @@ class MeasureWindow(Adw.Window):
         if not sources or sources[idx]["name"] != cur:
             self._on_source_changed()        # selection actually changed
         self._refresh_all()
-        return False
 
-    def _sink_present(self, dump=None):
-        try:
-            return any(s["name"] == self.sink_node
-                       for s in pipewire.list_sinks(dump))
-        except Exception:
-            return True                      # can't tell -> do not block
+    def _sink_present(self):
+        return any(s["name"] == self.sink_node for s in self._pw.sinks)
 
     def _set_sink_gone(self, gone):
         if gone == self._sink_gone:
@@ -997,9 +978,9 @@ class MeasureWindow(Adw.Window):
         dlg.present(self)
 
     def _on_close(self, *_):
-        if getattr(self, "_src_poll_id", 0):
-            GLib.source_remove(self._src_poll_id)
-            self._src_poll_id = 0
+        if getattr(self, "_pw_unsub", None) is not None:
+            self._pw_unsub()
+            self._pw_unsub = None
         if self.session is not None and self._entered:
             try:
                 self.session.__exit__(None, None, None)
