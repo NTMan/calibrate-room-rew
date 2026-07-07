@@ -138,23 +138,40 @@ class MeasureMemory:
     def mic_for(self, sink):
         return self.for_sink(sink).get("mic_profile")
 
-    def volume_for(self, sink):
-        v = self.for_sink(sink).get("volume")
+    def volume_for(self, sink, source):
+        """The last good auto-level volume for this sink+source pair, or
+        None. Volume is keyed by the pair because a more/less sensitive
+        mic reads hotter/quieter at the same sink level, so the level that
+        worked depends on which mic measured it."""
+        vols = self.for_sink(sink).get("volumes")
+        v = vols.get(source) if isinstance(vols, dict) else None
         return float(v) if isinstance(v, (int, float)) else None
 
-    def remember(self, sink, mic_profile=None, volume=None):
-        """Update a sink's recall; only the provided fields change. Volume
-        is per-sink (the sink's playback level); a mic change still leaves
-        it as a decent starting point that auto-level refines."""
+    def remember(self, sink, mic_profile=None, source=None, volume=None):
+        """Update a sink's recall; only the provided fields change. The
+        mic profile is per-sink (which mic to preselect); the volume is
+        stored under sink+source (needs source to key it)."""
         if not sink:
             return
         e = dict(self.for_sink(sink))
         if mic_profile is not None:
             e["mic_profile"] = mic_profile
-        if volume is not None:
-            e["volume"] = round(float(volume), 4)
+        if volume is not None and source:
+            vols = dict(e.get("volumes") or {})
+            vols[source] = round(float(volume), 4)
+            e["volumes"] = vols
         self.state[sink] = e
         _atomic_write(MEASURE_STATE_FILE, self.state)
+
+    def forget_volume(self, sink, source):
+        """Drop the remembered volume for a sink+source pair (the wizard's
+        re-level: the next sweep finds the level afresh)."""
+        e = self.for_sink(sink)
+        vols = e.get("volumes")
+        if isinstance(vols, dict) and source in vols:
+            del vols[source]
+            self.state[sink] = e
+            _atomic_write(MEASURE_STATE_FILE, self.state)
 
     def forget(self, sink):
         if sink in self.state:

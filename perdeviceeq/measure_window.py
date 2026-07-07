@@ -293,6 +293,10 @@ class MeasureWindow(Adw.Window):
             return self.sources[i]
         return None
 
+    def _source_name(self):
+        s = self._selected_source()
+        return s["name"] if s else None
+
     def _clean_count(self, ch):
         if self.session is None:
             return 0
@@ -320,10 +324,13 @@ class MeasureWindow(Adw.Window):
             else:
                 spk.remove_css_class("suggested-action")
         self.create_btn.set_sensitive(ready and not self._busy)
-        v = self.memory.volume_for(self.sink_node)
+        src = self._source_name()
+        v = self.memory.volume_for(self.sink_node, src) if src else None
         if v is not None:
             self.level_label.set_text("Level %d%% (remembered)"
                                       % round(100 * v))
+        else:
+            self.level_label.set_text("")
 
     def _rebuild_column(self, ch):
         col = self._columns[ch]
@@ -525,8 +532,9 @@ class MeasureWindow(Adw.Window):
             self._refresh_all()
             return False
         v = getattr(self.session, "_v_cur", self.session.volume_start)
-        if v is not None:
-            self.memory.remember(self.sink_node, volume=v)
+        src = self._source_name()
+        if v is not None and src:
+            self.memory.remember(self.sink_node, source=src, volume=v)
         self._refresh_all()
         return False
 

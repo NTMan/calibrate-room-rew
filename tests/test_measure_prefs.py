@@ -66,24 +66,31 @@ def test_mic_profile_store_survives_junk(paths):
 
 # --- per-sink recall -------------------------------------------------------
 
-def test_measure_memory_per_sink(paths):
+def test_measure_memory_per_sink_and_source(paths):
     _, memf = paths
     m = mp.MeasureMemory()
     assert m.mic_for("sink_a") is None
-    assert m.volume_for("sink_a") is None
-    m.remember("sink_a", mic_profile="mic1", volume=0.62)
+    assert m.volume_for("sink_a", "srcA") is None
+    m.remember("sink_a", mic_profile="mic1", source="srcA", volume=0.62)
     assert memf.exists()
     m2 = mp.MeasureMemory()
     assert m2.mic_for("sink_a") == "mic1"
-    assert m2.volume_for("sink_a") == pytest.approx(0.62)
-    # partial update: change only the volume, the mic stays
-    m2.remember("sink_a", volume=0.70)
+    assert m2.volume_for("sink_a", "srcA") == pytest.approx(0.62)
+    # volume is per source: another mic on the same sink is separate
+    assert m2.volume_for("sink_a", "srcB") is None
+    m2.remember("sink_a", source="srcB", volume=0.40)
     m3 = mp.MeasureMemory()
-    assert m3.mic_for("sink_a") == "mic1"
-    assert m3.volume_for("sink_a") == pytest.approx(0.70)
+    assert m3.volume_for("sink_a", "srcA") == pytest.approx(0.62)
+    assert m3.volume_for("sink_a", "srcB") == pytest.approx(0.40)
+    assert m3.mic_for("sink_a") == "mic1"      # unchanged by volume writes
     # sinks are independent
-    assert m3.mic_for("sink_b") is None
-    m3.forget("sink_a")
+    assert m3.volume_for("sink_b", "srcA") is None
+    # re-level drops just that pair's volume
+    m3.forget_volume("sink_a", "srcA")
+    m4 = mp.MeasureMemory()
+    assert m4.volume_for("sink_a", "srcA") is None
+    assert m4.volume_for("sink_a", "srcB") == pytest.approx(0.40)
+    m4.forget("sink_a")
     assert mp.MeasureMemory().mic_for("sink_a") is None
 
 
