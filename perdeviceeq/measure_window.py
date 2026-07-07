@@ -75,6 +75,7 @@ class MeasureWindow(Adw.Window):
         self._loud_ack = False
         self._relevel_pending = False
         self._src_poll_busy = False
+        self._sink_gone = False
         self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
         self._columns = {}          # ch index -> {box, header, ...}
         self._speakers = {}         # ch index -> Gtk.Button
@@ -587,15 +588,20 @@ class MeasureWindow(Adw.Window):
 
         def work():
             sources = None
+            sink_ok = True
             try:
-                sources = pipewire.list_sources()
+                dump = pipewire.pw_dump()
+                sources = pipewire.list_sources(dump)
+                sink_ok = any(s["name"] == self.sink_node
+                              for s in pipewire.list_sinks(dump))
             finally:
-                GLib.idle_add(self._apply_source_poll, sources)
+                GLib.idle_add(self._apply_source_poll, sources, sink_ok)
         pipewire._in_thread(work)
         return True                          # keep the timer running
 
-    def _apply_source_poll(self, sources):
+    def _apply_source_poll(self, sources, sink_ok=True):
         self._src_poll_busy = False
+        self._set_sink_gone(not sink_ok)
         if sources is None:
             return False
         prev = [s["name"] for s in self.sources]
@@ -615,6 +621,29 @@ class MeasureWindow(Adw.Window):
             self._on_source_changed()        # selection actually changed
         self._refresh_all()
         return False
+
+    def _sink_present(self, dump=None):
+        try:
+            return any(s["name"] == self.sink_node
+                       for s in pipewire.list_sinks(dump))
+        except Exception:
+            return True                      # can't tell -> do not block
+
+    def _set_sink_gone(self, gone):
+        if gone == self._sink_gone:
+            return
+        self._sink_gone = gone
+        if gone:
+            self.warning.set_text(
+                "This output no longer exists -- the device's channel "
+                "configuration changed and renamed its sink. Close and "
+                "reopen the measurement for the current device.")
+            self._set_ring_sensitive(False)
+            self.create_btn.set_sensitive(False)
+        else:
+            self.warning.set_text("")
+            self._set_ring_sensitive(True)
+            self._refresh_all()
 
     def _on_source_changed(self, *_):
         src = self._selected_source()
@@ -761,6 +790,12 @@ class MeasureWindow(Adw.Window):
     def _ensure_session(self):
         if self.session is not None:
             return True
+        if not self._sink_present():
+            self._error(
+                "This output no longer exists -- the device's channel "
+                "configuration changed and renamed its sink. Close and "
+                "reopen the measurement for the current device.")
+            return False
         src = self._selected_source()
         if not src:
             self._error("Pick a measurement mic first.")
