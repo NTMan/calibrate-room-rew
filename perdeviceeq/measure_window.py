@@ -72,6 +72,7 @@ class MeasureWindow(Adw.Window):
         self._busy = False
         self._loud_ack = False
         self._relevel_pending = False
+        self._src_poll_busy = False
         self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
         self._columns = {}          # ch index -> {box, header, ...}
         self._speakers = {}         # ch index -> Gtk.Button
@@ -80,6 +81,7 @@ class MeasureWindow(Adw.Window):
         self.connect("close-request", self._on_close)
         self._prefill_from_memory()
         self._refresh_all()
+        self._src_poll_id = GLib.timeout_add_seconds(2, self._poll_sources)
 
     # ---- layout -----------------------------------------------------------
     def _build_ui(self):
@@ -563,6 +565,44 @@ class MeasureWindow(Adw.Window):
         return card
 
     # ---- callbacks (config) -----------------------------------------------
+    def _poll_sources(self):
+        """2 s heartbeat: refresh the input-device list off the main
+        thread, the way the main window polls sinks (no manual rescan)."""
+        if self._src_poll_busy or self._busy:
+            return True                      # skip while measuring/in flight
+        self._src_poll_busy = True
+
+        def work():
+            sources = None
+            try:
+                sources = pipewire.list_sources()
+            finally:
+                GLib.idle_add(self._apply_source_poll, sources)
+        pipewire._in_thread(work)
+        return True                          # keep the timer running
+
+    def _apply_source_poll(self, sources):
+        self._src_poll_busy = False
+        if sources is None:
+            return False
+        prev = [s["name"] for s in self.sources]
+        new = [s["name"] for s in sources]
+        if new == prev:
+            return False                     # nothing plugged/unplugged
+        cur = self._source_name()
+        self.sources = sources
+        names = [s["desc"] for s in sources] or ["(no sources found)"]
+        self.source_dd.handler_block_by_func(self._on_source_changed)
+        self.source_dd.set_model(Gtk.StringList.new(names))
+        idx = next((i for i, s in enumerate(sources)
+                    if s["name"] == cur), 0)
+        self.source_dd.set_selected(idx)
+        self.source_dd.handler_unblock_by_func(self._on_source_changed)
+        if not sources or sources[idx]["name"] != cur:
+            self._on_source_changed()        # selection actually changed
+        self._refresh_all()
+        return False
+
     def _on_source_changed(self, *_):
         src = self._selected_source()
         if not src:
@@ -810,6 +850,9 @@ class MeasureWindow(Adw.Window):
         dlg.present(self)
 
     def _on_close(self, *_):
+        if getattr(self, "_src_poll_id", 0):
+            GLib.source_remove(self._src_poll_id)
+            self._src_poll_id = 0
         if self.session is not None and self._entered:
             try:
                 self.session.__exit__(None, None, None)
