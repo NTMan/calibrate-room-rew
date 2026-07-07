@@ -32,6 +32,17 @@ CARD_W, CARD_H = 150, 60
 RING = 240
 SPEAKER = 56
 CLEAN_TARGET = 3            # clean takes per channel before "all clean"
+
+# Where each channel sits on the ring, as a compass angle from the front
+# (0 = straight ahead, positive = clockwise toward the right), so a
+# speaker is drawn where it physically belongs the way GNOME's speaker
+# test lays them out, instead of being spread evenly in channel order.
+# LFE has no direction; park it at the bottom. Screen angle = this - 90.
+CHAN_ANGLE = {
+    "FC": 0, "FL": -30, "FR": 30, "FLC": -15, "FRC": 15,
+    "SL": -90, "SR": 90, "RL": -150, "RR": 150,
+    "RC": 180, "LFE": 180,
+}
 FIT_BANDS = 12
 FIT_FLO, FIT_FHI = 20.0, 12000.0
 FMIN_PLOT, FMAX_PLOT = 20.0, 20000.0
@@ -80,6 +91,7 @@ class MeasureWindow(Adw.Window):
         self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
         self._columns = {}          # ch index -> {box, header, ...}
         self._speakers = {}         # ch index -> Gtk.Button
+        self._speaker_counts = {}   # ch index -> Gtk.Label (# takes)
 
         self._build_ui()
         self.connect("close-request", self._on_close)
@@ -185,20 +197,31 @@ class MeasureWindow(Adw.Window):
         cx = cy = RING / 2.0
         r = RING / 2.0 - SPEAKER / 2.0 - 6
         for i, key in enumerate(self.ch_keys):
-            ang = math.pi + (2 * math.pi * i / max(1, self.n_ch))
-            if self.n_ch == 2:                      # L left, R right
+            if self.n_ch == 2:                      # familiar L / R split
                 ang = math.pi if i == 0 else 0.0
+            elif key in CHAN_ANGLE:                 # its real position
+                ang = math.radians(CHAN_ANGLE[key] - 90)
+            else:                                   # unknown: spread it
+                ang = math.pi + (2 * math.pi * i / max(1, self.n_ch))
             x = cx + r * math.cos(ang) - SPEAKER / 2.0
             y = cy + r * math.sin(ang) - SPEAKER / 2.0
             spk = Gtk.Button()
             spk.set_size_request(SPEAKER, SPEAKER)
             spk.add_css_class("circular")
-            spk.set_child(Gtk.Image.new_from_icon_name(
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            body.set_valign(Gtk.Align.CENTER)
+            body.append(Gtk.Image.new_from_icon_name(
                 "audio-volume-high-symbolic"))
+            count = Gtk.Label()
+            count.add_css_class("caption")
+            count.set_visible(False)
+            body.append(count)
+            spk.set_child(body)
             spk.connect("clicked", self._make_speaker_cb(i))
             spk.set_tooltip_text("Measure %s" % key)
             self.ring.put(spk, int(x), int(y))
             self._speakers[i] = spk
+            self._speaker_counts[i] = count
 
         center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         center_box.set_size_request(RING - 2 * SPEAKER, -1)
@@ -516,6 +539,11 @@ class MeasureWindow(Adw.Window):
                 spk.add_css_class("suggested-action")
             else:
                 spk.remove_css_class("suggested-action")
+            total = len(self.session.takes_of(i)) if self.session else 0
+            lbl = self._speaker_counts.get(i)
+            if lbl is not None:
+                lbl.set_text(str(total))
+                lbl.set_visible(total > 0)
         self.create_btn.set_sensitive(ready and not self._busy)
         self._refresh_volume()
         if getattr(self, "range_area", None) is not None:
