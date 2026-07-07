@@ -104,6 +104,7 @@ from datetime import datetime
 import numpy as np
 
 from . import measure_core as mc
+from .pipewire import sink_channels
 
 METADATA_NAME = "per-device-eq"          # same object the app + WP hook use
 PLAY_NODE = "pde-measure-sweep"
@@ -689,7 +690,7 @@ def verify_capture(source, cap):
 
 
 def run_take(sink, source, wav_path, wav_duration_s, channels, rate,
-             verify, raw_dump_path=None, cancel=None):
+             verify, raw_dump_path=None, cancel=None, channel_map=None):
     """One sweep: start capture, play the wav, collect exactly enough
     frames. Returns (frames x channels array, path_clean or None). With
     raw_dump_path, the untouched capture is written there first,
@@ -701,12 +702,16 @@ def run_take(sink, source, wav_path, wav_duration_s, channels, rate,
         time.sleep(CAPTURE_LEAD_S)
         if verify:
             cap_info = verify_capture(source, cap)
+        play_cmd = ["pw-play", "--volume", "1.0",
+                    "-P", "{ node.name = %s, node.target = %d, "
+                          "node.dont-reconnect = true, application.name = "
+                          "\"per-device-eq measure\" }"
+                          % (PLAY_NODE, sink["id"])]
+        if channel_map:
+            play_cmd += ["--channel-map", channel_map]
+        play_cmd.append(wav_path)
         play = subprocess.Popen(
-            ["pw-play", "--volume", "1.0",
-             "-P", "{ node.name = %s, node.target = %d, "
-                   "node.dont-reconnect = true, application.name = "
-                   "\"per-device-eq measure\" }" % (PLAY_NODE, sink["id"]),
-             wav_path],
+            play_cmd,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         if verify:
             time.sleep(VERIFY_AFTER_S)
@@ -899,6 +904,7 @@ class MeasureSession:
                 "are expected on USB/ALSA" % src_p.get("device.api"))
         self.sink_ident = node_ident(self.sink)
         self.source_ident = node_ident(self.source)
+        self.sink_layout = sink_channels(self.sink_ident["name"], dump)
 
         v0, raw0, muted = sink_volume_state(dump, self.sink["id"])
         if muted:
@@ -995,6 +1001,16 @@ class MeasureSession:
             elif s["muted_for_measure"]:
                 MuteOthers._set_mute(s["id"], s["prior_mute"])
 
+    def _channel_map(self, channel):
+        """The target speaker's position for pw-play --channel-map, e.g.
+        'FL'. A mono sweep tagged with that single position plays only that
+        speaker (PipeWire routes FL->FL, no up-mix). None for a mono sink
+        or an out-of-range index -- just play the plain mono sweep."""
+        n = len(self.sink_layout)
+        if n <= 1 or not 0 <= channel < n:
+            return None
+        return self.sink_layout[channel].split(".")[0]
+
     def take(self, channel, analyze=None):
         """One sweep played and captured, analyzed on capture column
         `analyze` (defaults to `channel`) but stored under `channel`, the
@@ -1012,6 +1028,7 @@ class MeasureSession:
         raw_path = (os.path.join(self.outdir,
                                  "raw%02d.wav" % (self._take_seq + 1))
                     if cfg.raw_capture_dump else None)
+        cmap = self._channel_map(channel)   # route the sweep to THIS speaker
         self._mute_foreign(True)            # silence others for THIS sweep
         try:
             eq = ProfileBypass(self.sink_ident["name"])
@@ -1022,7 +1039,7 @@ class MeasureSession:
                                       self.sweep.fs,
                                       verify=self.path_clean is None,
                                       raw_dump_path=raw_path,
-                                      cancel=self._cancel)
+                                      cancel=self._cancel, channel_map=cmap)
             finally:
                 eq.__exit__(None, None, None)   # restore the EQ right after
         finally:

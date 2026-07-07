@@ -24,6 +24,8 @@ def main(argv):
             i += 1; volume = float(argv[i])
         elif a == "-P":
             i += 1; props = argv[i]
+        elif a == "--channel-map":
+            i += 1
         elif not a.startswith("-"):
             wav = a
         i += 1
