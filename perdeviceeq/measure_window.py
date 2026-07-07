@@ -27,13 +27,13 @@ from gi.repository import Gtk, GLib, Adw            # noqa: E402
 from . import pipewire, measure_build               # noqa: E402
 from . import measure_session as ms                 # noqa: E402
 from . import measure_prefs                         # noqa: E402
-from .config import COMPENSATION_TYPES              # noqa: E402
 
 CARD_W, CARD_H = 150, 60
 RING = 240
 SPEAKER = 56
 CLEAN_TARGET = 3            # clean takes per channel before "all clean"
 FIT_BANDS = 12
+FIT_FLO, FIT_FHI = 20.0, 12000.0
 FMIN_PLOT, FMAX_PLOT = 20.0, 20000.0
 
 
@@ -67,7 +67,6 @@ class MeasureWindow(Adw.Window):
 
         self.sources = pipewire.list_sources()
         self.cal = {}               # capture-channel index -> cal path
-        self.compensation = "RAW"
         self.session = None         # created on first measure
         self._entered = False
         self._busy = False
@@ -134,17 +133,38 @@ class MeasureWindow(Adw.Window):
         box.append(row)
 
         cal_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        cal_row.append(Gtk.Label(label="Compensation", xalign=0.0))
-        self.comp_dd = Gtk.DropDown.new_from_strings(COMPENSATION_TYPES)
-        self.comp_dd.connect("notify::selected", self._on_comp_changed)
-        cal_row.append(self.comp_dd)
+        cal_row.append(Gtk.Label(label="Calibration", xalign=0.0))
         self.cal_btns = {}
         for i, key in enumerate(self.ch_keys):
             btn = Gtk.Button(label="%s cal…" % key)
+            btn.set_tooltip_text("The cal file's domain (RAW/HEQ/IDF/HPN) "
+                                 "is the compensation")
             btn.connect("clicked", self._make_cal_cb(i))
             cal_row.append(btn)
             self.cal_btns[i] = btn
         box.append(cal_row)
+
+        fit = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        fit.append(Gtk.Label(label="Fit up to", xalign=0.0))
+        self.bands_spin = Gtk.SpinButton.new_with_range(1, 20, 1)
+        self.bands_spin.set_value(FIT_BANDS)
+        self.bands_spin.set_tooltip_text("Max biquads per channel; the fit "
+                                         "stops early once the worst "
+                                         "residual is under ~0.5 dB")
+        fit.append(self.bands_spin)
+        fit.append(Gtk.Label(label="bands, over"))
+        self.flo_spin = Gtk.SpinButton.new_with_range(20, 1000, 5)
+        self.flo_spin.set_value(FIT_FLO)
+        fit.append(self.flo_spin)
+        fit.append(Gtk.Label(label="–"))
+        self.fhi_spin = Gtk.SpinButton.new_with_range(1000, 20000, 100)
+        self.fhi_spin.set_value(FIT_FHI)
+        self.fhi_spin.set_tooltip_text(
+            "Upper fit edge. Above the cal-trust limit correct only with a "
+            "broad shelf, the same L/R.")
+        fit.append(self.fhi_spin)
+        fit.append(Gtk.Label(label="Hz"))
+        box.append(fit)
         return box
 
     def _build_ring(self):
@@ -255,10 +275,6 @@ class MeasureWindow(Adw.Window):
         if idx is not None:
             self.source_dd.set_selected(idx)
         if prof:
-            self.compensation = prof.get("compensation", "RAW")
-            if self.compensation in COMPENSATION_TYPES:
-                self.comp_dd.set_selected(
-                    COMPENSATION_TYPES.index(self.compensation))
             for i in range(self.n_ch):
                 path = prof.get("cal", {}).get(str(i))
                 if path:
@@ -379,20 +395,12 @@ class MeasureWindow(Adw.Window):
         prof = self.mic_store.match(src["name"])
         self.cal = {}
         if prof:
-            self.compensation = prof.get("compensation", "RAW")
-            if self.compensation in COMPENSATION_TYPES:
-                self.comp_dd.set_selected(
-                    COMPENSATION_TYPES.index(self.compensation))
             for i in range(self.n_ch):
                 path = prof.get("cal", {}).get(str(i))
                 if path:
                     self.cal[i] = path
         self._sync_cal_labels()
-
-    def _on_comp_changed(self, *_):
-        i = self.comp_dd.get_selected()
-        if 0 <= i < len(COMPENSATION_TYPES):
-            self.compensation = COMPENSATION_TYPES[i]
+        self._persist_mic()
 
     def _make_cal_cb(self, ch):
         def cb(_btn):
@@ -408,6 +416,7 @@ class MeasureWindow(Adw.Window):
                 if path:
                     self.cal[ch] = path
                     self._sync_cal_labels()
+                    self._persist_mic()
             dialog.open(self, None, done)
         return cb
 
@@ -480,14 +489,32 @@ class MeasureWindow(Adw.Window):
                 guard += 1
                 out = self.session.take(ch)
                 if out.kind == "level_probe" and guard < 12:
+                    lv = out.level or {}
+                    self._post_status(
+                        "%s: leveling %d%% → %d%%  "
+                        "(peak %.1f dBFS, step %d/%d)"
+                        % (self.ch_keys[ch],
+                           round(100 * lv.get("volume_from", 0)),
+                           round(100 * lv.get("volume_to", 0)),
+                           lv.get("peak_dbfs", float("nan")),
+                           lv.get("step", 0), lv.get("max_steps", 0)))
                     continue
                 if out.kind == "level_stuck":
+                    lv = out.level or {}
+                    self._post_status(
+                        "%s: level stuck at %d%% (peak %.1f dBFS), "
+                        "keeping it" % (self.ch_keys[ch],
+                                        round(100 * lv.get("volume", 0)),
+                                        lv.get("peak_dbfs", float("nan"))))
                     out = self.session.accept_level()
                 result["outcome"] = out
                 break
         except Exception as e:
             result["error"] = e
         GLib.idle_add(self._measure_done, ch, result)
+
+    def _post_status(self, text):
+        GLib.idle_add(self.center.set_text, text)
 
     def _measure_done(self, ch, result):
         self._busy = False
@@ -515,17 +542,21 @@ class MeasureWindow(Adw.Window):
         channels = {i: self.ch_keys[i] for i in range(self.n_ch)
                     if self.session.takes_of(i)}
         cal = dict(self.cal)
+        bands = self.bands_spin.get_value_as_int()
+        f_lo = float(self.flo_spin.get_value())
+        f_hi = float(self.fhi_spin.get_value())
         self._busy = True
         self.create_btn.set_sensitive(False)
         self._set_ring_sensitive(False)
-        self.center.set_text("Building profile\u2026")
+        self.center.set_text("Building profile…")
         res = {"pid": None, "error": None}
 
         def work():
             try:
                 res["pid"] = measure_build.build_and_bind(
                     self.session, channels, self.parent.store,
-                    self.sink_node, name, cal=cal, bands=FIT_BANDS)
+                    self.sink_node, name, cal=cal, bands=bands,
+                    f_lo=f_lo, f_hi=f_hi)
             except Exception as e:
                 res["error"] = e
             GLib.idle_add(self._create_done, res)
@@ -539,7 +570,7 @@ class MeasureWindow(Adw.Window):
             self._error("Could not build the profile: %s" % res["error"])
             self._refresh_all()
             return False
-        self._persist_mic_profile()
+        self._persist_mic()
         pid = res["pid"]
         try:
             self.parent._select_device(self.sink_node, load=False)
@@ -549,15 +580,22 @@ class MeasureWindow(Adw.Window):
         self.close()
         return False
 
-    def _persist_mic_profile(self):
+    def _persist_mic(self):
+        """Save the chosen mic + cal (bound to the source node) and
+        remember it for this sink as soon as either changes -- not only at
+        create. The compensation is read back from the cal filenames."""
         src = self._selected_source()
         if not src:
             return
         existing = self.mic_store.match(src["name"])
+        cal = {str(i): p for i, p in self.cal.items() if p}
+        if not cal and existing is None:
+            return
         body = {"name": src["desc"], "node_match": src["name"],
                 "serial": (existing or {}).get("serial", ""),
-                "compensation": self.compensation,
-                "cal": {str(i): p for i, p in self.cal.items()}}
+                "compensation": measure_prefs.detect_compensation(
+                    list(self.cal.values())),
+                "cal": cal}
         if existing:
             body["id"] = existing["id"]
         pid = self.mic_store.save(body)
