@@ -75,6 +75,8 @@ class MeasureWindow(Adw.Window):
         self._loud_ack = False
         self._relevel_pending = False
         self._sink_gone = False
+        self._pinned = False        # user chose "stay": ignore the default
+        self._popup_open = False    # a stay/go dialog is on screen
         self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
         self._columns = {}          # ch index -> {box, header, ...}
         self._speakers = {}         # ch index -> Gtk.Button
@@ -455,6 +457,8 @@ class MeasureWindow(Adw.Window):
             return None
 
     def _set_volume_display(self, v):
+        if self._sink_gone:
+            return                           # keep the Unavailable marker
         if v is None:
             self.vol_label.set_markup("<span size='x-large'>—</span>")
         else:
@@ -582,12 +586,72 @@ class MeasureWindow(Adw.Window):
     # ---- callbacks (config) -----------------------------------------------
     def _on_pw_state(self, st):
         """The shared PWState refresh drives the whole window: keep the
-        input list current and track whether the target sink is alive.
-        One poll in pipewire feeds this instead of a per-window timer."""
+        input list current, then reconcile the target sink against the
+        graph. One pipewire poll feeds this instead of a window timer."""
         self._refresh_sources_from(st.sources)
-        alive = any(s["name"] == self.sink_node for s in st.sinks)
-        self._set_sink_gone(not alive)
+        self._reconcile_sink(st)
         return False
+
+    def _auto(self):
+        """True when the window should chase the default: following is on
+        in the main window and the user has not pinned this sink via
+        'stay'. Following off behaves as a pinned sink."""
+        try:
+            return self.parent.follow_btn.get_active() and not self._pinned
+        except Exception:
+            return False
+
+    def _reconcile_sink(self, st):
+        alive = any(s["name"] == self.sink_node for s in st.sinks)
+        dflt = st.default_sink
+        if not alive:
+            if self._auto() and dflt and dflt != self.sink_node:
+                self._retarget(dflt)         # follow to the new device
+            else:
+                self._set_sink_gone(True)    # Unavailable; Create stays
+            return
+        self._set_sink_gone(False)
+        if (self._auto() and dflt and dflt != self.sink_node
+                and not self._popup_open and not self._busy):
+            self._ask_stay_or_go(dflt)
+
+    def _ask_stay_or_go(self, new_sink):
+        self._popup_open = True
+        new_desc = next((s["desc"] for s in self._pw.sinks
+                         if s["name"] == new_sink), new_sink)
+        dlg = Adw.AlertDialog(
+            heading="The default output changed",
+            body='The system default is now "%s". Switch the measurement '
+                 'to it and discard the current takes, or keep measuring '
+                 '"%s"?' % (new_desc, self.sink_desc))
+        dlg.add_response("stay", "Keep measuring")
+        dlg.add_response("go", "Switch")
+        dlg.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("stay")
+        dlg.set_close_response("stay")
+
+        def on_resp(_d, resp):
+            self._popup_open = False
+            st = self._pw
+            if resp == "go":
+                tgt = st.default_sink
+                if tgt and any(s["name"] == tgt for s in st.sinks):
+                    self._retarget(tgt)
+                elif not any(s["name"] == self.sink_node
+                             for s in st.sinks):
+                    self._set_sink_gone(True)   # nowhere to go, old dead
+            else:
+                self._pinned = True             # stop asking
+                self._reconcile_sink(st)        # reflect reality now
+        dlg.connect("response", on_resp)
+        dlg.present(self)
+
+    def _retarget(self, new_sink):
+        """Abandon this measurement and reopen the wizard for new_sink -- a
+        different channel layout means a fresh measurement. The main window
+        moves too, and the new window is shown before this one closes so
+        there is no blank flash."""
+        self.parent._retarget_measure(new_sink)
 
     def _refresh_sources_from(self, sources):
         prev = [s["name"] for s in self.sources]
@@ -615,14 +679,17 @@ class MeasureWindow(Adw.Window):
             return
         self._sink_gone = gone
         if gone:
+            self.vol_label.set_markup(
+                "<span size='large'>Unavailable</span>")
             self.warning.set_text(
-                "This output no longer exists -- the device's channel "
-                "configuration changed and renamed its sink. Close and "
-                "reopen the measurement for the current device.")
+                "The output device is gone -- its channel configuration "
+                "changed, or it was unplugged. Bring it back to keep "
+                "measuring; you can still save what you have measured.")
             self._set_ring_sensitive(False)
-            self.create_btn.set_sensitive(False)
+            self.relevel_btn.set_sensitive(False)
         else:
             self.warning.set_text("")
+            self.relevel_btn.set_sensitive(True)
             self._set_ring_sensitive(True)
             self._refresh_all()
 

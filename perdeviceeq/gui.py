@@ -1549,12 +1549,30 @@ class EqWindow(Adw.ApplicationWindow):
         self._measure_win.connect("close-request", self._on_measure_closed)
         self._measure_win.present()
 
-    def _on_measure_closed(self, *_):
-        """Resume following the default sink once the measure window is
-        gone -- it was frozen so it could not diverge from the sink being
-        measured."""
-        self._measure_win = None
+    def _on_measure_closed(self, win, *_):
+        """Drop the reference when the measure window closes so following
+        resumes. Compare identity: during a retarget the old window closes
+        after the new one is stored, and must not clear it."""
+        if win is self._measure_win:
+            self._measure_win = None
         return False
+
+    def _retarget_measure(self, sink_name):
+        """Move the picker to sink_name and reopen the wizard for it. The
+        new window is presented before the old one closes so there is no
+        blank flash. Called when the measured sink vanishes with following
+        on, or when the user picks 'Switch' in the stay/go dialog; it moves
+        this window too."""
+        from .measure_window import MeasureWindow
+        old = self._measure_win
+        self._select_device(sink_name, load=False)
+        desc = next((s["desc"] for s in self.sinks
+                     if s["name"] == sink_name), sink_name)
+        self._measure_win = MeasureWindow(self, sink_name, desc)
+        self._measure_win.connect("close-request", self._on_measure_closed)
+        self._measure_win.present()
+        if old is not None:
+            old.close()
 
     def _on_create_new(self, _btn):
         """Create and load a fresh empty user profile."""
