@@ -98,6 +98,12 @@ class MeasureWindow(Adw.Window):
 
         outer.append(self._build_source_area())
         outer.append(self._build_ring())
+        self.center = Gtk.Label(label="Click a speaker to measure")
+        self.center.add_css_class("dim-label")
+        self.center.set_wrap(True)
+        self.center.set_justify(Gtk.Justification.CENTER)
+        self.center.set_halign(Gtk.Align.CENTER)
+        outer.append(self.center)
         self.warning = Gtk.Label(xalign=0.0)
         self.warning.add_css_class("dim-label")
         self.warning.set_wrap(True)
@@ -106,10 +112,9 @@ class MeasureWindow(Adw.Window):
         outer.append(self._build_fit_area())
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.level_label = Gtk.Label(xalign=0.0)
-        self.level_label.add_css_class("dim-label")
-        self.level_label.set_hexpand(True)
-        footer.append(self.level_label)
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        footer.append(spacer)
         self.create_btn = Gtk.Button(label="Create profile")
         self.create_btn.add_css_class("suggested-action")
         self.create_btn.set_sensitive(False)
@@ -194,13 +199,7 @@ class MeasureWindow(Adw.Window):
         self.relevel_btn.connect("clicked", self._on_relevel)
         top.append(self.relevel_btn)
         center_box.append(top)
-        self.center = Gtk.Label(label="Click a speaker to measure")
-        self.center.add_css_class("dim-label")
-        self.center.set_wrap(True)
-        self.center.set_halign(Gtk.Align.CENTER)
-        self.center.set_justify(Gtk.Justification.CENTER)
-        center_box.append(self.center)
-        self.ring.put(center_box, SPEAKER, int(RING / 2 - 28))
+        self.ring.put(center_box, SPEAKER, int(RING / 2 - 16))
         return self.ring
 
     def _build_columns(self):
@@ -497,13 +496,6 @@ class MeasureWindow(Adw.Window):
             else:
                 spk.remove_css_class("suggested-action")
         self.create_btn.set_sensitive(ready and not self._busy)
-        src = self._source_name()
-        v = self.memory.volume_for(self.sink_node, src) if src else None
-        if v is not None:
-            self.level_label.set_text("Level %d%% (remembered)"
-                                      % round(100 * v))
-        else:
-            self.level_label.set_text("")
         self._refresh_volume()
         if getattr(self, "range_area", None) is not None:
             self.range_area.queue_draw()
