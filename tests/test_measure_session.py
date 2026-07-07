@@ -155,8 +155,6 @@ def test_auto_level_probes_not_accumulated(shim_state, tmp_path):
         for _ in range(ms.AUTO_MAX_ADJUST + 2):
             out = ses.take(0)
             kinds.append(out.kind)
-            if out.kind == "level_probe":
-                assert out.level["volume_to"] > out.level["volume_from"]
             if out.kind == "take":
                 break
     assert kinds[-1] == "take"

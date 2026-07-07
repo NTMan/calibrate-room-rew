@@ -367,7 +367,7 @@ def test_autolevel_steps_up_but_never_blasts_when_quiet():
     ac.observe(0.15, -45.0, False)
     nv = ac.next_volume(0.15, -45.0)
     assert nv > 0.15                                 # move toward the target
-    assert nv <= 0.15 * ms.AUTO_MAX_STEP             # bounded per step
+    assert nv <= 0.15 * ms.AUTO_RAMP                 # bounded ramp per step
     assert nv <= ms.AUTO_EXPLORE_CEIL                # no full-volume probe
 
 
@@ -396,16 +396,15 @@ def test_autolevel_ceiling_lifts_when_stuck_below_window():
     assert nv > ms.AUTO_EXPLORE_CEIL                 # allowed to go higher now
 
 
-def test_autolevel_uses_the_measured_slope():
-    # two points 6 dB apart over 0.3 decades -> ~20 dB/decade, much shallower
-    # than the 60 the old cube model assumed; the step must reflect that
+def test_autolevel_bisects_between_brackets():
+    # once bracketed, the next probe is the geometric midpoint of the two
+    # -- no slope/law assumption, so it converges on a steep BT law where
+    # a slope estimate overshoots
     ac = ms.AutoLevel()
-    ac.observe(0.1, -40.0, False)
-    ac.next_volume(0.1, -40.0)                        # seeds prev
-    ac.observe(0.2, -34.0, False)
-    nv = ac.next_volume(0.2, -34.0)
-    assert nv > 0.2
-    assert nv <= 0.2 * ms.AUTO_MAX_STEP               # still bounded/safe
+    ac.observe(0.30, -20.0, False)                    # below the window
+    ac.observe(0.90, -1.0, False)                     # above the window
+    nv = ac.next_volume(0.90, -1.0)
+    assert nv == pytest.approx((0.30 * 0.90) ** 0.5, abs=1e-6)
 
 
 # --- the glitch probe imports and parses (hardware tool, smoke only) --------

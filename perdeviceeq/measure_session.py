@@ -110,12 +110,10 @@ METADATA_NAME = "per-device-eq"          # same object the app + WP hook use
 PLAY_NODE = "pde-measure-sweep"
 CAPTURE_NODE = "pde-measure-capture"
 SINK_API_PREFIXES = ("alsa", "bluez")    # "real device" whitelist
-AUTO_WINDOW = (-12.0, -6.0)              # capture peak target window, dBFS
-AUTO_TARGET_DBFS = -8.0                  # aim high in the window for SNR
-AUTO_MAX_ADJUST = 6                      # bounded steps need a little room
+AUTO_WINDOW = (-9.0, -3.0)               # capture peak target window, dBFS
+AUTO_MAX_ADJUST = 8                      # ramp-up + a few bisection steps
 AUTO_START_VOLUME = 0.15                 # cubic; "start quiet"
-AUTO_DEFAULT_SLOPE = 30.0                # dB per decade of cubic, 1st guess
-AUTO_MAX_STEP = 3.0                      # cap the per-step cubic ratio
+AUTO_RAMP = 2.0                          # geometric step up while hunting
 AUTO_EXPLORE_CEIL = 0.8                  # don't slam full volume while probing
 AUTO_CLIP_BACKOFF = 0.85                 # stay this far below a clipping level
 FULLSCALE = 0.999                        # |sample| >= this = clipped
@@ -439,18 +437,16 @@ def _clamp_vol(v):
 class AutoLevel:
     """Drive the sink volume so the capture peak lands in AUTO_WINDOW,
     with no assumption about the device's volume->gain law (a BT sink's
-    is nothing like the software cube law). It brackets: once one probe
-    is below the window and one is at/above it (or clipped), the level
-    is interpolated in log-volume between the two and never exceeds the
-    loud side. Before the bracket closes it steps with the slope
-    measured from the last two probes (a conservative default for the
-    first), capped per step and kept below any level seen to clip, so
-    the first sound can neither blast nor run away."""
+    is nothing like the software cube law). It brackets and then bisects:
+    ramp up cautiously (never straight to full volume, which would blast a
+    coupler) until a probe is too loud, then halve the interval in
+    log-volume between the loudest-too-quiet and quietest-too-loud probe.
+    Bisection needs only that louder means louder, so it converges on a
+    steep or kinked Bluetooth law where a slope estimate overshoots."""
 
     def __init__(self):
         self.lo = None            # (v, peak): highest probe below the window
         self.hi = None            # (v, peak): lowest probe at/above / clipped
-        self.prev = None          # (v, peak): the last probe, for the slope
         self.ceil = AUTO_EXPLORE_CEIL   # soft: lifts if we're stuck too quiet
 
     @staticmethod
@@ -468,32 +464,13 @@ class AutoLevel:
             if v >= self.ceil - 1e-3:     # at the ceiling yet still too quiet
                 self.ceil = 1.0           # -> the device needs more, lift it
 
-    def _slope(self, v, peak):
-        if self.prev is not None:
-            v0, p0 = self.prev
-            if v > 0 and v0 > 0 and abs(math.log10(v / v0)) > 1e-3:
-                m = (peak - p0) / math.log10(v / v0)
-                if m > 1.0:
-                    return m
-        return AUTO_DEFAULT_SLOPE
-
     def next_volume(self, v, peak):
-        if self.lo and self.hi:                  # bracketed: interpolate
-            (vl, pl), (vh, ph) = self.lo, self.hi
-            if ph - pl > 1.0:
-                frac = (AUTO_TARGET_DBFS - pl) / (ph - pl)
-                nv = vl * (vh / vl) ** min(0.95, max(0.05, frac))
-            else:
-                nv = math.sqrt(vl * vh)
-            nv = min(nv, vh * AUTO_CLIP_BACKOFF)
-        else:
-            slope = self._slope(v, peak)
-            nv = v * 10 ** ((AUTO_TARGET_DBFS - peak) / slope)
-            nv = min(nv, v * AUTO_MAX_STEP)       # no blind leap to a blast
-            ceil = (self.hi[0] * AUTO_CLIP_BACKOFF if self.hi
-                    else self.ceil)
-            nv = min(nv, ceil)
-        self.prev = (v, peak)                     # for the next slope estimate
+        if self.lo and self.hi:                  # bracketed: bisect
+            nv = math.sqrt(self.lo[0] * self.hi[0])
+        elif self.hi:                            # too loud, no floor yet
+            nv = self.hi[0] * AUTO_CLIP_BACKOFF
+        else:                                    # hunt up for the loud end
+            nv = min(v * AUTO_RAMP, self.ceil)
         return _clamp_vol(nv)
 
 
