@@ -149,6 +149,12 @@ class FaultyCaptureError(MeasureError):
         self.bad = bad
 
 
+class MeasureCancelled(Exception):
+    """A sweep was cancelled by the user (Stop). A control-flow signal,
+    not an error: the child processes are killed and the partial capture
+    is discarded, so nothing is stored."""
+
+
 # --- subprocess plumbing -----------------------------------------------------
 
 def _run(cmd, timeout=5.0):
@@ -552,10 +558,12 @@ class CaptureStream:
                 self._chunks.append(chunk)
                 self._bytes += len(chunk)
 
-    def wait_frames(self, n_frames, timeout):
+    def wait_frames(self, n_frames, timeout, cancel=None):
         need = n_frames * self.channels * 4
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if cancel is not None and cancel.is_set():
+                raise MeasureCancelled()
             with self._lock:
                 if self._bytes >= need:
                     return
@@ -681,7 +689,7 @@ def verify_capture(source, cap):
 
 
 def run_take(sink, source, wav_path, wav_duration_s, channels, rate,
-             verify, raw_dump_path=None):
+             verify, raw_dump_path=None, cancel=None):
     """One sweep: start capture, play the wav, collect exactly enough
     frames. Returns (frames x channels array, path_clean or None). With
     raw_dump_path, the untouched capture is written there first,
@@ -704,11 +712,20 @@ def run_take(sink, source, wav_path, wav_duration_s, channels, rate,
             time.sleep(VERIFY_AFTER_S)
             path_info = verify_path(sink, play)
             path_info["capture"] = cap_info
-        rc = play.wait(timeout=wav_duration_s + 30)
+        deadline = time.monotonic() + wav_duration_s + 30
+        while True:
+            if cancel is not None and cancel.is_set():
+                raise MeasureCancelled()
+            rc = play.poll()
+            if rc is not None:
+                break
+            if time.monotonic() > deadline:
+                raise MeasureError("pw-play did not finish in time")
+            time.sleep(0.05)
         if rc != 0:
             raise _play_error(play)
         need = int((CAPTURE_LEAD_S + wav_duration_s + EXTRA_TAIL_S) * rate)
-        cap.wait_frames(need, timeout=wav_duration_s + 60)
+        cap.wait_frames(need, timeout=wav_duration_s + 60, cancel=cancel)
     finally:
         if play is not None and play.poll() is None:
             play.kill()
@@ -918,6 +935,7 @@ class MeasureSession:
         self.path_clean = None
         self.eq_state = None
         self._stack = None
+        self._cancel = threading.Event()    # set by cancel() to abort a sweep
         self._v_cur = v0
         self._leveled = not cfg.auto_level
         self._auto_ctl = AutoLevel()
@@ -961,6 +979,13 @@ class MeasureSession:
 
     # -- one physical sweep --------------------------------------------------
 
+    def cancel(self):
+        """Abort the sweep in flight (from the Stop button, on another
+        thread): the running take() raises MeasureCancelled, its child
+        processes are killed and the partial capture is dropped. A no-op
+        when nothing is playing -- take() clears the flag as it starts."""
+        self._cancel.set()
+
     def take(self, channel, analyze=None):
         """One sweep played and captured, analyzed on capture column
         `analyze` (defaults to `channel`) but stored under `channel`, the
@@ -974,6 +999,7 @@ class MeasureSession:
         if self.wav is None:
             raise MeasureError("session not entered (use `with session:`)")
         self._pending = None                # a new sweep supersedes it
+        self._cancel.clear()                # fresh; cancel() sets it to abort
         raw_path = (os.path.join(self.outdir,
                                  "raw%02d.wav" % (self._take_seq + 1))
                     if cfg.raw_capture_dump else None)
@@ -981,7 +1007,7 @@ class MeasureSession:
                               self.wav_duration, cfg.channels,
                               self.sweep.fs,
                               verify=self.path_clean is None,
-                              raw_dump_path=raw_path)
+                              raw_dump_path=raw_path, cancel=self._cancel)
         if info is not None:
             self.path_clean = info
 

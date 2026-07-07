@@ -10,6 +10,7 @@ API shapes and the accumulation semantics.
 """
 import json
 import os
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -305,3 +306,30 @@ def test_take_analyze_column_decoupled(shim_state, tmp_path):
         assert out.kind == "take"
         assert len(ses.takes_of(0)) == 1
         assert ses.takes_of(1) == []
+
+
+# --- Stop: the sweep is interruptible ------------------------------------
+
+def test_run_take_cancelled_raises_and_stores_nothing(shim_state, tmp_path):
+    """A cancel set before the sweep makes run_take raise MeasureCancelled
+    and kill its children; the session captured nothing."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        cancel = threading.Event()
+        cancel.set()
+        with pytest.raises(ms.MeasureCancelled):
+            ms.run_take(ses.sink, ses.source, ses.wav, ses.wav_duration,
+                        ses.cfg.channels, ses.sweep.fs, verify=False,
+                        cancel=cancel)
+        assert list(ses.takes_of(0)) == []    # nothing stored
+
+
+def test_cancel_flag_is_cleared_at_each_take(shim_state, tmp_path):
+    """cancel() while idle must not abort the next sweep: take() clears the
+    flag as it starts, so a stray Stop is harmless."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        ses.cancel()                          # stray Stop, nothing playing
+        out = ses.take(0)                     # must still play and capture
+        assert out.kind == "take"
+        assert [r.id for r in ses.takes_of(0)] == [1]
