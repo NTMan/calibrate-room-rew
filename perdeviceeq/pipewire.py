@@ -170,9 +170,9 @@ def metadata_clear(node_name):
 
 _POS_FALLBACK = ["FL", "FR", "FC", "LFE", "RL", "RR", "SL", "SR"]
 
-def sink_channels(name, dump=None):
-    """Channel keys for a sink (e.g. ['FL','FR']) from its negotiated Format
-    position, falling back to channelVolumes length, then stereo."""
+def _node_channels(name, dump=None):
+    """Channel keys for any node (sink or source) from its negotiated
+    Format position, falling back to channelVolumes length, then stereo."""
     params, _ = node_params(name, dump)
     pos, nch = None, None
     if params:
@@ -200,3 +200,14 @@ def sink_channels(name, dump=None):
         else:
             seen[k] = 0; out.append(k)
     return out
+
+
+def sink_channels(name, dump=None):
+    return _node_channels(name, dump)
+
+
+def source_channels(name, dump=None):
+    """Capture-channel keys for a source (mic/rig), e.g. ['FL','FR']. A
+    measurement rig is 1- or 2-channel; the count is how many calibration
+    files it needs, one per capture channel."""
+    return _node_channels(name, dump)
