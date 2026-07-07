@@ -115,6 +115,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.sinks = []
         self._dev_guard = False
         self._poll_busy = False
+        self._measure_win = None
 
         # editor state ("slots": "all" + one per channel key)
         self.apply_all = True
@@ -595,7 +596,10 @@ class EqWindow(Adw.ApplicationWindow):
         self.sinks = sinks
         if new_names != prev_names:
             self._refresh_device_model()
-        if self.follow_btn.get_active() and default and default != self.node:
+        # freeze following while the measure window is open, so it cannot
+        # diverge from the sink being measured
+        if (self.follow_btn.get_active() and default
+                and default != self.node and self._measure_win is None):
             self._select_device(default, load=True)
         return False
 
@@ -1552,7 +1556,16 @@ class EqWindow(Adw.ApplicationWindow):
             return
         desc = next((s["desc"] for s in self.sinks
                      if s["name"] == self.node), self.node)
-        MeasureWindow(self, self.node, desc).present()
+        self._measure_win = MeasureWindow(self, self.node, desc)
+        self._measure_win.connect("close-request", self._on_measure_closed)
+        self._measure_win.present()
+
+    def _on_measure_closed(self, *_):
+        """Resume following the default sink once the measure window is
+        gone -- it was frozen so it could not diverge from the sink being
+        measured."""
+        self._measure_win = None
+        return False
 
     def _on_create_new(self, _btn):
         """Create and load a fresh empty user profile."""
