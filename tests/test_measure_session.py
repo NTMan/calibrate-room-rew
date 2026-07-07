@@ -170,8 +170,8 @@ def test_auto_level_probes_not_accumulated(shim_state, tmp_path):
     assert auto["initial"] == pytest.approx(ms.AUTO_START_VOLUME, abs=1e-3)
     assert 1 <= auto["adjustments"] <= ms.AUTO_MAX_ADJUST
     vol = json.loads((shim_state / "volume.json").read_text())["cubic"]
-    assert vol == pytest.approx(auto["final"], abs=1e-3)
-    assert vol > 0.30                                 # allowed to exceed
+    assert vol == pytest.approx(0.30, abs=1e-3)       # restored to listening
+    assert auto["final"] > 0.30                       # the sweep ran hotter
 
 
 def test_level_stuck_is_a_caller_decision(shim_state, tmp_path,

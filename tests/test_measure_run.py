@@ -180,10 +180,11 @@ def test_auto_level_starts_quiet_and_lands_in_window(tmp_path):
     pk = r["levels"]["capture_peak_dbfs"][-1]
     assert ms.AUTO_WINDOW[0] <= pk <= ms.AUTO_WINDOW[1]
     vol = json.loads((state / "volume.json").read_text())["cubic"]
-    assert vol == pytest.approx(auto["final"], abs=1e-3)
-    assert vol > 0.30                       # allowed to exceed the start
+    assert vol == pytest.approx(0.30, abs=1e-3)   # restored to listening level
+    assert auto["final"] > 0.30                   # the sweep itself ran hotter
     log = json.loads((state / "volume_log.json").read_text())
     assert log[0]["cubic"] == pytest.approx(ms.AUTO_START_VOLUME, abs=1e-3)
+    assert log[-1]["cubic"] == pytest.approx(0.30, abs=1e-3)   # last = restore
 
 
 def test_auto_level_converges_on_a_nonlinear_gain(tmp_path):

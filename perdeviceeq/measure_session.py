@@ -965,10 +965,8 @@ class MeasureSession:
                         if self.volume_start is not None else 1.0,
                         AUTO_START_VOLUME)
                 self._auto_state["initial"] = round(v, 4)
-                set_sink_volume(self.sink["id"], v)
                 self._v_cur = v
             elif self.cfg.start_volume is not None:
-                set_sink_volume(self.sink["id"], self.cfg.start_volume)
                 self._v_cur = self.cfg.start_volume
             self._stack = stack.pop_all()
         return self
@@ -988,6 +986,12 @@ class MeasureSession:
         when nothing is playing -- take() clears the flag as it starts."""
         self._cancel.set()
 
+    def set_level(self, cubic):
+        """Manual override of the measurement level (the wizard's editable
+        %); freezes auto-level so the chosen level sticks for the sweep."""
+        self._v_cur = max(0.0, min(1.0, float(cubic)))
+        self._leveled = True
+
     def _mute_foreign(self, on):
         """Mute (on) or restore (off) the foreign streams for ONE sweep, so
         other audio is silenced only while the sweep plays and comes back
@@ -1000,6 +1004,18 @@ class MeasureSession:
                     s["muted_for_measure"] = True
             elif s["muted_for_measure"]:
                 MuteOthers._set_mute(s["id"], s["prior_mute"])
+
+    def _set_meas_volume(self, on):
+        """Set the measurement level for one sweep (on) or restore the
+        user's listening volume after (off) -- per sweep, like the mute and
+        EQ, so opening the wizard or measuring never leaves the device
+        parked at the measurement level."""
+        if self._v_cur is None or self.volume_start is None:
+            return
+        if abs(self._v_cur - self.volume_start) < 1e-4:
+            return                          # nothing to change; leave it be
+        set_sink_volume(self.sink["id"],
+                        self._v_cur if on else self.volume_start)
 
     def _channel_map(self, channel):
         """The target speaker's position for pw-play --channel-map, e.g.
@@ -1034,12 +1050,17 @@ class MeasureSession:
             eq = ProfileBypass(self.sink_ident["name"])
             self.eq_state = eq.__enter__()  # bypass the device EQ for it
             try:
-                data, info = run_take(self.sink, self.source, self.wav,
-                                      self.wav_duration, cfg.channels,
-                                      self.sweep.fs,
-                                      verify=self.path_clean is None,
-                                      raw_dump_path=raw_path,
-                                      cancel=self._cancel, channel_map=cmap)
+                self._set_meas_volume(True)     # measurement level
+                try:
+                    data, info = run_take(self.sink, self.source, self.wav,
+                                          self.wav_duration, cfg.channels,
+                                          self.sweep.fs,
+                                          verify=self.path_clean is None,
+                                          raw_dump_path=raw_path,
+                                          cancel=self._cancel,
+                                          channel_map=cmap)
+                finally:
+                    self._set_meas_volume(False)  # restore listening volume
             finally:
                 eq.__exit__(None, None, None)   # restore the EQ right after
         finally:
@@ -1109,8 +1130,7 @@ class MeasureSession:
                 level = {"peak_dbfs": pk, "volume_from": self._v_cur,
                          "volume_to": v_new, "step": auto["adjustments"],
                          "max_steps": AUTO_MAX_ADJUST}
-                set_sink_volume(self.sink["id"], v_new)
-                self._v_cur = v_new
+                self._v_cur = v_new             # next sweep sets the sink
                 return TakeOutcome("level_probe", level=level, notes=notes)
         return self._accept(channel, data, chan, pk, clipped, bad, notes)
 
@@ -1139,7 +1159,6 @@ class MeasureSession:
         v = min(self._v_cur if self._v_cur is not None else 1.0,
                 AUTO_START_VOLUME)
         self._auto_state["initial"] = round(v, 4)
-        set_sink_volume(self.sink["id"], v)
         self._v_cur = v
 
     def _accept(self, channel, data, chan, pk, clipped, repaired, notes):
@@ -1211,7 +1230,9 @@ class MeasureSession:
             raise MeasureError("no accepted takes on channel %d" % channel)
         dump = pw_dump()
         v_final, raw_final, _ = sink_volume_state(dump, self.sink["id"])
-        v_report = v_final if v_final is not None else self._v_cur
+        # the sink is restored to the listening level after each sweep now,
+        # so report the measurement level the sweeps actually used
+        v_report = self._v_cur if self._v_cur is not None else v_final
         auto = dict(self._auto_state)
         auto["final"] = (round(v_report, 4) if self.cfg.auto_level
                          else None)

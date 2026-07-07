@@ -242,9 +242,20 @@ class MeasureWindow(Adw.Window):
         center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         center_box.set_size_request(RING - 2 * SPEAKER, -1)
         center_box.set_halign(Gtk.Align.CENTER)
-        self.vol_label = Gtk.Label()
-        self.vol_label.set_halign(Gtk.Align.CENTER)
-        center_box.append(self.vol_label)
+        adj = Gtk.Adjustment(lower=0, upper=100, step_increment=1,
+                             page_increment=5)
+        self.vol_spin = Gtk.SpinButton(adjustment=adj, climb_rate=1.0,
+                                       digits=0)
+        self.vol_spin.set_halign(Gtk.Align.CENTER)
+        self.vol_spin.set_tooltip_text(
+            "Sweep playback level (%). Auto-level sets it; edit to override "
+            "if it misses.")
+        self.vol_spin.connect("value-changed", self._on_vol_edited)
+        center_box.append(self.vol_spin)
+        self.vol_gone = Gtk.Label()
+        self.vol_gone.set_halign(Gtk.Align.CENTER)
+        self.vol_gone.set_visible(False)
+        center_box.append(self.vol_gone)
         pult = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         pult.set_halign(Gtk.Align.CENTER)
         self.play_btn = self._pult_btn(
@@ -492,13 +503,18 @@ class MeasureWindow(Adw.Window):
             return None
 
     def _set_volume_display(self, v):
-        if self._sink_gone:
-            return                           # keep the Unavailable marker
-        if v is None:
-            self.vol_label.set_markup("<span size='x-large'>—</span>")
-        else:
-            self.vol_label.set_markup(
-                "<span size='x-large'>%d%%</span>" % round(100 * v))
+        if self._sink_gone or v is None:
+            return
+        self.vol_spin.handler_block_by_func(self._on_vol_edited)
+        self.vol_spin.set_value(round(100 * v))
+        self.vol_spin.handler_unblock_by_func(self._on_vol_edited)
+
+    def _on_vol_edited(self, _spin):
+        """Manual override of the sweep level -- the stop-crane when
+        auto-level misses. Set it on the session and stop auto-levelling
+        so it sticks for the next sweep."""
+        if self.session is not None:
+            self.session.set_level(self.vol_spin.get_value() / 100.0)
 
     def _refresh_volume(self):
         if self.session is not None:
@@ -809,8 +825,9 @@ class MeasureWindow(Adw.Window):
             return
         self._sink_gone = gone
         if gone:
-            self.vol_label.set_markup(
-                "<span size='large'>Unavailable</span>")
+            self.vol_spin.set_visible(False)
+            self.vol_gone.set_markup("<span size='large'>Unavailable</span>")
+            self.vol_gone.set_visible(True)
             self.warning.set_text(
                 "The output device is gone -- its channel configuration "
                 "changed, or it was unplugged. Bring it back to keep "
@@ -818,6 +835,8 @@ class MeasureWindow(Adw.Window):
             self._set_ring_sensitive(False)
             self.relevel_btn.set_sensitive(False)
         else:
+            self.vol_gone.set_visible(False)
+            self.vol_spin.set_visible(True)
             self.warning.set_text("")
             self.relevel_btn.set_sensitive(True)
             self._set_ring_sensitive(True)
