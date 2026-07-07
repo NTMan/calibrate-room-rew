@@ -99,15 +99,18 @@ class MeasureWindow(Adw.Window):
         self._pinned = False        # user chose "stay": ignore the default
         self._popup_open = False    # a stay/go dialog is on screen
         self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
-        self._columns = {}          # ch index -> {box, header, ...}
+        self._page = None            # selected channel's page widgets
+        self._selected_ch = 0        # channel the ring has selected
         self._speakers = {}         # ch index -> Gtk.Button
         self._speaker_counts = {}   # ch index -> Gtk.Label (# takes)
 
+        self._pw = pipewire.app_state()   # needed by _sink_present below
+        self._pw_unsub = None
         self._build_ui()
+        self._select_channel(0)
         self.connect("close-request", self._on_close)
         self._prefill_from_memory()
         self._refresh_all()
-        self._pw = pipewire.app_state()
         self._pw_unsub = self._pw.subscribe(self._on_pw_state)
         self._pw.start()
 
@@ -136,7 +139,7 @@ class MeasureWindow(Adw.Window):
         ring_host.append(self.map_right_slot)
         self._rebuild_map_slots()
 
-        b.get_object("channel_host").append(self._build_columns())
+        b.get_object("channel_host").append(self._build_page())
         b.get_object("fit_host").append(self._build_fit_area())
 
     def _build_mic_controls(self, mic_row, capsules_row, cal_row):
@@ -177,7 +180,7 @@ class MeasureWindow(Adw.Window):
                 ang = math.pi + (2 * math.pi * i / max(1, self.n_ch))
             x = cx + r * math.cos(ang) - SPEAKER / 2.0
             y = cy + r * math.sin(ang) - SPEAKER / 2.0
-            spk = Gtk.Button()
+            spk = Gtk.ToggleButton()
             spk.set_size_request(SPEAKER, SPEAKER)
             spk.add_css_class("circular")
             body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -190,50 +193,59 @@ class MeasureWindow(Adw.Window):
             body.append(count)
             spk.set_child(body)
             spk.connect("clicked", self._make_speaker_cb(i))
-            spk.set_tooltip_text("Measure %s" % key)
+            spk.set_tooltip_text("Select %s" % key)
             self.ring.put(spk, int(x), int(y))
             self._speakers[i] = spk
             self._speaker_counts[i] = count
 
-        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         center_box.set_size_request(RING - 2 * SPEAKER, -1)
-        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        top.set_halign(Gtk.Align.CENTER)
+        center_box.set_halign(Gtk.Align.CENTER)
         self.vol_label = Gtk.Label()
-        top.append(self.vol_label)
-        self.relevel_btn = Gtk.Button()
-        self.relevel_btn.add_css_class("flat")
-        self.relevel_btn.add_css_class("circular")
-        self.relevel_btn.set_valign(Gtk.Align.CENTER)
-        self.relevel_btn.set_child(Gtk.Image.new_from_icon_name(
-            "view-refresh-symbolic"))
-        self.relevel_btn.set_tooltip_text(
-            "Re-measure the playback level (auto-level the next sweep)")
-        self.relevel_btn.connect("clicked", self._on_relevel)
-        top.append(self.relevel_btn)
-        center_box.append(top)
-        self.ring.put(center_box, SPEAKER, int(RING / 2 - 16))
+        self.vol_label.set_halign(Gtk.Align.CENTER)
+        center_box.append(self.vol_label)
+        pult = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        pult.set_halign(Gtk.Align.CENTER)
+        self.play_btn = self._pult_btn(
+            "media-playback-start-symbolic",
+            "Measure the selected channel", self._on_play)
+        self.stop_btn = self._pult_btn(
+            "media-playback-stop-symbolic", "Stop the sweep", self._on_stop)
+        self.stop_btn.set_sensitive(False)
+        self.relevel_btn = self._pult_btn(
+            "view-refresh-symbolic",
+            "Re-measure the playback level (auto-level the next sweep)",
+            self._on_relevel)
+        pult.append(self.play_btn)
+        pult.append(self.stop_btn)
+        pult.append(self.relevel_btn)
+        center_box.append(pult)
+        self.ring.put(center_box, SPEAKER, int(RING / 2 - 24))
         return self.ring
 
-    def _build_columns(self):
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12,
-                      homogeneous=True)
-        for i, key in enumerate(self.ch_keys):
-            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            col.add_css_class("card")
-            header = Gtk.Label(xalign=0.0)
-            header.set_markup("<b>%s</b>" % key)
-            col.append(header)
-            cards = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            col.append(cards)
-            spread = Gtk.DrawingArea()
-            spread.set_content_height(28)
-            spread.set_visible(False)
-            col.append(spread)
-            row.append(col)
-            self._columns[i] = {"header": header, "cards": cards,
-                                "spread": spread}
-        return row
+    def _pult_btn(self, icon, tip, cb):
+        b = Gtk.Button()
+        b.add_css_class("flat")
+        b.add_css_class("circular")
+        b.set_valign(Gtk.Align.CENTER)
+        b.set_child(Gtk.Image.new_from_icon_name(icon))
+        b.set_tooltip_text(tip)
+        b.connect("clicked", cb)
+        return b
+
+    def _build_page(self):
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        col.add_css_class("card")
+        header = Gtk.Label(xalign=0.0)
+        col.append(header)
+        cards = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        col.append(cards)
+        spread = Gtk.DrawingArea()
+        spread.set_content_height(28)
+        spread.set_visible(False)
+        col.append(spread)
+        self._page = {"header": header, "cards": cards, "spread": spread}
+        return col
 
     def _build_fit_area(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -494,16 +506,7 @@ class MeasureWindow(Adw.Window):
     def _refresh_all(self):
         ready = self.session is not None
         for i in range(self.n_ch):
-            self._rebuild_column(i)
             n = self._clean_count(i)
-            has_bad = self.session is not None and any(
-                ms.take_quality(r) != ms.TAKE_CLEAN
-                for r in self.session.takes_of(i))
-            mark = " \u2713" if n >= CLEAN_TARGET else ""
-            warn = " \u26a0" if has_bad else ""
-            self._columns[i]["header"].set_markup(
-                "<b>%s</b>  <span size='small'>%d/%d clean%s</span>%s"
-                % (self.ch_keys[i], n, CLEAN_TARGET, mark, warn))
             if n < CLEAN_TARGET:
                 ready = False
             spk = self._speakers[i]
@@ -516,17 +519,31 @@ class MeasureWindow(Adw.Window):
             if lbl is not None:
                 lbl.set_text(str(total))
                 lbl.set_visible(total > 0)
+        self._rebuild_page()
+        self._update_pult()
         self.create_btn.set_sensitive(ready and not self._busy)
         self._refresh_volume()
         if getattr(self, "range_area", None) is not None:
             self.range_area.queue_draw()
 
-    def _rebuild_column(self, ch):
-        col = self._columns[ch]
-        child = col["cards"].get_first_child()
+    def _rebuild_page(self):
+        if self._page is None:
+            return
+        ch = self._selected_ch
+        n = self._clean_count(ch)
+        has_bad = self.session is not None and any(
+            ms.take_quality(r) != ms.TAKE_CLEAN
+            for r in self.session.takes_of(ch))
+        mark = " \u2713" if n >= CLEAN_TARGET else ""
+        warn = " \u26a0" if has_bad else ""
+        self._page["header"].set_markup(
+            "<b>%s</b>  <span size='small'>%d/%d clean%s</span>%s"
+            % (self.ch_keys[ch], n, CLEAN_TARGET, mark, warn))
+        cards = self._page["cards"]
+        child = cards.get_first_child()
         while child is not None:
             nxt = child.get_next_sibling()
-            col["cards"].remove(child)
+            cards.remove(child)
             child = nxt
         takes = self.session.takes_of(ch) if self.session else []
         if takes:
@@ -535,9 +552,9 @@ class MeasureWindow(Adw.Window):
         else:
             lo, hi = -1.0, 1.0
         for rec in takes:
-            col["cards"].append(self._make_card(ch, rec, lo, hi))
+            cards.append(self._make_card(ch, rec, lo, hi))
         spread = self.session.spread_db(ch) if self.session else None
-        area = col["spread"]
+        area = self._page["spread"]
         if spread is not None:
             area.set_draw_func(self._make_spread_draw(
                 spread, takes[0].freq_hz))
@@ -829,8 +846,27 @@ class MeasureWindow(Adw.Window):
     # ---- measurement ------------------------------------------------------
     def _make_speaker_cb(self, ch):
         def cb(_btn):
-            self._start_measure(ch)
+            self._select_channel(ch)
         return cb
+
+    def _select_channel(self, ch):
+        self._selected_ch = ch
+        for i, spk in self._speakers.items():
+            spk.set_active(i == ch)          # built-in selected highlight
+        self._rebuild_page()
+        self._update_pult()
+
+    def _on_play(self, _btn):
+        self._start_measure(self._selected_ch)
+
+    def _on_stop(self, _btn):
+        if self.session is not None and self._busy:
+            self.session.cancel()            # aborts the sweep in flight
+
+    def _update_pult(self):
+        live = self._sink_present() and not self._sink_gone
+        self.play_btn.set_sensitive(not self._busy and live)
+        self.stop_btn.set_sensitive(self._busy)
 
     def _ensure_session(self):
         if self.session is not None:
@@ -877,6 +913,7 @@ class MeasureWindow(Adw.Window):
         self._busy = True
         self._set_ring_sensitive(False)
         self.create_btn.set_sensitive(False)
+        self._update_pult()
         self.center.set_text("Measuring %s\u2026" % self.ch_keys[ch])
         t = threading.Thread(target=self._measure_worker, args=(ch,),
                              daemon=True)
@@ -928,8 +965,12 @@ class MeasureWindow(Adw.Window):
         self._busy = False
         self._set_ring_sensitive(True)
         self.center.set_text("Click a speaker to measure")
-        if result["error"] is not None:
-            self._error("Measurement failed: %s" % result["error"])
+        err = result["error"]
+        if isinstance(err, ms.MeasureCancelled):
+            self._refresh_all()              # Stop: quiet, nothing stored
+            return False
+        if err is not None:
+            self._error("Measurement failed: %s" % err)
             self._refresh_all()
             return False
         v = getattr(self.session, "_v_cur", self.session.volume_start)
