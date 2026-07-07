@@ -152,6 +152,12 @@ class MeasureWindow(Adw.Window):
         self.source_dd.set_hexpand(True)
         self.source_dd.connect("notify::selected", self._on_source_changed)
         row.append(self.source_dd)
+        self.chan_dd = Gtk.DropDown.new_from_strings(["Mono", "Stereo"])
+        self.chan_dd.set_tooltip_text("Capsules on the rig; a UMIK-1 is "
+                                      "mono even if it enumerates as "
+                                      "stereo")
+        self.chan_dd.connect("notify::selected", self._on_chan_changed)
+        row.append(self.chan_dd)
         box.append(row)
 
         self._recompute_mic()
@@ -411,7 +417,7 @@ class MeasureWindow(Adw.Window):
         if idx is not None:
             self.source_dd.set_selected(idx)
         if prof:
-            for i in range(self.n_ch):
+            for i in range(self.mic_ch):
                 path = prof.get("cal", {}).get(str(i))
                 if path:
                     self.cal[i] = path
@@ -630,11 +636,31 @@ class MeasureWindow(Adw.Window):
     def _recompute_mic(self):
         self.mic_ch = self._mic_channels()
         self.mic_of = self._default_mic_of()
+        self._sync_chan_dd()
+
+    def _sync_chan_dd(self):
+        if not getattr(self, "chan_dd", None):
+            return
+        self.chan_dd.handler_block_by_func(self._on_chan_changed)
+        self.chan_dd.set_selected(1 if self.mic_ch >= 2 else 0)
+        self.chan_dd.handler_unblock_by_func(self._on_chan_changed)
+
+    def _on_chan_changed(self, *_):
+        self.mic_ch = 2 if self.chan_dd.get_selected() == 1 else 1
+        self.mic_of = self._default_mic_of()
+        self.cal = {k: v for k, v in self.cal.items() if k < self.mic_ch}
+        self._rebuild_cal_row()
+        self._rebuild_map_slots()
+        self._sync_cal_labels()
+        self._persist_mic()
 
     def _mic_channels(self):
         src = self._selected_source()
         if not src:
             return 2
+        prof = self.mic_store.match(src["name"])
+        if prof and prof.get("channels") in (1, 2):
+            return prof["channels"]     # the user pinned it for this rig
         try:
             n = len(pipewire.source_channels(src["name"]))
         except Exception:
@@ -900,7 +926,7 @@ class MeasureWindow(Adw.Window):
             return
         body = {"name": src["desc"], "node_match": src["name"],
                 "serial": (existing or {}).get("serial", ""),
-                "cal": cal}
+                "cal": cal, "channels": self.mic_ch}
         if existing:
             body["id"] = existing["id"]
         pid = self.mic_store.save(body)
