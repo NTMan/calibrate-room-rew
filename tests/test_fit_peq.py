@@ -85,3 +85,34 @@ def test_cli_writes_importable_v2_profile(tmp_path):
         assert bands and all(
             set(b) >= {"type", "freq", "gain", "q", "enabled"}
             and b["type"] in eq.TYPE_TO_LABEL for b in bands)
+
+
+def test_fit_profiles_direct_call():
+    # the callable core the wizard uses: feed result dicts, get a v2 body
+    from perdeviceeq import fit_peq, measure_core as mc
+    from perdeviceeq.pde_audit import DEMO_PROFILE, chain_curve
+    freqs = mc.log_grid()
+
+    def result_for(ch_key):
+        mag = chain_curve(DEMO_PROFILE["channels"][ch_key], 48000, freqs)
+        return {"data": {"freq_hz": freqs.tolist(),
+                         "mag_db_smoothed": mag.tolist(),
+                         "mag_db_raw": mag.tolist()}}
+
+    results = {"FL": result_for("FL"), "FR": result_for("FR")}
+    prof = fit_peq.fit_profiles(results, name="Unit", bands=12,
+                                f_lo=20.0, f_hi=12000.0)
+    assert prof["name"] == "Unit"
+    assert prof["version"] == 2
+    assert prof["apply_all"] is False
+    assert prof["ch_keys"] == ["FL", "FR"]
+    assert prof["preamp"] == 0.0
+    for key in ("FL", "FR"):
+        bnds = prof["channels"][key]["bands"]
+        assert bnds and all(b["enabled"] for b in bnds)
+        assert all(b["gain"] <= 6.0 + 1e-6 for b in bnds)
+
+    mono = fit_peq.fit_profiles({"all": result_for("FL")}, mono=True)
+    assert mono["apply_all"] is True
+    assert mono["all"]["bands"]
+    assert mono["channels"] == {}

@@ -112,11 +112,53 @@ def _report(tag, bands, fg, resid, flo, fhi):
               % (fhi / 1000, float(np.max(np.abs(resid[hi])))))
 
 
-def _load(path):
-    r = json.load(open(path))
-    d = r["data"]
-    return np.asarray(d["freq_hz"], float), np.asarray(d["mag_db_smoothed"],
-                                                       float)
+def _curve(result):
+    """(freq, smoothed magnitude) from a process_takes result dict -- the
+    same curve _load reads from result.json, but from an in-memory dict so
+    the wizard can fit without a round-trip through disk."""
+    d = result["data"]
+    return (np.asarray(d["freq_hz"], float),
+            np.asarray(d["mag_db_smoothed"], float))
+
+
+def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
+                 max_boost=6.0, mono=False, report=False):
+    """Fit a v2 profile dict from measurement result dicts. `results` maps
+    a channel key (e.g. "FL") to a process_takes result. With mono=True a
+    single result is fit once and applied to all channels (apply_all);
+    otherwise each channel is fit separately and ch_keys follows the
+    mapping's order. This is what the CLI main() and the measurement
+    wizard both call; only the target (flat) is shared, the per-channel
+    curves are not. Returns the profile body (preamp 0.0: the app derives
+    Safe/Session)."""
+    name = name or "Measured %s" % datetime.date.today().isoformat()
+    prof = {"name": name, "version": 2, "preamp": 0.0,
+            "all": {"bands": []}, "channels": {}, "ch_keys": []}
+    if mono:
+        (_key, result), = results.items()
+        freq, mag = _curve(result)
+        bnds, fg, _desired, resid = fit_channel(freq, mag, f_lo, f_hi,
+                                                bands, max_boost)
+        if report:
+            _report("all", bnds, fg, resid, f_lo, f_hi)
+        prof["apply_all"] = True
+        prof["all"] = {"bands": _bands_to_dicts(bnds)}
+    else:
+        prof["apply_all"] = False
+        prof["ch_keys"] = list(results.keys())
+        for key, result in results.items():
+            freq, mag = _curve(result)
+            bnds, fg, _desired, resid = fit_channel(freq, mag, f_lo, f_hi,
+                                                    bands, max_boost)
+            if report:
+                _report(key, bnds, fg, resid, f_lo, f_hi)
+            prof["channels"][key] = {"bands": _bands_to_dicts(bnds)}
+    return prof
+
+
+def _load_result(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def main(argv):
@@ -138,34 +180,25 @@ def main(argv):
 
     if not (a.left or a.right or a.mono):
         p.error("give --left/--right or --mono")
-    name = a.name or "Measured %s" % datetime.date.today().isoformat()
-    prof = {"name": name, "version": 2, "preamp": 0.0,
-            "all": {"bands": []}, "channels": {}, "ch_keys": []}
 
     if a.mono:
-        freq, mag = _load(a.mono)
-        bands, fg, desired, resid = fit_channel(freq, mag, a.f_lo, a.f_hi,
-                                                a.bands, a.max_boost)
-        _report("all", bands, fg, resid, a.f_lo, a.f_hi)
-        prof["apply_all"] = True
-        prof["all"] = {"bands": _bands_to_dicts(bands)}
+        results = {"all": _load_result(a.mono)}
+        prof = fit_profiles(results, name=a.name, bands=a.bands,
+                            f_lo=a.f_lo, f_hi=a.f_hi,
+                            max_boost=a.max_boost, mono=True, report=True)
     else:
-        prof["apply_all"] = False
-        prof["ch_keys"] = ["FL", "FR"]
+        results = {}
         for key, path in (("FL", a.left), ("FR", a.right)):
-            if not path:
-                continue
-            freq, mag = _load(path)
-            bands, fg, desired, resid = fit_channel(freq, mag, a.f_lo,
-                                                    a.f_hi, a.bands,
-                                                    a.max_boost)
-            _report(key, bands, fg, resid, a.f_lo, a.f_hi)
-            prof["channels"][key] = {"bands": _bands_to_dicts(bands)}
+            if path:
+                results[key] = _load_result(path)
+        prof = fit_profiles(results, name=a.name, bands=a.bands,
+                            f_lo=a.f_lo, f_hi=a.f_hi,
+                            max_boost=a.max_boost, report=True)
 
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(prof, f, indent=2, ensure_ascii=False)
     print("\nwrote %s (%r) -- import via the app's \"Import profile...\""
-          % (a.out, name))
+          % (a.out, prof["name"]))
     return 0
 
 
