@@ -38,9 +38,10 @@ def _atomic_write(path, obj):
 
 class MicProfileStore:
     """Reusable measurement-mic profiles, keyed by a stable id. A profile
-    is a plain dict: {id, name, node_match, serial, compensation, cal},
-    where cal maps a capture-channel index (as a string) to a cal-file
-    path. Stored as one JSON file, {id: body}."""
+    is a plain dict: {id, name, node_match, serial, cal, channels}, where
+    cal maps a capture-channel index (as a string) to a cal-file path and
+    channels is the rig's capsule count (1 or 2, or None if unset -- some
+    mono mics enumerate as stereo). Stored as one JSON file, {id: body}."""
 
     def __init__(self):
         self.profiles = {}
@@ -62,14 +63,17 @@ class MicProfileStore:
     def _sane(pid, body):
         cal = body.get("cal") or {}
         cal = {str(k): str(v) for k, v in cal.items() if v}
+        ch = body.get("channels")
+        ch = ch if ch in (1, 2) else None
         return {"id": pid, "name": body.get("name") or pid,
                 "node_match": body.get("node_match") or "",
-                "serial": body.get("serial") or "", "cal": cal}
+                "serial": body.get("serial") or "", "cal": cal,
+                "channels": ch}
 
     @staticmethod
     def _body(p):
         return {k: p[k] for k in ("name", "node_match", "serial",
-                                  "cal")}
+                                  "cal", "channels")}
 
     def get(self, pid):
         return self.profiles.get(pid)

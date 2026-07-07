@@ -101,3 +101,22 @@ def test_measure_memory_ignores_junk(paths):
     assert m.mic_for("x") is None
     m.remember("x", mic_profile="m")             # and still writable
     assert mp.MeasureMemory().mic_for("x") == "m"
+
+
+def test_mic_profile_channels_roundtrip(paths):
+    s = mp.MicProfileStore()
+    pid = s.save({"name": "Umik", "node_match": "umik.0",
+                  "cal": {"0": "/c/umik.txt"}, "channels": 1})
+    assert s.get(pid)["channels"] == 1
+    s2 = mp.MicProfileStore()                    # reload from disk
+    assert s2.get(pid)["channels"] == 1
+
+
+def test_mic_profile_channels_defaults_none(paths):
+    s = mp.MicProfileStore()
+    pid = s.save({"name": "Ears", "node_match": "ears.0",
+                  "cal": {"0": "/c/l.txt", "1": "/c/r.txt"}})
+    assert s.get(pid)["channels"] is None      # unset -> auto
+    pid2 = s.save({"name": "Bad", "node_match": "bad.0",
+                   "cal": {}, "channels": 5})   # invalid -> None
+    assert s.get(pid2)["channels"] is None
