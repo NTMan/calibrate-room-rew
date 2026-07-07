@@ -22,7 +22,7 @@ import threading
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, GLib, Adw            # noqa: E402
+from gi.repository import Gtk, GLib, Gdk, Adw       # noqa: E402
 
 from . import config, pipewire, measure_build       # noqa: E402
 from . import measure_session as ms                 # noqa: E402
@@ -32,6 +32,7 @@ CARD_W, CARD_H = 150, 60
 RING = 240
 SPEAKER = 56
 CLEAN_TARGET = 3            # clean takes per channel before "all clean"
+SPREAD_MAX_DB = 3.0         # take-to-take spread above this is untrusted
 
 # Where each channel sits on the ring, as a compass angle from the front
 # (0 = straight ahead, positive = clockwise toward the right), so a
@@ -63,6 +64,43 @@ def _ui_path():
     raise FileNotFoundError(
         "measurement design not found; looked in:\n  "
         + "\n  ".join(config.MEASURE_UI_FILE_CANDIDATES))
+
+
+_CSS_INSTALLED = False
+
+
+def _ensure_css():
+    """Install the ring's style classes once: the count bubble and its
+    status colours, and the error outline. Named libadwaita colours so it
+    tracks the theme; load path mirrors the main window's."""
+    global _CSS_INSTALLED
+    if _CSS_INSTALLED:
+        return
+    data = """
+    .measure-count {
+        background-color: alpha(@window_fg_color, 0.12);
+        border-radius: 9999px;
+        padding: 0 5px;
+        margin-top: 1px;
+    }
+    .measure-count.done { background-color: @success_bg_color;
+                          color: @success_fg_color; }
+    .measure-count.warn { background-color: @warning_bg_color;
+                          color: @warning_fg_color; }
+    .measure-count.bad  { background-color: @error_bg_color;
+                          color: @error_fg_color; }
+    button.measure-error { box-shadow: inset 0 0 0 2px @error_color; }
+    """
+    css = Gtk.CssProvider()
+    if hasattr(css, "load_from_string"):
+        css.load_from_string(data)
+    else:
+        css.load_from_data(data.encode())
+    disp = Gdk.Display.get_default()
+    if disp is not None:
+        Gtk.StyleContext.add_provider_for_display(
+            disp, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    _CSS_INSTALLED = True
 
 
 class MeasureWindow(Adw.Window):
@@ -116,6 +154,7 @@ class MeasureWindow(Adw.Window):
 
     # ---- layout -----------------------------------------------------------
     def _build_ui(self):
+        _ensure_css()
         b = Gtk.Builder.new_from_file(_ui_path())
         self.set_content(b.get_object("content"))
         b.get_object("window_title").set_subtitle(self.sink_desc)
@@ -189,6 +228,7 @@ class MeasureWindow(Adw.Window):
                 "audio-volume-high-symbolic"))
             count = Gtk.Label()
             count.add_css_class("caption")
+            count.add_css_class("measure-count")
             count.set_visible(False)
             body.append(count)
             spk.set_child(body)
@@ -321,11 +361,11 @@ class MeasureWindow(Adw.Window):
         cr.fill()
         spread, freqs = self._max_spread()
         if spread and freqs:
-            top = max(3.0, max(spread))
+            top = max(SPREAD_MAX_DB, max(spread))
             bw = max(1.0, pw_ / len(freqs))
             for j in range(len(freqs)):
                 gx = self._freq_to_x(freqs[j])
-                if spread[j] >= 3.0:
+                if spread[j] >= SPREAD_MAX_DB:
                     cr.set_source_rgba(0.87, 0.19, 0.19, 0.85)
                 else:
                     cr.set_source_rgba(0.5, 0.5, 0.5, 0.5)
@@ -406,8 +446,8 @@ class MeasureWindow(Adw.Window):
             top = max(1e-6, float(max(spread)) if len(spread) else 1.0)
             for j in range(len(freqs)):
                 x = _log_x(freqs[j], 0, w)
-                frac = min(1.0, float(spread[j]) / max(top, 3.0))
-                over = float(spread[j]) >= 3.0
+                frac = min(1.0, float(spread[j]) / max(top, SPREAD_MAX_DB))
+                over = float(spread[j]) >= SPREAD_MAX_DB
                 if over:
                     cr.set_source_rgba(0.87, 0.19, 0.19, 0.85)
                 else:
@@ -510,21 +550,46 @@ class MeasureWindow(Adw.Window):
             if n < CLEAN_TARGET:
                 ready = False
             spk = self._speakers[i]
-            if n >= CLEAN_TARGET:
-                spk.add_css_class("suggested-action")
+            spk.remove_css_class("suggested-action")   # legacy
+            status = self._channel_status(i)
+            if status == "bad":
+                spk.add_css_class("measure-error")
             else:
-                spk.remove_css_class("suggested-action")
+                spk.remove_css_class("measure-error")
             total = len(self.session.takes_of(i)) if self.session else 0
             lbl = self._speaker_counts.get(i)
             if lbl is not None:
                 lbl.set_text(str(total))
                 lbl.set_visible(total > 0)
+                for cls in ("done", "warn", "bad"):
+                    lbl.remove_css_class(cls)
+                if status:
+                    lbl.add_css_class(status)
         self._rebuild_page()
         self._update_pult()
         self.create_btn.set_sensitive(ready and not self._busy)
         self._refresh_volume()
         if getattr(self, "range_area", None) is not None:
             self.range_area.queue_draw()
+
+    def _channel_status(self, ch):
+        """Ring status for a channel: 'done' (enough clean takes), 'bad'
+        (a clipped take), 'warn' (takes disagree, max spread past the
+        threshold), or '' (neutral / still going)."""
+        if self.session is None:
+            return ""
+        takes = self.session.takes_of(ch)
+        if not takes:
+            return ""
+        if self._clean_count(ch) >= CLEAN_TARGET:
+            return "done"
+        if any(ms.take_quality(r) == ms.TAKE_CLIPPED for r in takes):
+            return "bad"
+        spread = self.session.spread_db(ch)
+        if spread is not None and len(spread) \
+                and max(spread) >= SPREAD_MAX_DB:
+            return "warn"
+        return ""
 
     def _rebuild_page(self):
         if self._page is None:
