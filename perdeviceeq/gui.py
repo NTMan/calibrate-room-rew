@@ -450,9 +450,16 @@ class EqWindow(Adw.ApplicationWindow):
         exp_btn.set_halign(Gtk.Align.START)
         exp_btn.set_tooltip_text("Save the current profile to a file to share")
         exp_btn.connect("clicked", lambda *_: self._export_current())
+        meas_btn = Gtk.Button(label="Measure…")
+        meas_btn.add_css_class("flat")
+        meas_btn.set_halign(Gtk.Align.START)
+        meas_btn.set_tooltip_text(
+            "Measure this output with a mic and build a profile from it")
+        meas_btn.connect("clicked", lambda *_: self._on_measure())
         self.popover_footer.append(new_btn)
         self.popover_footer.append(imp_btn)
         self.popover_footer.append(exp_btn)
+        self.popover_footer.append(meas_btn)
         self.profile_list.connect("row-activated", self._on_pick_row)
 
     def _install_shortcuts(self, app):
@@ -1526,6 +1533,27 @@ class EqWindow(Adw.ApplicationWindow):
         return "%s %d" % (base, i)
 
     # ---- create / import ---------------------------------------------------
+    def _on_measure(self):
+        """Open the measurement wizard for the current sink. The wizard and
+        its measurement math (numpy/scipy/soundfile) are optional weak
+        deps, so a missing one degrades to a clear message, not a crash."""
+        if not self.live or not self.node:
+            return
+        self.profile_popover.popdown()
+        try:
+            from .measure_window import MeasureWindow
+        except Exception as e:
+            dlg = Adw.AlertDialog(
+                heading="Measurement needs extra packages",
+                body="The measurement wizard needs python3-numpy, "
+                     "python3-scipy and python3-soundfile.\n\n%s" % e)
+            dlg.add_response("ok", "OK")
+            dlg.present(self)
+            return
+        desc = next((s["desc"] for s in self.sinks
+                     if s["name"] == self.node), self.node)
+        MeasureWindow(self, self.node, desc).present()
+
     def _on_create_new(self, _btn):
         """Create and load a fresh empty user profile."""
         self.profile_popover.popdown()
