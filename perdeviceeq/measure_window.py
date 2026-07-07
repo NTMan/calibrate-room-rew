@@ -72,6 +72,7 @@ class MeasureWindow(Adw.Window):
         self._busy = False
         self._loud_ack = False
         self._relevel_pending = False
+        self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
         self._columns = {}          # ch index -> {box, header, ...}
         self._speakers = {}         # ch index -> Gtk.Button
 
@@ -102,6 +103,7 @@ class MeasureWindow(Adw.Window):
         self.warning.set_wrap(True)
         outer.append(self.warning)
         outer.append(self._build_columns())
+        outer.append(self._build_fit_area())
 
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.relevel_btn = Gtk.Button()
@@ -153,27 +155,6 @@ class MeasureWindow(Adw.Window):
             self.cal_btns[i] = btn
         box.append(cal_row)
 
-        fit = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        fit.append(Gtk.Label(label="Fit up to", xalign=0.0))
-        self.bands_spin = Gtk.SpinButton.new_with_range(1, 20, 1)
-        self.bands_spin.set_value(FIT_BANDS)
-        self.bands_spin.set_tooltip_text("Max biquads per channel; the fit "
-                                         "stops early once the worst "
-                                         "residual is under ~0.5 dB")
-        fit.append(self.bands_spin)
-        fit.append(Gtk.Label(label="bands, over"))
-        self.flo_spin = Gtk.SpinButton.new_with_range(20, 1000, 5)
-        self.flo_spin.set_value(FIT_FLO)
-        fit.append(self.flo_spin)
-        fit.append(Gtk.Label(label="–"))
-        self.fhi_spin = Gtk.SpinButton.new_with_range(1000, 20000, 100)
-        self.fhi_spin.set_value(FIT_FHI)
-        self.fhi_spin.set_tooltip_text(
-            "Upper fit edge. Above the cal-trust limit correct only with a "
-            "broad shelf, the same L/R.")
-        fit.append(self.fhi_spin)
-        fit.append(Gtk.Label(label="Hz"))
-        box.append(fit)
         return box
 
     def _build_ring(self):
@@ -238,6 +219,135 @@ class MeasureWindow(Adw.Window):
             self._columns[i] = {"header": header, "cards": cards,
                                 "spread": spread}
         return row
+
+    def _build_fit_area(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        lbl = Gtk.Label(xalign=0.0)
+        lbl.set_markup("<b>EQ range</b>  <span size='small'>drag the "
+                       "handles; red bars are the take-to-take spread "
+                       "(untrustworthy, don't EQ there)</span>")
+        lbl.set_wrap(True)
+        box.append(lbl)
+        self.range_area = Gtk.DrawingArea()
+        self.range_area.set_content_height(90)
+        self.range_area.set_hexpand(True)
+        self.range_area.set_draw_func(self._draw_range)
+        drag = Gtk.GestureDrag()
+        drag.connect("drag-begin", self._range_drag_begin)
+        drag.connect("drag-update", self._range_drag_update)
+        self.range_area.add_controller(drag)
+        box.append(self.range_area)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.range_label = Gtk.Label(xalign=0.0)
+        self.range_label.add_css_class("dim-label")
+        self.range_label.set_hexpand(True)
+        row.append(self.range_label)
+        row.append(Gtk.Label(label="Bands"))
+        self.bands_spin = Gtk.SpinButton.new_with_range(1, 20, 1)
+        self.bands_spin.set_value(FIT_BANDS)
+        self.bands_spin.set_tooltip_text("Max biquads per channel; the fit "
+                                         "stops early once the worst "
+                                         "residual is under ~0.5 dB")
+        row.append(self.bands_spin)
+        box.append(row)
+        self._range_plot = None
+        self._drag_handle = None
+        self._update_range_label()
+        return box
+
+    def _freq_to_x(self, f):
+        if not self._range_plot:
+            return 0
+        ml, _mt, pw_, _ph = self._range_plot
+        lo, hi = math.log10(FMIN_PLOT), math.log10(FMAX_PLOT)
+        f = min(max(float(f), FMIN_PLOT), FMAX_PLOT)
+        return ml + (math.log10(f) - lo) / (hi - lo) * pw_
+
+    def _x_to_freq(self, x):
+        ml, _mt, pw_, _ph = self._range_plot
+        lo, hi = math.log10(FMIN_PLOT), math.log10(FMAX_PLOT)
+        frac = min(1.0, max(0.0, (x - ml) / max(1, pw_)))
+        return 10 ** (lo + frac * (hi - lo))
+
+    def _max_spread(self):
+        if self.session is None:
+            return None, None
+        freqs, best = None, None
+        for i in range(self.n_ch):
+            sp = self.session.spread_db(i)
+            if sp is None:
+                continue
+            vals = [float(x) for x in sp]
+            freqs = list(self.session.takes_of(i)[0].freq_hz)
+            best = vals if best is None else [max(a, b)
+                                              for a, b in zip(best, vals)]
+        return best, freqs
+
+    def _draw_range(self, _area, cr, w, h, *_):
+        ml, mr, mt, mb = 6, 6, 6, 16
+        pw_ = max(1, w - ml - mr)
+        ph = max(1, h - mt - mb)
+        self._range_plot = (ml, mt, pw_, ph)
+        lo, hi = math.log10(FMIN_PLOT), math.log10(FMAX_PLOT)
+        cr.set_source_rgba(0.5, 0.5, 0.5, 0.10)
+        cr.rectangle(ml, mt, pw_, ph)
+        cr.fill()
+        spread, freqs = self._max_spread()
+        if spread and freqs:
+            top = max(3.0, max(spread))
+            bw = max(1.0, pw_ / len(freqs))
+            for j in range(len(freqs)):
+                gx = self._freq_to_x(freqs[j])
+                if spread[j] >= 3.0:
+                    cr.set_source_rgba(0.87, 0.19, 0.19, 0.85)
+                else:
+                    cr.set_source_rgba(0.5, 0.5, 0.5, 0.5)
+                bar = min(1.0, spread[j] / top) * ph
+                cr.rectangle(gx, mt + ph - bar, bw, bar)
+                cr.fill()
+        xlo = self._freq_to_x(self.fit_lo)
+        xhi = self._freq_to_x(self.fit_hi)
+        cr.set_source_rgba(0.22, 0.52, 0.90, 0.18)
+        cr.rectangle(xlo, mt, max(1, xhi - xlo), ph)
+        cr.fill()
+        for hx in (xlo, xhi):
+            cr.set_source_rgb(0.22, 0.52, 0.90)
+            cr.set_line_width(2)
+            cr.move_to(hx, mt)
+            cr.line_to(hx, mt + ph)
+            cr.stroke()
+        cr.set_source_rgba(0.5, 0.5, 0.5, 0.8)
+        cr.set_font_size(10)
+        for fhz, txt in ((100, "100"), (1000, "1k"), (10000, "10k")):
+            gx = ml + (math.log10(fhz) - lo) / (hi - lo) * pw_
+            cr.move_to(gx + 2, h - 4)
+            cr.show_text(txt)
+
+    def _range_drag_begin(self, _g, sx, _sy):
+        self._drag_handle = None
+        if not self._range_plot:
+            return
+        xlo = self._freq_to_x(self.fit_lo)
+        xhi = self._freq_to_x(self.fit_hi)
+        self._drag_handle = "lo" if abs(sx - xlo) <= abs(sx - xhi) else "hi"
+
+    def _range_drag_update(self, g, ox, _oy):
+        if self._drag_handle is None or not self._range_plot:
+            return
+        ok, sx, _sy = g.get_start_point()
+        if not ok:
+            return
+        f = self._x_to_freq(sx + ox)
+        if self._drag_handle == "lo":
+            self.fit_lo = max(FMIN_PLOT, min(f, self.fit_hi - 1))
+        else:
+            self.fit_hi = min(FMAX_PLOT, max(f, self.fit_lo + 1))
+        self.range_area.queue_draw()
+        self._update_range_label()
+
+    def _update_range_label(self):
+        self.range_label.set_text("Fit %d – %d Hz"
+                                  % (round(self.fit_lo), round(self.fit_hi)))
 
     # ---- drawing ----------------------------------------------------------
     def _draw_disc(self, _area, cr, w, h, *_):
@@ -392,6 +502,8 @@ class MeasureWindow(Adw.Window):
         else:
             self.level_label.set_text("")
         self._refresh_volume()
+        if getattr(self, "range_area", None) is not None:
+            self.range_area.queue_draw()
 
     def _rebuild_column(self, ch):
         col = self._columns[ch]
@@ -617,8 +729,8 @@ class MeasureWindow(Adw.Window):
                     if self.session.takes_of(i)}
         cal = dict(self.cal)
         bands = self.bands_spin.get_value_as_int()
-        f_lo = float(self.flo_spin.get_value())
-        f_hi = float(self.fhi_spin.get_value())
+        f_lo = float(self.fit_lo)
+        f_hi = float(self.fit_hi)
         self._busy = True
         self.create_btn.set_sensitive(False)
         self._set_ring_sensitive(False)
