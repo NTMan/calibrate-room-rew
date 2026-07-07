@@ -1533,6 +1533,9 @@ class EqWindow(Adw.ApplicationWindow):
         if not self.live or not self.node:
             return
         self.profile_popover.popdown()
+        if self._measure_win is not None:
+            self._measure_win.present()      # already open; bring it forward
+            return
         try:
             from .measure_window import MeasureWindow
         except Exception as e:

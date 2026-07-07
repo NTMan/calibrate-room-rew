@@ -136,6 +136,7 @@ class MeasureWindow(Adw.Window):
         self._sink_gone = False
         self._pinned = False        # user chose "stay": ignore the default
         self._popup_open = False    # a stay/go dialog is on screen
+        self._retargeting = False   # a retarget is scheduled/in flight
         self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
         self._page = None            # selected channel's page widgets
         self._selected_ch = 0        # channel the ring has selected
@@ -774,8 +775,13 @@ class MeasureWindow(Adw.Window):
         """Abandon this measurement and reopen the wizard for new_sink -- a
         different channel layout means a fresh measurement. The main window
         moves too, and the new window is shown before this one closes so
-        there is no blank flash."""
-        self.parent._retarget_measure(new_sink)
+        there is no blank flash. Deferred and guarded: this runs from a
+        PWState callback, so hop off it via idle, and retarget only once --
+        a flapping Bluetooth sink must not open a stack of windows."""
+        if self._retargeting:
+            return
+        self._retargeting = True
+        GLib.idle_add(self.parent._retarget_measure, new_sink)
 
     def _refresh_sources_from(self, sources):
         prev = [s["name"] for s in self.sources]
