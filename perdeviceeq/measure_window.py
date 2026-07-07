@@ -278,13 +278,16 @@ class MeasureWindow(Adw.Window):
         col.add_css_class("card")
         header = Gtk.Label(xalign=0.0)
         col.append(header)
+        summary = Gtk.DrawingArea()
+        summary.set_content_height(120)
+        summary.set_visible(False)
+        col.append(summary)
         cards = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        col.append(cards)
-        spread = Gtk.DrawingArea()
-        spread.set_content_height(28)
-        spread.set_visible(False)
-        col.append(spread)
-        self._page = {"header": header, "cards": cards, "spread": spread}
+        exp = Gtk.Expander(label="Takes")
+        exp.set_child(cards)
+        col.append(exp)
+        self._page = {"header": header, "summary": summary,
+                      "expander": exp, "cards": cards}
         return col
 
     def _build_fit_area(self):
@@ -439,22 +442,6 @@ class MeasureWindow(Adw.Window):
                 y = max(1, min(h - 1, y))
                 cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
             cr.stroke()
-        return draw
-
-    def _make_spread_draw(self, spread, freqs):
-        def draw(_area, cr, w, h, *_):
-            top = max(1e-6, float(max(spread)) if len(spread) else 1.0)
-            for j in range(len(freqs)):
-                x = _log_x(freqs[j], 0, w)
-                frac = min(1.0, float(spread[j]) / max(top, SPREAD_MAX_DB))
-                over = float(spread[j]) >= SPREAD_MAX_DB
-                if over:
-                    cr.set_source_rgba(0.87, 0.19, 0.19, 0.85)
-                else:
-                    cr.set_source_rgba(0.22, 0.52, 0.90, 0.7)
-                bar = frac * h
-                cr.rectangle(x, h - bar, max(1, w / len(freqs)), bar)
-                cr.fill()
         return draw
 
     # ---- prefill / refresh ------------------------------------------------
@@ -618,15 +605,70 @@ class MeasureWindow(Adw.Window):
             lo, hi = -1.0, 1.0
         for rec in takes:
             cards.append(self._make_card(ch, rec, lo, hi))
-        spread = self.session.spread_db(ch) if self.session else None
-        area = self._page["spread"]
-        if spread is not None:
-            area.set_draw_func(self._make_spread_draw(
-                spread, takes[0].freq_hz))
-            area.set_visible(True)
-            area.queue_draw()
-        else:
+        self._page["expander"].set_label(
+            "Takes (%d)" % len(takes) if takes else "Takes")
+        self._refresh_summary(ch, takes)
+
+    def _refresh_summary(self, ch, takes):
+        """The channel's result at a glance: the mean response over the
+        takes with the take-to-take spread as a band around it, greyed
+        outside the EQ range, red where the spread is untrustworthy."""
+        area = self._page["summary"]
+        if not takes:
             area.set_visible(False)
+            return
+        clean = [r for r in takes
+                 if ms.take_quality(r) == ms.TAKE_CLEAN]
+        base = clean if clean else takes
+        mean = sum(r.mag_db for r in base) / len(base)
+        spread = self.session.spread_db(ch)
+        sp = spread if spread is not None else mean * 0.0
+        lo = float((mean - sp / 2.0).min()) - 1.0
+        hi = float((mean + sp / 2.0).max()) + 1.0
+        area.set_draw_func(self._make_summary_draw(
+            base[0].freq_hz, mean, sp, lo, hi))
+        area.set_visible(True)
+        area.queue_draw()
+
+    def _make_summary_draw(self, freqs, mean, spread, lo, hi):
+        flo, fhi = self.fit_lo, self.fit_hi
+
+        def draw(_area, cr, w, h, *_):
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.10)
+            cr.rectangle(0, 0, w, h)
+            cr.fill()
+            span = max(1e-6, hi - lo)
+
+            def yof(v):
+                y = h - 3 - (float(v) - lo) / span * (h - 6)
+                return max(1, min(h - 1, y))
+            bw = max(1.0, (w - 4) / max(1, len(freqs)))
+            for j in range(len(freqs)):
+                x = _log_x(freqs[j], 2, w - 4)
+                sv = float(spread[j]) if j < len(spread) else 0.0
+                yt, yb = yof(mean[j] + sv / 2.0), yof(mean[j] - sv / 2.0)
+                if sv >= SPREAD_MAX_DB:
+                    cr.set_source_rgba(0.87, 0.19, 0.19, 0.35)
+                else:
+                    cr.set_source_rgba(0.22, 0.52, 0.90, 0.18)
+                cr.rectangle(x, yt, bw, max(1.0, yb - yt))
+                cr.fill()
+            cr.set_source_rgb(0.22, 0.52, 0.90)
+            cr.set_line_width(1.6)
+            for j in range(len(freqs)):
+                x = _log_x(freqs[j], 2, w - 4)
+                y = yof(mean[j])
+                cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
+            cr.stroke()
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.38)
+            xlo, xhi = _log_x(flo, 2, w - 4), _log_x(fhi, 2, w - 4)
+            if xlo > 0:
+                cr.rectangle(0, 0, xlo, h)
+                cr.fill()
+            if xhi < w:
+                cr.rectangle(xhi, 0, w - xhi, h)
+                cr.fill()
+        return draw
 
     def _make_card(self, ch, rec, lo, hi):
         q = ms.take_quality(rec)
