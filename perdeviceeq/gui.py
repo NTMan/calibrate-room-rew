@@ -114,7 +114,8 @@ class EqWindow(Adw.ApplicationWindow):
         self._loading = False
         self.sinks = []
         self._dev_guard = False
-        self._poll_busy = False
+        self._pw = pipewire.app_state()
+        self._pw_unsub = None
         self._measure_win = None
 
         # editor state ("slots": "all" + one per channel key)
@@ -190,7 +191,8 @@ class EqWindow(Adw.ApplicationWindow):
         self._load_profile(self.current_pid, apply=True)
         self._populate_picker()
         if self.live:
-            GLib.timeout_add_seconds(2, self._poll)
+            self._pw_unsub = self._pw.subscribe(self._on_pw_state)
+            self._pw.start()
 
     # ---- widget construction ----------------------------------------------
     def _build_header_buttons(self):
@@ -567,41 +569,25 @@ class EqWindow(Adw.ApplicationWindow):
         follow = self.follow_btn.get_active()
         self.device_dd.set_sensitive(not follow)
         if follow and self.live:
-            self._poll()                    # snap to the current default now
+            self._maybe_follow(self._pw.default_sink)
 
-    def _poll(self):
-        """2 s heartbeat: fetch sinks and the default sink off the main thread."""
-        if self._poll_busy:
-            return True                      # previous poll still running
-        self._poll_busy = True
-
-        def work():
-            sinks = default = None
-            try:
-                dump = pipewire.pw_dump()
-                sinks = pipewire.list_sinks(dump)
-                default = next((s["name"] for s in sinks if s["default"]), None)
-            finally:
-                GLib.idle_add(self._apply_poll, sinks, default)
-        pipewire._in_thread(work)
-        return True                          # keep the timer running
-
-    def _apply_poll(self, sinks, default):
-        """Consume poll results on the main loop (refresh model, follow default)."""
-        self._poll_busy = False
-        if sinks is None:
-            return False
-        prev_names = [s["name"] for s in self.sinks]
-        new_names = [s["name"] for s in sinks]
-        self.sinks = sinks
-        if new_names != prev_names:
+    def _on_pw_state(self, st):
+        """PWState refresh: keep the device model current and, with follow
+        on and no measure window open, chase the default sink. One poll in
+        pipewire feeds this instead of a per-window timer."""
+        prev = [s["name"] for s in self.sinks]
+        self.sinks = st.sinks
+        if [s["name"] for s in st.sinks] != prev:
             self._refresh_device_model()
+        self._maybe_follow(st.default_sink)
+        return False
+
+    def _maybe_follow(self, default):
         # freeze following while the measure window is open, so it cannot
         # diverge from the sink being measured
         if (self.follow_btn.get_active() and default
                 and default != self.node and self._measure_win is None):
             self._select_device(default, load=True)
-        return False
 
     # ---- slots / working profile body -------------------------------------
     def _slot(self, ch):
@@ -1246,6 +1232,9 @@ class EqWindow(Adw.ApplicationWindow):
     def _stop_meter_on_close(self, *_):
         if self._meter is not None:
             self._meter.stop()
+        if self._pw_unsub is not None:
+            self._pw_unsub()
+            self._pw_unsub = None
         return False
 
     def _publish_meter(self, frame):        # called from the worker thread

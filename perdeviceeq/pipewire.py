@@ -90,9 +90,33 @@ def default_sink_name():
         pass
     return None
 
-def list_sinks(dump=None):
+
+def default_sink_from_dump(dump):
+    """Default sink name from the 'default' Metadata object in a pw dump,
+    or None -- lets one dump yield the default without a pw-metadata call."""
+    for o in dump:
+        if o.get("type") != "PipeWire:Interface:Metadata":
+            continue
+        props = o.get("props") or (o.get("info") or {}).get("props") or {}
+        if props.get("metadata.name") != "default":
+            continue
+        for e in (o.get("metadata") or []):
+            if e.get("key") == "default.audio.sink":
+                v = e.get("value")
+                if isinstance(v, dict):
+                    return v.get("name")
+                if isinstance(v, str):
+                    try:
+                        return json.loads(v).get("name")
+                    except Exception:
+                        pass
+    return None
+
+
+def list_sinks(dump=None, default=None):
     dump = dump if dump is not None else pw_dump()
-    default = default_sink_name()
+    if default is None:
+        default = default_sink_name()
     sinks = []
     for o in dump:
         if o.get("type") != "PipeWire:Interface:Node":
@@ -211,3 +235,108 @@ def source_channels(name, dump=None):
     measurement rig is 1- or 2-channel; the count is how many calibration
     files it needs, one per capture channel."""
     return _node_channels(name, dump)
+
+
+PW_POLL_S = 2                        # seconds between graph refreshes
+
+
+class PWState:
+    """Process-wide snapshot of the PipeWire graph the app cares about --
+    sinks, sources and the default sink -- all from ONE pw_dump per
+    refresh, so there is a single poll instead of one per window. Windows
+    read it on demand or subscribe for a callback on change. The core
+    (update/subscribe/_notify) is synchronous and GTK-free for tests;
+    start()/stop() add a GLib timer that refreshes off the main loop."""
+
+    def __init__(self):
+        self.sinks = []
+        self.sources = []
+        self.default_sink = None
+        self._subs = []
+        self._snap = None
+        self._timer = 0
+        self._busy = False
+        self._glib = None
+
+    def update(self, dump=None):
+        """Refresh from one pw_dump (fetched if not given). Returns True if
+        the snapshot changed. Synchronous; call it directly in tests."""
+        if dump is None:
+            dump = pw_dump()
+        default = default_sink_from_dump(dump)
+        if default is None:
+            default = default_sink_name()    # rare fallback if not in dump
+        self.default_sink = default
+        self.sinks = list_sinks(dump, default=default)
+        self.sources = list_sources(dump)
+        snap = (tuple(s["name"] for s in self.sinks),
+                tuple(s["name"] for s in self.sources),
+                self.default_sink)
+        changed = snap != self._snap
+        self._snap = snap
+        return changed
+
+    def subscribe(self, cb):
+        """Register cb(state), called after each change. Returns a callable
+        that unsubscribes; callers MUST call it on teardown so a closed
+        window's callback is not fired on dead widgets."""
+        self._subs.append(cb)
+
+        def off():
+            try:
+                self._subs.remove(cb)
+            except ValueError:
+                pass
+        return off
+
+    def _notify(self):
+        for cb in list(self._subs):
+            try:
+                cb(self)
+            except Exception:
+                pass
+
+    def start(self, interval_s=PW_POLL_S):
+        """Begin the periodic refresh (idempotent). Uses GLib; only the app
+        calls this -- tests drive update() directly."""
+        if self._timer:
+            return
+        from gi.repository import GLib
+        self._glib = GLib
+        self._timer = GLib.timeout_add_seconds(interval_s, self._tick)
+
+    def stop(self):
+        if self._timer and self._glib is not None:
+            self._glib.source_remove(self._timer)
+        self._timer = 0
+
+    def _tick(self):
+        if self._busy:
+            return True                      # previous refresh still running
+        self._busy = True
+
+        def work():
+            dump = None
+            try:
+                dump = pw_dump()
+            finally:
+                self._glib.idle_add(self._apply, dump)
+        _in_thread(work)
+        return True                          # keep the timer running
+
+    def _apply(self, dump):
+        self._busy = False
+        if dump is not None and self.update(dump):
+            self._notify()
+        return False
+
+
+_app_state = None
+
+
+def app_state():
+    """The process-wide PWState singleton (one poll feeds every window)."""
+    global _app_state
+    if _app_state is None:
+        _app_state = PWState()
+    return _app_state
