@@ -24,25 +24,17 @@ def test_mic_profile_roundtrip(paths):
     assert s.ordered() == []
     pid = s.save({"name": "miniDSP EARS", "serial": "860-3052",
                   "node_match": "alsa_input.usb-miniDSP_ears",
-                  "compensation": "RAW",
                   "cal": {"0": "/c/L_RAW.txt", "1": "/c/R_RAW.txt"}})
     assert micf.exists()
     s2 = mp.MicProfileStore()                    # reload from disk
     p = s2.get(pid)
     assert p["name"] == "miniDSP EARS"
     assert p["serial"] == "860-3052"
-    assert p["compensation"] == "RAW"
     assert s2.cal_for(pid, 0) == "/c/L_RAW.txt"
     assert s2.cal_for(pid, 1) == "/c/R_RAW.txt"
     assert s2.cal_for(pid, 2) is None            # unmapped channel
     assert s2.match("alsa_input.usb-miniDSP_ears")["id"] == pid
     assert s2.match("some_other_mic") is None
-
-
-def test_mic_profile_bad_compensation_defaults_raw(paths):
-    s = mp.MicProfileStore()
-    pid = s.save({"name": "x", "compensation": "BOGUS", "cal": {}})
-    assert s.get(pid)["compensation"] == "RAW"
 
 
 def test_mic_profile_overwrite_same_id(paths):

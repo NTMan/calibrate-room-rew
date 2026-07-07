@@ -20,12 +20,12 @@ import json
 import os
 import uuid
 
-from .config import (MIC_PROFILES_FILE, MEASURE_STATE_FILE,
-                     COMPENSATION_TYPES)
+from .config import MIC_PROFILES_FILE, MEASURE_STATE_FILE
 
 
 def _new_id():
     return uuid.uuid4().hex[:12]
+
 
 
 def _atomic_write(path, obj):
@@ -60,20 +60,16 @@ class MicProfileStore:
 
     @staticmethod
     def _sane(pid, body):
-        comp = body.get("compensation")
-        if comp not in COMPENSATION_TYPES:
-            comp = "RAW"
         cal = body.get("cal") or {}
         cal = {str(k): str(v) for k, v in cal.items() if v}
         return {"id": pid, "name": body.get("name") or pid,
                 "node_match": body.get("node_match") or "",
-                "serial": body.get("serial") or "",
-                "compensation": comp, "cal": cal}
+                "serial": body.get("serial") or "", "cal": cal}
 
     @staticmethod
     def _body(p):
         return {k: p[k] for k in ("name", "node_match", "serial",
-                                  "compensation", "cal")}
+                                  "cal")}
 
     def get(self, pid):
         return self.profiles.get(pid)

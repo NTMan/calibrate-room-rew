@@ -593,8 +593,6 @@ class MeasureWindow(Adw.Window):
             return
         body = {"name": src["desc"], "node_match": src["name"],
                 "serial": (existing or {}).get("serial", ""),
-                "compensation": measure_prefs.detect_compensation(
-                    list(self.cal.values())),
                 "cal": cal}
         if existing:
             body["id"] = existing["id"]

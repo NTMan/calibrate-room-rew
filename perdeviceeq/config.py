@@ -80,12 +80,6 @@ TYPE_NAMES = ["PK", "LSC", "HSC"]
 SCHEMA_VERSION = 2      # profile body schema; see tools/migrate_profiles_v1_to_v2.py
 CLEAN_ID = "clean"
 
-# mic-cal compensation domains (a mic profile carries one). RAW is mic-cal
-# only (flat-in-RAW is bright -> the fit needs a target/tilt); HEQ/IDF/HPN
-# embed a preferred curve (neutral == flat -> the fit targets flat). Which
-# one is chosen shapes the fit target; stored here, consumed when the
-# window drives fit_peq (increment 3/4).
-COMPENSATION_TYPES = ["RAW", "HEQ", "IDF", "HPN"]
 
 
 # ============================ WirePlumber hook (config) ============================
