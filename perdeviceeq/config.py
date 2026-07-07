@@ -66,6 +66,11 @@ SYS_DESKTOP_FILE  = "/usr/share/applications/" + DESKTOP_FILE_NAME
 UI_FILE_NAME = APP_ID + ".ui"
 UI_FILE_CANDIDATES = [os.path.join(_DATA_ROOT, "data", UI_FILE_NAME),
                       "/usr/share/per-device-eq/data/" + UI_FILE_NAME]
+# the measurement wizard ships its own GtkBuilder design alongside
+MEASURE_UI_FILE_NAME = APP_ID + ".Measure.ui"
+MEASURE_UI_FILE_CANDIDATES = [
+    os.path.join(_DATA_ROOT, "data", MEASURE_UI_FILE_NAME),
+    "/usr/share/per-device-eq/data/" + MEASURE_UI_FILE_NAME]
 # user's curated "favorites" set of profile ids (Weather-style quick list)
 FAVORITES_FILE = os.path.join(CONFIG_DIR, "favorites.json")
 

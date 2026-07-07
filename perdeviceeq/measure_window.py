@@ -24,7 +24,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw            # noqa: E402
 
-from . import pipewire, measure_build               # noqa: E402
+from . import config, pipewire, measure_build       # noqa: E402
 from . import measure_session as ms                 # noqa: E402
 from . import measure_prefs                         # noqa: E402
 
@@ -53,6 +53,16 @@ def _log_x(freq, x0, w):
     lo, hi = math.log10(FMIN_PLOT), math.log10(FMAX_PLOT)
     f = min(max(float(freq), FMIN_PLOT), FMAX_PLOT)
     return x0 + (math.log10(f) - lo) / (hi - lo) * w
+
+
+def _ui_path():
+    """First existing measurement .ui path (ships in data/, or installed)."""
+    for p in config.MEASURE_UI_FILE_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    raise FileNotFoundError(
+        "measurement design not found; looked in:\n  "
+        + "\n  ".join(config.MEASURE_UI_FILE_CANDIDATES))
 
 
 class MeasureWindow(Adw.Window):
@@ -103,86 +113,48 @@ class MeasureWindow(Adw.Window):
 
     # ---- layout -----------------------------------------------------------
     def _build_ui(self):
-        tv = Adw.ToolbarView()
-        hb = Adw.HeaderBar()
-        title = Adw.WindowTitle(title="Measure speakers",
-                                subtitle=self.sink_desc)
-        hb.set_title_widget(title)
-        tv.add_top_bar(hb)
+        b = Gtk.Builder.new_from_file(_ui_path())
+        self.set_content(b.get_object("content"))
+        b.get_object("window_title").set_subtitle(self.sink_desc)
+        self.center = b.get_object("status")
+        self.warning = b.get_object("warning")
+        self.create_btn = b.get_object("create_btn")
+        self.create_btn.connect("clicked", self._on_create)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        outer.set_margin_top(12)
-        outer.set_margin_bottom(12)
-        outer.set_margin_start(12)
-        outer.set_margin_end(12)
+        self._build_mic_controls(b.get_object("mic_row"),
+                                 b.get_object("capsules_row"),
+                                 b.get_object("cal_row"))
 
-        outer.append(self._build_source_area())
         self.map_left_slot = Gtk.Box()
         self.map_left_slot.set_valign(Gtk.Align.CENTER)
         self.map_right_slot = Gtk.Box()
         self.map_right_slot.set_valign(Gtk.Align.CENTER)
-        ring_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        ring_row.set_halign(Gtk.Align.CENTER)
-        ring_row.append(self.map_left_slot)
-        ring_row.append(self._build_ring())
-        ring_row.append(self.map_right_slot)
-        outer.append(ring_row)
+        ring_host = b.get_object("ring_host")
+        ring_host.set_spacing(8)
+        ring_host.append(self.map_left_slot)
+        ring_host.append(self._build_ring())
+        ring_host.append(self.map_right_slot)
         self._rebuild_map_slots()
-        self.center = Gtk.Label(label="Click a speaker to measure")
-        self.center.add_css_class("dim-label")
-        self.center.set_wrap(True)
-        self.center.set_justify(Gtk.Justification.CENTER)
-        self.center.set_halign(Gtk.Align.CENTER)
-        outer.append(self.center)
-        self.warning = Gtk.Label(xalign=0.0)
-        self.warning.add_css_class("dim-label")
-        self.warning.set_wrap(True)
-        outer.append(self.warning)
-        outer.append(self._build_columns())
-        outer.append(self._build_fit_area())
 
-        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        spacer = Gtk.Box()
-        spacer.set_hexpand(True)
-        footer.append(spacer)
-        self.create_btn = Gtk.Button(label="Create profile")
-        self.create_btn.add_css_class("suggested-action")
-        self.create_btn.set_sensitive(False)
-        self.create_btn.connect("clicked", self._on_create)
-        footer.append(self.create_btn)
-        outer.append(footer)
+        b.get_object("channel_host").append(self._build_columns())
+        b.get_object("fit_host").append(self._build_fit_area())
 
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scroller.set_child(outer)
-        scroller.set_vexpand(True)
-        tv.set_content(scroller)
-        self.set_content(tv)
-
-    def _build_source_area(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        row.append(Gtk.Label(label="Measurement mic", xalign=0.0))
+    def _build_mic_controls(self, mic_row, capsules_row, cal_row):
         names = [s["desc"] for s in self.sources] or ["(no sources found)"]
         self.source_dd = Gtk.DropDown.new_from_strings(names)
-        self.source_dd.set_hexpand(True)
+        self.source_dd.set_valign(Gtk.Align.CENTER)
         self.source_dd.connect("notify::selected", self._on_source_changed)
-        row.append(self.source_dd)
+        mic_row.add_suffix(self.source_dd)
         self.chan_dd = Gtk.DropDown.new_from_strings(["Mono", "Stereo"])
+        self.chan_dd.set_valign(Gtk.Align.CENTER)
         self.chan_dd.set_tooltip_text("Capsules on the rig; a UMIK-1 is "
                                       "mono even if it enumerates as "
                                       "stereo")
         self.chan_dd.connect("notify::selected", self._on_chan_changed)
-        row.append(self.chan_dd)
-        box.append(row)
-
+        capsules_row.add_suffix(self.chan_dd)
+        self.cal_row = cal_row
         self._recompute_mic()
-        self.cal_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                               spacing=8)
         self._rebuild_cal_row()
-        box.append(self.cal_row)
-
-        return box
 
     def _build_ring(self):
         self.ring = Gtk.Fixed()
@@ -783,21 +755,18 @@ class MeasureWindow(Adw.Window):
         return m
 
     def _rebuild_cal_row(self):
-        child = self.cal_row.get_first_child()
-        while child:
-            nxt = child.get_next_sibling()
-            self.cal_row.remove(child)
-            child = nxt
-        self.cal_row.append(Gtk.Label(label="Calibration", xalign=0.0))
+        for btn in getattr(self, "cal_btns", {}).values():
+            self.cal_row.remove(btn)
         self.cal_btns = {}
         labels = self._mic_labels()
         for i in range(self.mic_ch):
             btn = Gtk.Button(label="%s cal…" % labels[i])
+            btn.set_valign(Gtk.Align.CENTER)
             btn.set_tooltip_text("Calibration for the rig's %s capture "
                                  "channel; its RAW/HEQ/IDF/HPN domain is "
                                  "the compensation" % labels[i])
             btn.connect("clicked", self._make_cal_cb(i))
-            self.cal_row.append(btn)
+            self.cal_row.add_suffix(btn)
             self.cal_btns[i] = btn
 
     def _rebuild_map_slots(self):
