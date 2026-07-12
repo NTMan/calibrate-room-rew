@@ -302,27 +302,60 @@ class MeasureWindow(Adw.Window):
                       "expander": exp, "take_rows": []}
         return col
 
-    def _make_take_row(self, ch, rec):
+    def _make_curve_draw(self, rec, lo, hi):
+        freqs = rec.freq_hz
+        mag = rec.mag_db
+
+        def draw(_area, cr, w, h, *_):
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.10)
+            cr.rectangle(0, 0, w, h)
+            cr.fill()
+            span = max(1e-6, hi - lo)
+            cr.set_source_rgb(0.22, 0.52, 0.90)
+            cr.set_line_width(1.4)
+            for j in range(len(freqs)):
+                x = _log_x(freqs[j], 2, w - 4)
+                y = h - 3 - (float(mag[j]) - lo) / span * (h - 6)
+                y = max(1, min(h - 1, y))
+                cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
+            cr.stroke()
+        return draw
+
+    def _make_take_row(self, ch, rec, lo, hi):
         q = ms.take_quality(rec)
-        if rec.clipped:
-            sub = "clipped  %.1f dBFS" % rec.peak_dbfs
-        else:
-            snr = ("SNR %.0f dB" % rec.snr_db
-                   if rec.snr_db is not None else "SNR n/a")
-            sub = "%s  %.1f dBFS" % (snr, rec.peak_dbfs)
-        row = Adw.ActionRow(title="Take %d" % rec.id, subtitle=sub)
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        row.set_margin_top(6)
+        row.set_margin_bottom(6)
+        row.set_margin_start(12)
+        row.set_margin_end(12)
+        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         dot = Gtk.Label(label="\u25cf")
         dot.add_css_class({ms.TAKE_CLEAN: "success",
                            ms.TAKE_FLAGGED: "warning",
                            ms.TAKE_CLIPPED: "error"}.get(q, "dim-label"))
-        row.add_prefix(dot)
+        head.append(dot)
+        if rec.clipped:
+            info = "clipped  %.1f dBFS" % rec.peak_dbfs
+        else:
+            snr = ("SNR %.0f dB" % rec.snr_db
+                   if rec.snr_db is not None else "SNR n/a")
+            info = "%s  %.1f dBFS" % (snr, rec.peak_dbfs)
+        lbl = Gtk.Label(label=info, xalign=0.0, hexpand=True)
+        lbl.add_css_class("dim-label")
+        head.append(lbl)
         rm = Gtk.Button()
         rm.add_css_class("flat")
-        rm.set_valign(Gtk.Align.CENTER)
         rm.set_child(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
         rm.set_tooltip_text("Delete this take")
         rm.connect("clicked", self._make_discard_cb(ch, rec.id))
-        row.add_suffix(rm)
+        head.append(rm)
+        row.append(head)
+
+        curve = Gtk.DrawingArea()
+        curve.set_content_width(150)
+        curve.set_content_height(60)
+        curve.set_draw_func(self._make_curve_draw(rec, lo, hi))
+        row.append(curve)
         return row
 
     def _build_fit_area(self):
@@ -617,8 +650,13 @@ class MeasureWindow(Adw.Window):
             exp.remove(row)
         self._page["take_rows"].clear()
         takes = self.session.takes_of(ch) if self.session else []
+        if takes:
+            lo = min(float(min(r.mag_db)) for r in takes) - 1.0
+            hi = max(float(max(r.mag_db)) for r in takes) + 1.0
+        else:
+            lo, hi = -1.0, 1.0
         for rec in takes:
-            row = self._make_take_row(ch, rec)
+            row = self._make_take_row(ch, rec, lo, hi)
             exp.add_row(row)
             self._page["take_rows"].append(row)
         exp.set_title("Takes (%d)" % len(takes) if takes else "Takes")
