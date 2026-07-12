@@ -2,7 +2,7 @@
 %global reponame calibrate-room-rew
 
 Name:           per-device-eq
-Version:        2.1.0
+Version:        2.2.0
 Release:        %autorelease
 Summary:        Per-output-device parametric EQ for PipeWire
 
