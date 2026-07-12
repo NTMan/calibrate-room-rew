@@ -323,11 +323,11 @@ class MeasureWindow(Adw.Window):
 
     def _make_take_row(self, ch, rec, lo, hi):
         q = ms.take_quality(rec)
-        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        row.set_margin_top(6)
-        row.set_margin_bottom(6)
-        row.set_margin_start(12)
-        row.set_margin_end(12)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        body.set_margin_top(6)
+        body.set_margin_bottom(6)
+        body.set_margin_start(12)
+        body.set_margin_end(12)
         head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         dot = Gtk.Label(label="\u25cf")
         dot.add_css_class({ms.TAKE_CLEAN: "success",
@@ -349,13 +349,19 @@ class MeasureWindow(Adw.Window):
         rm.set_tooltip_text("Delete this take")
         rm.connect("clicked", self._make_discard_cb(ch, rec.id))
         head.append(rm)
-        row.append(head)
+        body.append(head)
 
         curve = Gtk.DrawingArea()
         curve.set_content_width(150)
         curve.set_content_height(60)
         curve.set_draw_func(self._make_curve_draw(rec, lo, hi))
-        row.append(curve)
+        body.append(curve)
+
+        # wrap in an explicit row: add_row auto-wraps a bare widget in a
+        # GtkListBoxRow, and then remove() cannot drop it, so rows pile up
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+        row.set_child(body)
         return row
 
     def _build_fit_area(self):
