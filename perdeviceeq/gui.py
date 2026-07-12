@@ -1555,9 +1555,15 @@ class EqWindow(Adw.ApplicationWindow):
     def _on_measure_closed(self, win, *_):
         """Drop the reference when the measure window closes so following
         resumes. Compare identity: during a retarget the old window closes
-        after the new one is stored, and must not clear it."""
+        after the new one is stored, and must not clear it. Also re-apply
+        the current device's bound profile so the shown profile and the
+        applied EQ match -- measuring or switching can leave the previous
+        device's EQ live otherwise."""
         if win is self._measure_win:
             self._measure_win = None
+            if self.live and self.node:
+                self._load_profile(
+                    self.store.binding_for(self.node) or CLEAN_ID)
         return False
 
     def _retarget_measure(self, sink_name):
