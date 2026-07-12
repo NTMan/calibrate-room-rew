@@ -28,7 +28,6 @@ from . import config, pipewire, measure_build       # noqa: E402
 from . import measure_session as ms                 # noqa: E402
 from . import measure_prefs                         # noqa: E402
 
-CARD_W, CARD_H = 150, 60
 RING = 240
 SPEAKER = 56
 CLEAN_TARGET = 3            # clean takes per channel before "all clean"
@@ -287,20 +286,44 @@ class MeasureWindow(Adw.Window):
 
     def _build_page(self):
         col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        col.add_css_class("card")
         header = Gtk.Label(xalign=0.0)
         col.append(header)
         summary = Gtk.DrawingArea()
         summary.set_content_height(120)
         summary.set_visible(False)
         col.append(summary)
-        cards = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        exp = Gtk.Expander(label="Takes")
-        exp.set_child(cards)
-        col.append(exp)
+        lb = Gtk.ListBox()
+        lb.add_css_class("boxed-list")
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        exp = Adw.ExpanderRow(title="Takes")
+        lb.append(exp)
+        col.append(lb)
         self._page = {"header": header, "summary": summary,
-                      "expander": exp, "cards": cards}
+                      "expander": exp, "take_rows": []}
         return col
+
+    def _make_take_row(self, ch, rec):
+        q = ms.take_quality(rec)
+        if rec.clipped:
+            sub = "clipped  %.1f dBFS" % rec.peak_dbfs
+        else:
+            snr = ("SNR %.0f dB" % rec.snr_db
+                   if rec.snr_db is not None else "SNR n/a")
+            sub = "%s  %.1f dBFS" % (snr, rec.peak_dbfs)
+        row = Adw.ActionRow(title="Take %d" % rec.id, subtitle=sub)
+        dot = Gtk.Label(label="\u25cf")
+        dot.add_css_class({ms.TAKE_CLEAN: "success",
+                           ms.TAKE_FLAGGED: "warning",
+                           ms.TAKE_CLIPPED: "error"}.get(q, "dim-label"))
+        row.add_prefix(dot)
+        rm = Gtk.Button()
+        rm.add_css_class("flat")
+        rm.set_valign(Gtk.Align.CENTER)
+        rm.set_child(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
+        rm.set_tooltip_text("Delete this take")
+        rm.connect("clicked", self._make_discard_cb(ch, rec.id))
+        row.add_suffix(rm)
+        return row
 
     def _build_fit_area(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -436,25 +459,6 @@ class MeasureWindow(Adw.Window):
         cr.set_source_rgba(0.5, 0.5, 0.5, 0.16)
         cr.arc(w / 2.0, h / 2.0, min(w, h) / 2.0 - 1, 0, 2 * math.pi)
         cr.fill()
-
-    def _make_curve_draw(self, rec, lo, hi):
-        freqs = rec.freq_hz
-        mag = rec.mag_db
-
-        def draw(_area, cr, w, h, *_):
-            cr.set_source_rgba(0.5, 0.5, 0.5, 0.10)
-            cr.rectangle(0, 0, w, h)
-            cr.fill()
-            span = max(1e-6, hi - lo)
-            cr.set_source_rgb(0.22, 0.52, 0.90)
-            cr.set_line_width(1.4)
-            for j in range(len(freqs)):
-                x = _log_x(freqs[j], 2, w - 4)
-                y = h - 3 - (float(mag[j]) - lo) / span * (h - 6)
-                y = max(1, min(h - 1, y))
-                cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
-            cr.stroke()
-        return draw
 
     # ---- prefill / refresh ------------------------------------------------
     def _prefill_from_memory(self):
@@ -608,22 +612,16 @@ class MeasureWindow(Adw.Window):
         self._page["header"].set_markup(
             "<b>%s</b>  <span size='small'>%d/%d clean%s</span>%s"
             % (self.ch_keys[ch], n, CLEAN_TARGET, mark, warn))
-        cards = self._page["cards"]
-        child = cards.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            cards.remove(child)
-            child = nxt
+        exp = self._page["expander"]
+        for row in self._page["take_rows"]:
+            exp.remove(row)
+        self._page["take_rows"].clear()
         takes = self.session.takes_of(ch) if self.session else []
-        if takes:
-            lo = min(float(min(r.mag_db)) for r in takes) - 1.0
-            hi = max(float(max(r.mag_db)) for r in takes) + 1.0
-        else:
-            lo, hi = -1.0, 1.0
         for rec in takes:
-            cards.append(self._make_card(ch, rec, lo, hi))
-        self._page["expander"].set_label(
-            "Takes (%d)" % len(takes) if takes else "Takes")
+            row = self._make_take_row(ch, rec)
+            exp.add_row(row)
+            self._page["take_rows"].append(row)
+        exp.set_title("Takes (%d)" % len(takes) if takes else "Takes")
         self._refresh_summary(ch, takes)
 
     def _refresh_summary(self, ch, takes):
@@ -686,43 +684,6 @@ class MeasureWindow(Adw.Window):
                 cr.rectangle(xhi, 0, w - xhi, h)
                 cr.fill()
         return draw
-
-    def _make_card(self, ch, rec, lo, hi):
-        q = ms.take_quality(rec)
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        card.add_css_class("card")
-        head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        dot = Gtk.Label(label="\u25cf")
-        dot.add_css_class({ms.TAKE_CLEAN: "success",
-                           ms.TAKE_FLAGGED: "warning",
-                           ms.TAKE_CLIPPED: "error"}.get(q, "dim-label"))
-        head.append(dot)
-        head.append(Gtk.Label(label="Take %d" % rec.id, xalign=0.0,
-                              hexpand=True))
-        rm = Gtk.Button()
-        rm.add_css_class("flat")
-        rm.set_child(Gtk.Image.new_from_icon_name("user-trash-symbolic"))
-        rm.set_tooltip_text("Delete this take")
-        rm.connect("clicked", self._make_discard_cb(ch, rec.id))
-        head.append(rm)
-        card.append(head)
-
-        curve = Gtk.DrawingArea()
-        curve.set_content_width(CARD_W)
-        curve.set_content_height(CARD_H)
-        curve.set_draw_func(self._make_curve_draw(rec, lo, hi))
-        card.append(curve)
-
-        if rec.clipped:
-            foot = "clipped  %.1f dBFS" % rec.peak_dbfs
-        else:
-            snr = ("SNR %.0f dB" % rec.snr_db
-                   if rec.snr_db is not None else "SNR n/a")
-            foot = "%s  %.1f dBFS" % (snr, rec.peak_dbfs)
-        flabel = Gtk.Label(label=foot, xalign=0.0)
-        flabel.add_css_class("dim-label")
-        card.append(flabel)
-        return card
 
     # ---- callbacks (config) -----------------------------------------------
     def _on_pw_state(self, st):
