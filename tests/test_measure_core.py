@@ -110,7 +110,9 @@ def test_three_takes_with_delay_scatter_converge(sweep):
     assert spread[sel].max() < 0.3      # magnitude-only averaging converged
     # 80 ms peak-to-peak delay jitter must trip the ROADMAP BT warning.
     assert result["takes"]["delay_jitter_ms"] == pytest.approx(80.0, abs=1.0)
-    assert mc.BT_JITTER_WARNING in result["warnings"]
+    # the transport is unknown here (offline processing): the warning
+    # stays cautious about a possible wireless link
+    assert any("wireless" in w for w in result["warnings"])
 
 
 def test_stable_delays_do_not_warn(sweep):
@@ -180,3 +182,29 @@ def test_result_schema_carries_increment2_stubs(sweep, tmp_path):
         r["data"]["mag_db_smoothed"])
     assert r["data"]["spread_db"] is None          # single take
     assert r["takes"]["count"] == 1
+
+
+def test_jitter_warning_gated_by_transport(sweep):
+    """Start-time jitter between takes is pw-play spawn timing on a
+    wired sink (each take aligns on its own impulse); the wireless
+    wording must fire only for a bluez sink, stay cautious when the
+    transport is unknown, and stay silent on known-wired."""
+    bands = DEMO_PROFILE["channels"]["FL"]
+    recs = [synth_recording(sweep, bands, delay_s=1.0, seed=1),
+            synth_recording(sweep, bands, delay_s=1.02, seed=2)]
+
+    def jitter_warns(r):
+        return [w for w in r["warnings"] if "jitter" in w
+                or "wireless" in w]
+
+    bt = mc.process_takes(recs, sweep, sink_api="bluez5")
+    assert bt["takes"]["delay_jitter_ms"] > mc.JITTER_WARN_MS
+    assert any("wireless" in w for w in jitter_warns(bt))
+    assert bt["sink_api"] == "bluez5"
+
+    unknown = mc.process_takes(recs, sweep)
+    assert any("wireless" in w for w in jitter_warns(unknown))
+
+    wired = mc.process_takes(recs, sweep, sink_api="alsa")
+    assert jitter_warns(wired) == []
+    assert wired["sink_api"] == "alsa"

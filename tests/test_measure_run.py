@@ -178,7 +178,7 @@ def test_auto_level_starts_quiet_and_lands_in_window(tmp_path):
     assert 1 <= auto["adjustments"] <= ms.AUTO_MAX_ADJUST
     assert auto["in_window"] is True
     pk = r["levels"]["capture_peak_dbfs"][-1]
-    assert ms.AUTO_WINDOW[0] <= pk <= ms.AUTO_WINDOW[1]
+    assert ms.AUTO_PEAK_FLOOR <= pk <= ms.AUTO_PEAK_CEIL
     vol = json.loads((state / "volume.json").read_text())["cubic"]
     assert vol == pytest.approx(0.30, abs=1e-3)   # restored to listening level
     assert auto["final"] > 0.30                   # the sweep itself ran hotter
@@ -197,7 +197,7 @@ def test_auto_level_converges_on_a_nonlinear_gain(tmp_path):
     r = json.loads(out.read_text())
     assert r["levels"]["auto_level"]["in_window"] is True
     pk = r["levels"]["capture_peak_dbfs"][-1]
-    assert ms.AUTO_WINDOW[0] <= pk <= ms.AUTO_WINDOW[1]
+    assert ms.AUTO_PEAK_FLOOR <= pk <= ms.AUTO_PEAK_CEIL
     # the ceiling lifted past its start (the device needed more than 80%)
     assert r["levels"]["auto_level"]["final"] > ms.AUTO_EXPLORE_CEIL
     # the accepted level must not be a clipped one
@@ -364,7 +364,7 @@ def test_bypass_seeds_from_wpstate_when_metadata_empty(tmp_path):
 
 def test_autolevel_steps_up_but_never_blasts_when_quiet():
     ac = ms.AutoLevel()
-    ac.observe(0.15, -45.0, False)
+    ac.observe(0.15, -45.0, None, False)
     nv = ac.next_volume(0.15, -45.0)
     assert nv > 0.15                                 # move toward the target
     assert nv <= 0.15 * ms.AUTO_RAMP                 # bounded ramp per step
@@ -373,8 +373,8 @@ def test_autolevel_steps_up_but_never_blasts_when_quiet():
 
 def test_autolevel_brackets_and_stays_below_the_loud_side():
     ac = ms.AutoLevel()
-    ac.observe(0.2, -20.0, False)                    # below the window
-    ac.observe(0.8, 0.0, True)                       # clipped -> loud bracket
+    ac.observe(0.2, -20.0, 25.0, False)              # too quiet (low SNR)
+    ac.observe(0.8, 0.0, None, True)                 # clipped -> loud
     nv = ac.next_volume(0.8, 0.0)
     assert 0.2 < nv < 0.8                            # interpolated inside
     assert nv <= 0.8 * ms.AUTO_CLIP_BACKOFF          # kept below the clip
@@ -382,8 +382,8 @@ def test_autolevel_brackets_and_stays_below_the_loud_side():
 
 def test_autolevel_never_returns_to_a_clipping_level():
     ac = ms.AutoLevel()
-    ac.observe(0.3, -30.0, False)
-    ac.observe(1.0, 0.5, True)
+    ac.observe(0.3, -30.0, 30.0, False)
+    ac.observe(1.0, 0.5, None, True)
     assert ac.next_volume(1.0, 0.5) <= 1.0 * ms.AUTO_CLIP_BACKOFF
 
 
@@ -391,7 +391,8 @@ def test_autolevel_ceiling_lifts_when_stuck_below_window():
     # a probe sitting at the explore ceiling but still below the window
     # means the device needs more: the ceiling must lift past its start
     ac = ms.AutoLevel()
-    ac.observe(ms.AUTO_EXPLORE_CEIL, -20.0, False)   # at ceiling, too quiet
+    ac.observe(ms.AUTO_EXPLORE_CEIL, -20.0, 25.0,
+               False)                                # at ceiling, quiet
     nv = ac.next_volume(ms.AUTO_EXPLORE_CEIL, -20.0)
     assert nv > ms.AUTO_EXPLORE_CEIL                 # allowed to go higher now
 
@@ -401,8 +402,8 @@ def test_autolevel_bisects_between_brackets():
     # -- no slope/law assumption, so it converges on a steep BT law where
     # a slope estimate overshoots
     ac = ms.AutoLevel()
-    ac.observe(0.30, -20.0, False)                    # below the window
-    ac.observe(0.90, -1.0, False)                     # above the window
+    ac.observe(0.30, -20.0, 25.0, False)              # too quiet
+    ac.observe(0.90, -1.0, 60.0, False)               # past the ceiling
     nv = ac.next_volume(0.90, -1.0)
     assert nv == pytest.approx((0.30 * 0.90) ** 0.5, abs=1e-6)
 

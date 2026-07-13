@@ -337,9 +337,11 @@ class MeasureWindow(Adw.Window):
         if rec.clipped:
             info = "clipped  %.1f dBFS" % rec.peak_dbfs
         else:
-            snr = ("SNR %.0f dB" % rec.snr_db
+            snr = ("SNR %.1f dB" % rec.snr_db
                    if rec.snr_db is not None else "SNR n/a")
             info = "%s  %.1f dBFS" % (snr, rec.peak_dbfs)
+            if rec.noise_dbfs is not None:
+                info += "  noise %.0f" % rec.noise_dbfs
         lbl = Gtk.Label(label=info, xalign=0.0, hexpand=True)
         lbl.add_css_class("dim-label")
         head.append(lbl)
@@ -1078,24 +1080,28 @@ class MeasureWindow(Adw.Window):
                     ch, analyze=self.mic_of.get(ch, 0))
                 if out.kind == "level_probe" and guard < 12:
                     lv = out.level or {}
+                    snr = lv.get("snr_db")
                     self._post_status(
                         "%s: leveling %d%% → %d%%  "
-                        "(peak %.1f dBFS, step %d/%d)"
+                        "(peak %.1f dBFS, SNR %s, step %d/%d)"
                         % (self.ch_keys[ch],
                            round(100 * lv.get("volume_from", 0)),
                            round(100 * lv.get("volume_to", 0)),
                            lv.get("peak_dbfs", float("nan")),
+                           "%.1f" % snr if snr is not None else "n/a",
                            lv.get("step", 0), lv.get("max_steps", 0)))
                     GLib.idle_add(self._set_volume_display,
                                   lv.get("volume_to"))
                     continue
                 if out.kind == "level_stuck":
                     lv = out.level or {}
+                    why = lv.get("why") or "level stuck"
                     self._post_status(
-                        "%s: level stuck at %d%% (peak %.1f dBFS), "
-                        "keeping it" % (self.ch_keys[ch],
-                                        round(100 * lv.get("volume", 0)),
-                                        lv.get("peak_dbfs", float("nan"))))
+                        "%s: auto-level gave up -- %s; keeping %d%% "
+                        "(peak %.1f dBFS)"
+                        % (self.ch_keys[ch], why,
+                           round(100 * lv.get("volume", 0)),
+                           lv.get("peak_dbfs", float("nan"))))
                     out = self.session.accept_level()
                 result["outcome"] = out
                 break

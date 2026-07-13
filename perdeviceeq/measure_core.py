@@ -292,8 +292,8 @@ def average_takes(takes):
 def process_takes(recordings, sweep, cal=None, smoothing_fraction=6,
                   f_lo=20.0, f_hi=20000.0, ppo=96, pre_flat_ms=10.0,
                   pre_taper_ms=10.0, post_ms=350.0, reg=1e-8, device=None, rig=None, mic=None, cal_file=None,
-                  eq_profile_state=None, levels=None, path_clean=None,
-                  foreign_streams=None):
+                  sink_api=None, eq_profile_state=None, levels=None,
+                  path_clean=None, foreign_streams=None):
     """Full offline pipeline: N recordings of the same sweep -> result dict.
 
     `cal` is a path or a (freq, db) pair; both raw and smoothed output curves
@@ -332,7 +332,18 @@ def process_takes(recordings, sweep, cal=None, smoothing_fraction=6,
 
     warnings = []
     if jitter > JITTER_WARN_MS:
-        warnings.append(BT_JITTER_WARNING)
+        api = sink_api or ""
+        if api.startswith("bluez"):
+            warnings.append("%s (delay jitter %.1f ms)"
+                            % (BT_JITTER_WARNING, jitter))
+        elif not api:
+            # offline processing: the sink is unknown, stay cautious
+            warnings.append("delay jitter %.1f ms between takes; on a "
+                            "wireless link HF may be unreliable"
+                            % jitter)
+        # a known wired sink's start-time jitter is pw-play spawn
+        # timing, not link clock drift: each take aligns on its own
+        # impulse, magnitude is unaffected -- say nothing
     if snr_min is not None and snr_min < SNR_WARN_DB:
         warnings.append(f"low SNR ({snr_min:.1f} dB): raise the level or "
                         f"kill the noise source")
@@ -358,6 +369,7 @@ def process_takes(recordings, sweep, cal=None, smoothing_fraction=6,
                       "fraction": smoothing_fraction, "domain": "power"},
         "window": {"pre_flat_ms": pre_flat_ms, "pre_taper_ms": pre_taper_ms,
                    "post_ms": post_ms},
+        "sink_api": sink_api,
         "device": device,
         "rig": rig,
         "mic": mic,

@@ -160,7 +160,8 @@ def test_auto_level_probes_not_accumulated(shim_state, tmp_path):
     assert kinds[-1] == "take"
     assert "level_probe" in kinds                     # started too quiet
     assert [r.id for r in ses.takes_of(0)] == [out.take.id]
-    assert ms.AUTO_WINDOW[0] <= out.take.peak_dbfs <= ms.AUTO_WINDOW[1]
+    assert ms.AUTO_PEAK_FLOOR <= out.take.peak_dbfs \
+        <= ms.AUTO_PEAK_CEIL
     r = ses.finalize(0, str(tmp_path / "result.json"))
     auto = r["levels"]["auto_level"]
     assert auto["enabled"] is True
@@ -399,3 +400,71 @@ def test_level_move_between_takes_is_compensated(shim_state, tmp_path):
     med_1 = float(np.median(np.asarray(out1.take.mag_db)))
     assert abs(med_r - med_1) < 0.5
     assert_matches_chain(r["data"]["freq_hz"], r["data"]["mag_db_raw"])
+
+# --- SNR-targeted leveling: verdicts, ceiling prediction, refusal ----------
+
+def test_autolevel_verdict_and_snr_ceiling():
+    v = ms.AutoLevel.verdict
+    ok = ms.mc.SNR_WARN_DB + ms.AUTO_SNR_MARGIN_DB
+    assert v(-6.0, ok) == "ok"
+    assert v(-6.0, ms.mc.SNR_WARN_DB - 5.0) == "quiet"   # clean SNR miss
+    assert v(-6.0, None) == "quiet"                       # unknown SNR
+    assert v(-20.0, ok + 20.0) == "quiet"                 # below the floor
+    assert v(-1.5, ok, clipped=False) == "loud"           # past the ceil
+    assert v(-6.0, ok, clipped=True) == "loud"
+    # within the last dB below the ceiling plain-clean is accepted
+    assert v(ms.AUTO_PEAK_CEIL - 0.5, ms.mc.SNR_WARN_DB + 0.2) == "ok"
+    # law-free prediction: peak and SNR rise together
+    c = ms.AutoLevel.snr_ceiling
+    assert c(-10.0, 30.0) == pytest.approx(
+        30.0 + (ms.AUTO_PEAK_CEIL + 10.0))
+    assert c(-40.0, 10.0) is None          # too quiet to trust the floor
+    assert c(-10.0, None) is None
+
+
+def test_auto_level_refuses_when_the_floor_is_too_high(shim_state,
+                                                       tmp_path,
+                                                       monkeypatch):
+    """A noise floor that cannot yield a clean take below the hot
+    threshold must produce an honest refusal with the numbers, not a
+    silent landing on a level that only makes flagged takes."""
+    monkeypatch.setenv("PDE_SHIM_NOISE", "0.02")   # ~-34 dBFS RMS floor
+    ses = ms.MeasureSession(make_cfg(tmp_path, samples=65536,
+                                     auto_level=True))
+    with ses:
+        out = None
+        for _ in range(ms.AUTO_MAX_ADJUST + 2):
+            out = ses.take(0)
+            if out.kind != "level_probe":
+                break
+        assert out.kind == "level_stuck"
+        assert "noise" in out.level["why"]
+        assert out.level["achievable_snr"] is not None
+        assert out.level["achievable_snr"] < ms.mc.SNR_WARN_DB
+        assert out.level["noise_dbfs"] is not None
+        assert any("gave up" in n for n in out.notes)
+        assert ses.takes_of(0) == []
+    r_auto = ses._auto_state
+    assert r_auto["in_window"] is False
+
+
+def test_relevel_final_is_reported(shim_state, tmp_path):
+    """relevel() re-arms leveling on a session built with a remembered
+    volume; the metadata must then report the final level instead of
+    None (the old gate looked at cfg.auto_level only)."""
+    ses = ms.MeasureSession(make_cfg(tmp_path, samples=65536,
+                                     start_volume=0.6))
+    with ses:
+        ses.relevel()
+        for _ in range(ms.AUTO_MAX_ADJUST + 2):
+            out = ses.take(0)
+            if out.kind == "take":
+                break
+        assert out.kind == "take"
+    r = ses.finalize(0, str(tmp_path / "result.json"))
+    auto = r["levels"]["auto_level"]
+    assert auto["enabled"] is True
+    assert auto["final"] is not None
+    assert len(r["levels"]["take_noise_dbfs"]) == 1
+    assert r["levels"]["take_noise_dbfs"][0] is not None
+    assert r["sink_api"] == "alsa"

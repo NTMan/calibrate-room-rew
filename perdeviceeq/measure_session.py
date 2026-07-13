@@ -59,13 +59,17 @@ Method notes (worth not re-deriving):
   is to measure at the working listening level via the sink's own control.
   The only exception is --auto-level: starting from a quiet volume
   (min(current, 0.15) cubic) it adjusts the sink volume via wpctl until
-  the capture peak lands in the -12..-6 dBFS window, after an explicit
+  the capture is both hot enough (peak in AUTO_PEAK_FLOOR..CEIL) and
+  clean enough (SNR at least SNR_WARN_DB + margin), after an explicit
   confirmation. It assumes nothing about the device's volume->gain law
-  (a BT sink's is nothing like the software cube law): it brackets the
-  window and interpolates in log-volume between a too-quiet and a
-  too-loud probe, stepping with the slope measured from the last two
-  probes until then, capped per step and held below any level seen to
-  clip -- so the first sound neither blasts nor overshoots into a clip
+  (a BT sink's is nothing like the software cube law): it brackets and
+  bisects in log-volume between a too-quiet and a too-loud probe, capped
+  per step and held below any level seen to clip -- so the first sound
+  neither blasts nor overshoots into a clip. Peak and SNR rise together
+  dB-for-dB with the volume (the acoustic floor stays put), so one
+  hot-enough probe predicts the best SNR reachable below the safe peak
+  ceiling; when that is under SNR_WARN_DB the leveling REFUSES with the
+  numbers instead of parking at a level that only makes flagged takes
   (see AutoLevel). Without --auto-level the sink volume is never raised
   above its value at start (it is not written at all). Everything ends
   up in `levels`. The sink's applied volumes (channelVolumes and
@@ -119,7 +123,6 @@ METADATA_NAME = "per-device-eq"          # same object the app + WP hook use
 PLAY_NODE = "pde-measure-sweep"
 CAPTURE_NODE = "pde-measure-capture"
 SINK_API_PREFIXES = ("alsa", "bluez")    # "real device" whitelist
-AUTO_WINDOW = (-9.0, -3.0)               # capture peak target window, dBFS
 AUTO_MAX_ADJUST = 8                      # ramp-up + a few bisection steps
 AUTO_START_VOLUME = 0.15                 # cubic; "start quiet"
 AUTO_RAMP = 2.0                          # geometric step up while hunting
@@ -127,6 +130,11 @@ AUTO_EXPLORE_CEIL = 0.8                  # don't slam full volume while probing
 AUTO_CLIP_BACKOFF = 0.85                 # stay this far below a clipping level
 FULLSCALE = 0.999                        # |sample| >= this = clipped
 HOT_DBFS = -1.0                          # peak above this = low headroom
+AUTO_PEAK_FLOOR = -12.0                  # quieter wastes capture robustness
+AUTO_PEAK_CEIL = HOT_DBFS - 1.0          # aim strictly below the hot flag
+AUTO_SNR_MARGIN_DB = 1.0                 # aim past clean, not onto its edge
+AUTO_TRUST_FLOOR_PK = -20.0              # trust the room's floor read only
+#                                          on a probe at least this hot
 REPAIR_MAX_MS = 2.0                      # interp this many ms of dropouts;
 #                                          more non-finite than that = fault
 VERIFY_AFTER_S = 0.4                     # pw-play start -> pw-dump link check
@@ -484,34 +492,64 @@ def _clamp_vol(v):
 
 
 class AutoLevel:
-    """Drive the sink volume so the capture peak lands in AUTO_WINDOW,
-    with no assumption about the device's volume->gain law (a BT sink's
-    is nothing like the software cube law). It brackets and then bisects:
-    ramp up cautiously (never straight to full volume, which would blast a
-    coupler) until a probe is too loud, then halve the interval in
-    log-volume between the loudest-too-quiet and quietest-too-loud probe.
-    Bisection needs only that louder means louder, so it converges on a
-    steep or kinked Bluetooth law where a slope estimate overshoots."""
+    """Drive the sink volume until the capture is both hot enough
+    (peak in AUTO_PEAK_FLOOR..AUTO_PEAK_CEIL) and CLEAN enough (SNR at
+    least SNR_WARN_DB + AUTO_SNR_MARGIN_DB, so takes don't straddle
+    the clean threshold), with no assumption about the device's
+    volume->gain law (a BT sink's is nothing like the software cube
+    law). It brackets and then bisects: ramp up cautiously (never
+    straight to full volume, which would blast a coupler) until a
+    probe is too loud, then halve the interval in log-volume between
+    the loudest-too-quiet and quietest-too-loud probe. Bisection needs
+    only that louder means louder. The peak/SNR trade is law-free too:
+    both rise dB-for-dB with the volume while the acoustic noise floor
+    stays put, so one hot-enough probe predicts the best SNR the rig
+    can reach below the safe ceiling (snr_ceiling) -- when that is
+    under SNR_WARN_DB, no volume produces a clean take and the caller
+    should refuse honestly instead of hunting."""
 
     def __init__(self):
-        self.lo = None            # (v, peak): highest probe below the window
-        self.hi = None            # (v, peak): lowest probe at/above / clipped
-        self.ceil = AUTO_EXPLORE_CEIL   # soft: lifts if we're stuck too quiet
+        self.lo = None            # (v, peak): highest too-quiet probe
+        self.hi = None            # (v, peak): lowest too-loud / clipped
+        self.ceil = AUTO_EXPLORE_CEIL   # soft: lifts if stuck too quiet
 
     @staticmethod
-    def in_window(peak):
-        return AUTO_WINDOW[0] <= peak <= AUTO_WINDOW[1]
+    def verdict(peak, snr, clipped=False):
+        """'loud' past the safe peak ceiling, 'ok' when hot enough AND
+        clean enough, else 'quiet'. Within the last dB below the
+        ceiling plain-clean SNR is accepted -- the rig cannot do
+        better there without a hot take."""
+        if clipped or peak > AUTO_PEAK_CEIL:
+            return "loud"
+        if peak >= AUTO_PEAK_FLOOR and snr is not None:
+            if snr >= mc.SNR_WARN_DB + AUTO_SNR_MARGIN_DB:
+                return "ok"
+            if snr >= mc.SNR_WARN_DB and peak >= AUTO_PEAK_CEIL - 1.0:
+                return "ok"
+        return "quiet"
 
-    def observe(self, v, peak, clipped):
-        if clipped or peak > AUTO_WINDOW[1]:
+    @staticmethod
+    def snr_ceiling(peak, snr):
+        """Best SNR reachable at the safe peak ceiling, predicted from
+        one probe: peak and SNR rise together dB-for-dB with volume.
+        None when SNR is unknown or the probe is too quiet to trust
+        that its floor read is the room's (and not electronics under
+        a nearly-silent capture)."""
+        if snr is None or peak < AUTO_TRUST_FLOOR_PK:
+            return None
+        return snr + (AUTO_PEAK_CEIL - peak)
+
+    def observe(self, v, peak, snr, clipped):
+        verdict = self.verdict(peak, snr, clipped)
+        if verdict == "loud":
             p = 0.0 if clipped else peak
             if self.hi is None or v < self.hi[0]:
                 self.hi = (v, p)
-        if not clipped and peak < AUTO_WINDOW[0]:
+        elif verdict == "quiet":
             if self.lo is None or v > self.lo[0]:
                 self.lo = (v, peak)
-            if v >= self.ceil - 1e-3:     # at the ceiling yet still too quiet
-                self.ceil = 1.0           # -> the device needs more, lift it
+            if v >= self.ceil - 1e-3:     # at the ceiling, still quiet
+                self.ceil = 1.0           # -> the device needs more
 
     def next_volume(self, v, peak):
         if self.lo and self.hi:                  # bracketed: bisect
@@ -846,6 +884,7 @@ class TakeRecord:
     soft_vol: object = None   # softVolumes ditto -- the gain PipeWire
                               # actually multiplied into the samples;
                               # 1.0 when the device does the volume
+    noise_dbfs: object = None  # core pre-sweep noise-floor estimate
 
 
 TAKE_CLEAN = "clean"        # counts toward a channel's three good takes
@@ -1155,32 +1194,56 @@ class MeasureSession:
             notes.append("WARNING: capture peak %.1f dBFS leaves little "
                          "headroom (risk of inter-sample clipping); "
                          "consider a lower level or --auto-level (targets "
-                         "%g..%g dBFS)." % (pk, *AUTO_WINDOW))
+                         "SNR >= %g dB at a peak below %g dBFS)."
+                         % (pk, mc.SNR_WARN_DB, AUTO_PEAK_CEIL))
 
         if not self._leveled:
             auto = self._auto_state
-            self._auto_ctl.observe(self._v_cur, pk, bool(clipped))
+            snr_q, noise_q = self._quick_snr(chan)
+            self._auto_ctl.observe(self._v_cur, pk, snr_q, bool(clipped))
             v_new = self._auto_ctl.next_volume(self._v_cur, pk)
             stuck = abs(v_new - self._v_cur) < 1e-3
-            if not clipped and self._auto_ctl.in_window(pk):
+            ceiling = (None if clipped
+                       else AutoLevel.snr_ceiling(pk, snr_q))
+            hopeless = (ceiling is not None
+                        and ceiling < mc.SNR_WARN_DB)
+            ok = (not clipped
+                  and self._auto_ctl.verdict(pk, snr_q) == "ok")
+            if ok:
                 self._leveled, auto["in_window"] = True, True
-            elif auto["adjustments"] >= AUTO_MAX_ADJUST or stuck:
+            elif hopeless or auto["adjustments"] >= AUTO_MAX_ADJUST \
+                    or stuck:
                 auto["in_window"] = False
-                why = ("the level cannot be moved further (at %.0f%%)"
-                       % (100 * self._v_cur) if stuck
-                       else "%d adjustments" % AUTO_MAX_ADJUST)
-                notes.append("WARNING: auto-level gave up after %s (peak "
-                             "%.1f dBFS outside %g..%g)"
-                             % (why, pk, *AUTO_WINDOW))
+                if hopeless:
+                    why = ("the noise floor (%.0f dBFS) tops out near "
+                           "SNR %.0f dB at any safe peak -- kill the "
+                           "noise source or move the rig"
+                           % (noise_q if noise_q is not None
+                              else float("nan"), ceiling))
+                elif stuck:
+                    why = ("the level cannot be moved further (at %.0f%%)"
+                           % (100 * self._v_cur))
+                else:
+                    why = "%d adjustments" % AUTO_MAX_ADJUST
+                snr_txt = ("%.1f dB" % snr_q if snr_q is not None
+                           else "n/a")
+                notes.append("WARNING: auto-level gave up: %s (peak %.1f "
+                             "dBFS, SNR %s; target SNR >= %g dB at a "
+                             "peak below %g dBFS)"
+                             % (why, pk, snr_txt, mc.SNR_WARN_DB,
+                                AUTO_PEAK_CEIL))
                 self._pending = (channel, data, chan, pk, clipped, bad,
                                  gains)
                 return TakeOutcome(
                     "level_stuck", notes=notes,
-                    level={"peak_dbfs": pk, "volume": self._v_cur,
-                           "why": why, "window": AUTO_WINDOW})
+                    level={"peak_dbfs": pk, "snr_db": snr_q,
+                           "noise_dbfs": noise_q,
+                           "achievable_snr": ceiling,
+                           "volume": self._v_cur, "why": why})
             else:
                 auto["adjustments"] += 1
-                level = {"peak_dbfs": pk, "volume_from": self._v_cur,
+                level = {"peak_dbfs": pk, "snr_db": snr_q,
+                         "volume_from": self._v_cur,
                          "volume_to": v_new, "step": auto["adjustments"],
                          "max_steps": AUTO_MAX_ADJUST}
                 self._v_cur = v_new             # next sweep sets the sink
@@ -1219,7 +1282,7 @@ class MeasureSession:
 
     def _accept(self, channel, data, chan, pk, clipped, repaired, notes,
                 gains=(None, None)):
-        snr = self._quick_snr(chan)
+        snr, _ = self._quick_snr(chan)
         if snr is not None and snr < mc.SNR_WARN_DB:
             notes.append("WARNING: low SNR (%.1f dB): raise the level or "
                          "kill the noise source" % snr)
@@ -1229,24 +1292,28 @@ class MeasureSession:
         t = mc.analyze_take(chan, self.sweep, self.freqs)
         rec = TakeRecord(self._take_seq, channel, self.freqs, t.mag_db,
                          t.delay_ms, t.snr_db, pk, clipped, repaired, path,
-                         chan_vol=gains[0], soft_vol=gains[1])
+                         chan_vol=gains[0], soft_vol=gains[1],
+                         noise_dbfs=t.noise_dbfs)
         self._takes.setdefault(channel, []).append((rec, chan))
         return TakeOutcome("take", take=rec,
                            spread_db=self.spread_db(channel), notes=notes)
 
     def _quick_snr(self, chan):
-        """Fast per-take noise-floor check so a noisy room is caught
-        before the next reseat. Onset = first sustained crossing of 10x
-        the pre-roll RMS; threshold and wording match the core."""
+        """Fast per-take (snr, noise_dbfs) so a noisy room is caught
+        before the next reseat and the auto-level can target SNR.
+        Onset = first sustained crossing of 10x the pre-roll RMS;
+        threshold and wording match the core. (None, None) when no
+        onset is found."""
         fs = self.sweep.fs
         head = chan[:int(0.4 * fs)]
         noise = math.sqrt(float(np.mean(head ** 2))) if len(head) else 0.0
         thr = max(10.0 * noise, 1e-6)
         over = np.flatnonzero(np.abs(chan) > thr)
         if not len(over):
-            return None
-        snr, _, _ = mc.estimate_snr(chan, int(over[0]), self.sweep)
-        return snr
+            return None, None
+        snr, _, noise_db = mc.estimate_snr(chan, int(over[0]),
+                                           self.sweep)
+        return snr, noise_db
 
     # -- the accumulated fan --------------------------------------------------
 
@@ -1351,7 +1418,10 @@ class MeasureSession:
         if v_report is None:
             v_report = self._v_cur if self._v_cur is not None else v_final
         auto = dict(self._auto_state)
-        auto["final"] = (round(v_report, 4) if self.cfg.auto_level
+        # gate on the live auto state, not cfg: relevel() re-arms the
+        # leveling on a session constructed with a remembered volume,
+        # and its final level is just as real
+        auto["final"] = (round(v_report, 4) if auto.get("enabled")
                          else None)
 
         def _r6(v):
@@ -1370,6 +1440,9 @@ class MeasureSession:
             "take_channel_volumes": [_r6(r.chan_vol)
                                      for r, _ in entries],
             "take_soft_volumes": [_r6(r.soft_vol) for r, _ in entries],
+            "take_noise_dbfs": [round(r.noise_dbfs, 1)
+                                if r.noise_dbfs is not None else None
+                                for r, _ in entries],
             "gain_comp_db": comp_db,
             "auto_level": auto,
         }
@@ -1380,6 +1453,7 @@ class MeasureSession:
             device=(self.cfg.device or self.sink_ident["description"]
                     or self.sink_ident["name"]),
             rig=self.cfg.rig, mic=self.cfg.mic,
+            sink_api=self.sink_ident.get("device_api"),
             eq_profile_state=self.eq_state, levels=levels,
             path_clean=self.path_clean, foreign_streams=self.foreign)
         out = out_path or os.path.join(self.outdir, "result.json")

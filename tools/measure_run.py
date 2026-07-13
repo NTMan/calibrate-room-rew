@@ -28,7 +28,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from perdeviceeq import measure_core as mc
 from perdeviceeq.measure_session import (
-    AUTO_MAX_ADJUST, AUTO_START_VOLUME, AUTO_WINDOW, FaultyCaptureError,
+    AUTO_MAX_ADJUST, AUTO_PEAK_CEIL, AUTO_START_VOLUME,
+    FaultyCaptureError,
     MeasureError, MeasureSession, RefusalError, SessionConfig)
 
 
@@ -93,9 +94,11 @@ def measure(a):
     if a.auto_level:
         if not confirm("--auto-level will adjust the sink volume "
                        "(start quiet at %.0f%%, up to %d raises, "
-                       "target peak %g..%g dBFS). Proceed?"
+                       "target SNR >= %g dB at a peak below %g dBFS). "
+                       "Proceed?"
                        % (100 * min(v0 or 1.0, AUTO_START_VOLUME),
-                          AUTO_MAX_ADJUST, *AUTO_WINDOW), a.yes):
+                          AUTO_MAX_ADJUST, mc.SNR_WARN_DB,
+                          AUTO_PEAK_CEIL), a.yes):
             print("declined", file=sys.stderr)
             return 3
 
@@ -114,8 +117,11 @@ def measure(a):
                     "capture exposes 0..%d)."
                     % (e, e.channel, e.channels, e.channels - 1))
             pk = out.take.peak_dbfs if out.take else out.level["peak_dbfs"]
-            print("take %d/%d: capture peak %.1f dBFS"
-                  % (accepted + 1, a.takes, pk))
+            snr = (out.take.snr_db if out.take
+                   else (out.level or {}).get("snr_db"))
+            print("take %d/%d: capture peak %.1f dBFS, SNR %s"
+                  % (accepted + 1, a.takes, pk,
+                     "%.1f dB" % snr if snr is not None else "n/a"))
             for n in out.notes:
                 print(n, file=sys.stderr)
             if out.kind == "level_probe":
@@ -128,8 +134,9 @@ def measure(a):
             if out.kind == "level_stuck":
                 if not confirm("Continue at the current level anyway?",
                                a.yes):
-                    raise MeasureError("aborted: capture level never "
-                                       "reached the target window")
+                    raise MeasureError("aborted: %s"
+                                       % (out.level or {}).get(
+                                           "why", "leveling gave up"))
                 out = ses.accept_level()
                 for n in out.notes:
                     print(n, file=sys.stderr)
@@ -182,9 +189,12 @@ def main(argv=None):
                    help="mute foreign streams on the sink instead of "
                         "refusing to start")
     p.add_argument("--auto-level", action="store_true",
-                   help="adjust the sink volume until the capture peak is "
-                        "in %g..%g dBFS (max %d raises, confirmed)"
-                        % (*AUTO_WINDOW, AUTO_MAX_ADJUST))
+                   help="adjust the sink volume until the capture is "
+                        "clean (SNR >= %g dB) at a peak below %g dBFS "
+                        "(max %d raises, confirmed); refuses when the "
+                        "noise floor makes that impossible"
+                        % (mc.SNR_WARN_DB, AUTO_PEAK_CEIL,
+                           AUTO_MAX_ADJUST))
     p.add_argument("--yes", action="store_true",
                    help="assume yes on confirmations (NOT on reseat "
                         "pauses)")
