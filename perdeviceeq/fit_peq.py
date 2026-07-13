@@ -13,7 +13,13 @@ actually be heard. Preamp is left at 0.0 -- the app derives Safe/Session
 headroom itself. The fit is greedy (place a band at the largest residual,
 peaking in the middle, low/high shelf at the edges) with a joint
 least-squares refine of every band after each placement; it stops early
-once the residual is within 0.5 dB everywhere in band.
+once the residual is within 0.5 dB everywhere in band. A pruning pass
+then re-tries the fit without each band in turn and drops the ones the
+remaining bands absorb: the greedy order can converge on cancelling
+stacks (a deep cut lifted back by a near-cap shelf, a pile of sub-bass
+shelves netting 2 dB) that waste the band budget and defeat hand
+editing. Pruning is anchored to the original residual and may cost at
+most PRUNE_EPS_DB at any grid point.
 
 When the measurement carries the per-take drives (levels recorded by
 measure_session) and the channels share one acoustic reference, a
@@ -35,6 +41,7 @@ from .config import FS
 
 RESID_TARGET_DB = 0.5
 GRID = 400
+PRUNE_EPS_DB = 0.25         # pruning may cost at most this much, anywhere
 TRIM_MIN_DB = 0.05          # below this a trim is measurement noise
 TRIM_WARN_DB = 3.0          # past this it smells like a seating problem
 
@@ -84,6 +91,41 @@ def _refine(bands, fg, desired, flo, fhi, max_boost):
              float(sol.x[3 * i + 2])) for i in range(len(types))]
 
 
+def _prune(bands, fg, target, flo, fhi, max_boost):
+    """Drop bands whose work the remaining ones absorb.
+
+    The greedy placement is order-dependent and the joint refine only
+    polishes the topology it is given, so a fit can converge on
+    cancelling stacks (a -18 dB cut lifted back by a +6 shelf, or five
+    sub-bass shelves netting +2 dB) that waste band budget and defeat
+    hand editing. Try removing each band in turn, re-refine the rest,
+    and keep the removal when the residual against the (capped) target
+    stays, at every grid point, within the ORIGINAL fit's local
+    residual or the fit's own floor, plus PRUNE_EPS_DB -- anchored to
+    the original so successive drops cannot ratchet the error upward.
+    A genuinely working band fails the pointwise test at its own
+    frequency and stays."""
+    if not bands:
+        return bands
+    resid0 = np.abs(target - _response(bands, fg))
+    allow = np.maximum(resid0, RESID_TARGET_DB) + PRUNE_EPS_DB
+    changed = True
+    while changed and bands:
+        changed = False
+        for i in range(len(bands)):
+            trial = bands[:i] + bands[i + 1:]
+            if trial:
+                trial = _refine(trial, fg, target, flo, fhi, max_boost)
+                r = np.abs(target - _response(trial, fg))
+            else:
+                r = np.abs(target)
+            if bool(np.all(r <= allow)):
+                bands = trial
+                changed = True
+                break
+    return bands
+
+
 def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
     """Return (bands, fg, desired, resid). bands: list of (type,f,g,q).
     Cuts are unbounded; boost is capped at max_boost (filling deep nulls
@@ -104,6 +146,7 @@ def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
         g0 = float(np.clip(resid[k], -24.0, max_boost))
         bands.append((btype, f0, g0, 2.0))
         bands = _refine(bands, fg, target, flo, fhi, max_boost)
+    bands = _prune(bands, fg, target, flo, fhi, max_boost)
     resid = desired - _response(bands, fg)         # vs TRUE target
     return bands, fg, desired, resid
 

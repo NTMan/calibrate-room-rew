@@ -189,3 +189,38 @@ def test_fit_profiles_prepends_the_trim_band():
     resp = np.array(eq.response_db(
         0.0, [eq.Band.from_dict(fl[0])], list(freqs)))
     assert float(np.max(np.abs(resp + 2.0))) < 0.05
+
+
+# --- pruning: cancelling stacks die, working bands survive ------------------
+
+def test_prune_removes_a_cancelling_stack():
+    """A pair of opposing bands whose net the others can absorb is a
+    local-minimum artifact; pruning must collapse it to the minimal
+    set while honoring the residual contract."""
+    fg = np.logspace(np.log10(20), np.log10(20000), 400)
+    real = ("PK", 1000.0, -6.0, 1.0)
+    target = fit_peq._response([real], fg)
+    stack = [real,
+             ("PK", 3000.0, 5.0, 2.0),
+             ("PK", 3000.0, -5.0, 2.0)]
+    out = fit_peq._prune(list(stack), fg, target, 20.0, 20000.0, 6.0)
+    assert len(out) == 1
+    r = np.abs(target - fit_peq._response(out, fg))
+    assert float(r.max()) \
+        <= fit_peq.RESID_TARGET_DB + fit_peq.PRUNE_EPS_DB
+
+
+def test_prune_keeps_a_working_band():
+    fg = np.logspace(np.log10(20), np.log10(20000), 400)
+    real = ("PK", 1000.0, -6.0, 1.0)
+    target = fit_peq._response([real], fg)
+    out = fit_peq._prune([real], fg, target, 20.0, 20000.0, 6.0)
+    assert out == [real]
+
+
+def test_prune_can_drop_the_last_band_on_a_flat_target():
+    fg = np.logspace(np.log10(20), np.log10(20000), 400)
+    target = np.zeros_like(fg)
+    out = fit_peq._prune([("PK", 500.0, 0.3, 1.0)], fg, target,
+                         20.0, 20000.0, 6.0)
+    assert out == []
