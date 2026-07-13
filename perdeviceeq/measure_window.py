@@ -258,6 +258,11 @@ class MeasureWindow(Adw.Window):
         self.vol_gone.set_halign(Gtk.Align.CENTER)
         self.vol_gone.set_visible(False)
         center_box.append(self.vol_gone)
+        self.vol_src = Gtk.Label()
+        self.vol_src.add_css_class("dim-label")
+        self.vol_src.add_css_class("caption")
+        self.vol_src.set_halign(Gtk.Align.CENTER)
+        center_box.append(self.vol_src)
         pult = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         pult.set_halign(Gtk.Align.CENTER)
         self.play_btn = self._pult_btn(
@@ -603,20 +608,43 @@ class MeasureWindow(Adw.Window):
     def _on_vol_edited(self, _spin):
         """Manual override of the sweep level -- the stop-crane when
         auto-level misses. Set it on the session and stop auto-levelling
-        so it sticks for the next sweep."""
+        so it sticks for the next sweep. Before a session it cancels a
+        pending relevel: the hand on the knob wins."""
         if self.session is not None:
             self.session.set_level(self.vol_spin.get_value() / 100.0)
+        else:
+            self._relevel_pending = False
+        self._refresh_volume()
 
     def _refresh_volume(self):
+        """The spin shows the sweep level; the caption under it says
+        where that number came from, so it is never a mystery. Before
+        a session, a pending relevel keeps whatever the spin shows --
+        replacing it with the sink's LISTENING volume (the old
+        fallback) invented a number nobody asked for."""
         if self.session is not None:
             v = getattr(self.session, "_v_cur", None)
+            source = getattr(self.session, "level_source", None)
         else:
             src = self._source_name()
             v = (self.memory.volume_for(self.sink_node, src)
                  if src else None)
-            if v is None:
+            if self._relevel_pending:
+                source = "pending"
+                v = None                    # keep the spin as it is
+            elif v is not None:
+                source = "remembered"
+            else:
+                source = "pending"          # a fresh sink auto-levels
                 v = self._query_volume()
-        self._set_volume_display(v)
+        if v is not None:
+            self._set_volume_display(v)
+        self.vol_src.set_text({
+            "remembered": "remembered level",
+            "pending": "auto-level on the next sweep",
+            "auto": "auto-leveled",
+            "manual": "set by hand",
+        }.get(source, ""))
 
     def _on_relevel(self, _btn):
         if self._busy:

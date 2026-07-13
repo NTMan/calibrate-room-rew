@@ -614,3 +614,26 @@ def test_trusted_floor_follows_the_statistics(shim_state, tmp_path):
         # floor's
         _inject_pair(ses, 0, 8.0, lo_hz=2000.0, hi_hz=3000.0)
         assert ses.trusted_floor_hz() == pytest.approx(f0)
+
+
+def test_level_source_provenance(shim_state, tmp_path):
+    """The wizard shows where the sweep level came from; the session
+    must keep that story straight through auto, manual and relevel."""
+    ses = ms.MeasureSession(make_cfg(tmp_path, samples=65536,
+                                     auto_level=True))
+    with ses:
+        assert ses.level_source == "pending"
+        for _ in range(ms.AUTO_MAX_ADJUST + 2):
+            out = ses.take(0)
+            if out.kind == "take":
+                break
+        assert out.kind == "take"
+        assert ses.level_source == "auto"
+        ses.set_level(0.5)
+        assert ses.level_source == "manual"
+        ses.relevel()
+        assert ses.level_source == "pending"
+    ses2 = ms.MeasureSession(make_cfg(tmp_path, samples=65536,
+                                      start_volume=0.6))
+    with ses2:
+        assert ses2.level_source == "remembered"
