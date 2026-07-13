@@ -274,7 +274,7 @@ class EqWindow(Adw.ApplicationWindow):
             return None
         best, bestd = None, r * r
         for b in self.bands:
-            bx = self._x_of(b.freq)
+            bx = self._x_of(max(b.freq, FMIN))  # freq-0 trim: left edge
             by = self._y_of(max(-DB_MAX, min(DB_MAX, b.gain)))
             d = (bx - x) ** 2 + (by - y) ** 2
             if d <= bestd:
@@ -317,7 +317,10 @@ class EqWindow(Adw.ApplicationWindow):
         if not ok:
             return
         f = self._f_of(sx + ox); db = self._db_of(sy + oy)
-        if f is not None:
+        if f is not None and self._drag_band.freq >= FMIN:
+            # a sub-plot band (the freq-0 balance trim) keeps its
+            # frequency under drag -- the plot cannot express it and a
+            # vertical gain drag must not retune it to 20 Hz
             self._drag_band.freq = f
         if db is not None:
             self._drag_band.gain = db
@@ -953,7 +956,10 @@ class EqWindow(Adw.ApplicationWindow):
         self._tame_scroll(type_dd)
         self.bands_grid.attach(type_dd, 1, row, 1, 1)
 
-        freq = Gtk.SpinButton.new_with_range(FMIN, FMAX, 1.0)
+        # lower bound 0, not FMIN: a balance-trim band sits at freq 0
+        # (flat gain, the preamp trick) and a 20-floor would clamp it on
+        # set_value and rewrite the band via value-changed at build
+        freq = Gtk.SpinButton.new_with_range(0.0, FMAX, 1.0)
         freq.set_digits(0); freq.set_value(bnd.freq)
         freq.set_hexpand(True); freq.set_halign(Gtk.Align.START)
         freq.set_valign(Gtk.Align.CENTER)
@@ -1763,7 +1769,8 @@ class EqWindow(Adw.ApplicationWindow):
             cr.set_dash([], 0)
 
         for b in self.bands:
-            bx = x_of(b.freq); by = y_of(max(-DB_MAX, min(DB_MAX, b.gain)))
+            bx = x_of(max(b.freq, FMIN))    # freq-0 trim pins left
+            by = y_of(max(-DB_MAX, min(DB_MAX, b.gain)))
             r, g, bl = self._band_color(b.freq)
             cr.arc(bx, by, 5.5, 0, 2 * math.pi)
             if b.enabled:

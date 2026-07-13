@@ -14,10 +14,17 @@ headroom itself. The fit is greedy (place a band at the largest residual,
 peaking in the middle, low/high shelf at the edges) with a joint
 least-squares refine of every band after each placement; it stops early
 once the residual is within 0.5 dB everywhere in band.
+
+When the measurement carries the per-take drives (levels recorded by
+measure_session) and the channels share one acoustic reference, a
+per-channel balance trim is added as a freq-0 shelf band (flat gain,
+the preamp trick), aligning the channels' true levels down to the
+quietest one. See balance_trims for the exact validity gate.
 """
 import argparse
 import datetime
 import json
+import math
 import sys
 
 import numpy as np
@@ -28,6 +35,16 @@ from .config import FS
 
 RESID_TARGET_DB = 0.5
 GRID = 400
+TRIM_MIN_DB = 0.05          # below this a trim is measurement noise
+TRIM_WARN_DB = 3.0          # past this it smells like a seating problem
+
+
+def _grid_interp(freq, mag, flo, fhi):
+    """The fit grid and the measured curve interpolated onto it -- the
+    ONE definition of the in-band mean, shared by the shape fit and the
+    balance trim so the two close exactly."""
+    fg = np.logspace(np.log10(flo), np.log10(fhi), GRID)
+    return fg, np.interp(np.log10(fg), np.log10(freq), mag)
 
 
 def _mag_db_vec(btype, f0, gain, q, freqs):
@@ -73,8 +90,7 @@ def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
     wastes headroom and amplifies noise), so the fit targets the desired
     correction clipped from above, while the residual is reported against
     the true (uncapped) target so unfillable dips stay visible."""
-    fg = np.logspace(np.log10(flo), np.log10(fhi), GRID)
-    yg = np.interp(np.log10(fg), np.log10(freq), mag)
+    fg, yg = _grid_interp(freq, mag, flo, fhi)
     desired = yg.mean() - yg                       # flat target correction
     target = np.minimum(desired, max_boost)        # never ask beyond the cap
     bands = []
@@ -90,6 +106,78 @@ def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
         bands = _refine(bands, fg, target, flo, fhi, max_boost)
     resid = desired - _response(bands, fg)         # vs TRUE target
     return bands, fg, desired, resid
+
+
+def _take_gains(result):
+    """(soft, chan) linear gain pairs per take from a result's levels,
+    or None when absent or unusable (a result recorded before the
+    per-take gains existed, an unreadable Props, a non-positive
+    value)."""
+    lv = result.get("levels") or {}
+    soft = lv.get("take_soft_volumes")
+    chan = lv.get("take_channel_volumes")
+    if not soft or not chan or len(soft) != len(chan):
+        return None
+    vals = []
+    for s, c in zip(soft, chan):
+        try:
+            s, c = float(s), float(c)
+        except (TypeError, ValueError):
+            return None
+        if not (math.isfinite(s) and math.isfinite(c)) \
+                or s <= 0 or c <= 0:
+            return None
+        vals.append((s, c))
+    return vals
+
+
+def balance_trims(results, means):
+    """Per-channel level trims (dB, <= 0) equalizing the channels' true
+    acoustic levels from the drives recorded per take, or (None, why).
+
+    The shape fit flattens each channel to its own in-band mean, so
+    after EQ a channel plays at that mean minus its measurement drive;
+    the trim closes the remaining difference: with Gm = 20*log10 of the
+    channel's reference soft gain (the quietest take, which is where
+    the session's gain compensation put the curve), comp = mean - Gm
+    and trim = min(comp) - comp. Cuts only: channels align DOWN to the
+    quietest one, headroom untouched.
+
+    Valid only when the recorded data can carry it: at least two
+    channels; every channel's per-take gains recorded and usable; one
+    shared acoustic reference (the same cal file -- distinct
+    mics/couplers are not cross-calibrated, their SPL difference is
+    not the earpieces'); and the drive difference actually known --
+    either the sink does the volume in software (softVolumes track
+    channelVolumes) or every take of every channel sat at one
+    identical volume, which cancels an unknown hardware law outright.
+    """
+    if len(results) < 2:
+        return None, "single channel, nothing to balance"
+    cals = {r.get("cal_file") or None for r in results.values()}
+    if len(cals) != 1:
+        return None, ("channels measured on different mics/couplers "
+                      "(distinct cal files): no shared level reference")
+    gains = {}
+    for key, r in results.items():
+        g = _take_gains(r)
+        if g is None:
+            return None, ("channel %s has no usable per-take gains "
+                          "recorded" % key)
+        gains[key] = g
+    flat = [g for gs in gains.values() for g in gs]
+    software = all(math.isclose(s, c, rel_tol=1e-3, abs_tol=1e-6)
+                   for s, c in flat)
+    one_vol = all(math.isclose(c, flat[0][1], rel_tol=1e-3,
+                               abs_tol=1e-6) for _, c in flat)
+    if not (software or one_vol):
+        return None, ("the device does the volume in hardware and the "
+                      "channels were measured at different volumes: "
+                      "the drive difference is unknowable")
+    comp = {k: means[k] - 20.0 * math.log10(min(s for s, _ in g))
+            for k, g in gains.items()}
+    ref = min(comp.values())
+    return {k: ref - v for k, v in comp.items()}, ""
 
 
 def _bands_to_dicts(bands):
@@ -129,7 +217,11 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
     otherwise each channel is fit separately and ch_keys follows the
     mapping's order. This is what the CLI main() and the measurement
     wizard both call; only the target (flat) is shared, the per-channel
-    curves are not. Returns the profile body (preamp 0.0: the app derives
+    curves are not. When the results carry usable per-take drives and
+    share one cal (see balance_trims), a freq-0 shelf band with the
+    channel's balance trim is prepended -- an ordinary, editable band
+    that PipeWire renders as flat gain, exactly like the preamp.
+    Returns the profile body (preamp 0.0: the app derives
     Safe/Session)."""
     name = name or "Measured %s" % datetime.date.today().isoformat()
     prof = {"name": name, "version": 2, "preamp": 0.0,
@@ -146,13 +238,34 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
     else:
         prof["apply_all"] = False
         prof["ch_keys"] = list(results.keys())
+        fits, means = {}, {}
         for key, result in results.items():
             freq, mag = _curve(result)
-            bnds, fg, _desired, resid = fit_channel(freq, mag, f_lo, f_hi,
-                                                    bands, max_boost)
+            fits[key] = fit_channel(freq, mag, f_lo, f_hi, bands,
+                                    max_boost)
+            _fg, yg = _grid_interp(freq, mag, f_lo, f_hi)
+            means[key] = float(yg.mean())
+        trims, why = balance_trims(results, means)
+        for key, (bnds, fg, _desired, resid) in fits.items():
             if report:
                 _report(key, bnds, fg, resid, f_lo, f_hi)
-            prof["channels"][key] = {"bands": _bands_to_dicts(bnds)}
+                if trims is not None:
+                    print("  balance trim %+.2f dB" % trims[key])
+            bd = _bands_to_dicts(bnds)
+            t = (trims or {}).get(key, 0.0)
+            if abs(t) >= TRIM_MIN_DB:
+                bd.insert(0, {"type": "HSC", "freq": 0.0,
+                              "gain": round(t, 2), "q": 1.0,
+                              "enabled": True})
+            prof["channels"][key] = {"bands": bd}
+        if report:
+            if trims is None:
+                print("\nno balance trim: %s" % why)
+            elif min(trims.values()) <= -TRIM_WARN_DB:
+                print("\nNOTE: a balance trim past %g dB usually means "
+                      "a seating/seal difference between the channels "
+                      "-- reseat and remeasure rather than EQ it away"
+                      % TRIM_WARN_DB)
     return prof
 
 
