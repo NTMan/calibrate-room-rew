@@ -551,15 +551,15 @@ def test_spread_driver_flags_the_outlier_only(shim_state, tmp_path):
     single improvement wins."""
     ses = ms.MeasureSession(make_cfg(tmp_path))
     with ses:
-        f_top = float(np.asarray(ses.freqs)[-1])
         # a pair cannot be judged
         _inject_takes(ses, 0, [0.0, 4.5], lo_hz=15000.0)
         assert ses.spread_driver() is None
-        # the bounce sample: the 4.5 take is the driver
+        # the bounce sample: the 4.5 take is the driver; the win is
+        # the ~0.4 octaves above 15 kHz
         _inject_takes(ses, 0, [0.0, 4.5, 0.2], lo_hz=15000.0)
         drv = ses.spread_driver()
         assert drv is not None and drv[0] == 2
-        assert drv[1] == pytest.approx(f_top)
+        assert 0.3 < drv[1] < 0.6
         # even scatter: no single removal clears the threshold
         _inject_takes(ses, 0, [0.0, 6.0, 12.0], lo_hz=15000.0)
         assert ses.spread_driver() is None
@@ -569,4 +569,30 @@ def test_spread_driver_flags_the_outlier_only(shim_state, tmp_path):
                       base_id=10)
         drv = ses.spread_driver()
         assert drv is not None and drv[0] == 12
-        assert drv[1] == pytest.approx(f_top)
+        assert 0.6 < drv[1] < 0.9
+
+
+def test_driver_judges_bandwidth_not_the_ceiling(shim_state, tmp_path):
+    """The field case: a seal-leak take poisons the bass while the
+    ceiling stays pinned by HF scatter present in EVERY take. A
+    ceiling-only verdict stayed silent; the bandwidth verdict must
+    flag the leak with the octaves it holds hostage."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        f = np.asarray(ses.freqs, float)
+        hf = [0.0, 8.0, 4.0]         # pairwise-red above 16k, all takes
+        leak = [0.0, -8.0, 0.0]      # take 2 alone loses the bass
+        entries = []
+        for k in range(3):
+            m = np.zeros_like(f)
+            m[f >= 16000.0] += hf[k]
+            m[f <= 700.0] += leak[k]
+            entries.append((ms.TakeRecord(k + 1, 0, ses.freqs, m,
+                                          5.0, 50.0, -6.0, 0, 0,
+                                          str(k), chan_vol=0.1,
+                                          soft_vol=0.1), None))
+        ses._takes[0] = entries
+        assert ses.trusted_ceiling_hz() < 16000.0   # pinned by HF
+        drv = ses.spread_driver()
+        assert drv is not None and drv[0] == 2
+        assert drv[1] > 4.0          # ~5 octaves of bass won back

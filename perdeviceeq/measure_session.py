@@ -139,6 +139,8 @@ AUTO_TRUST_FLOOR_PK = -20.0              # trust the room's floor read only
 SPREAD_MAX_DB = 3.0                      # take-to-take spread above this
 #                                          is untrustworthy (red on the
 #                                          strip; the auto EQ ceiling)
+DRIVER_MIN_OCT = 0.25                    # a spread-driver flag must win
+#                                          back at least this much band
 TRUST_CONFIDENCE = 0.68                  # the ceiling judges an upper
 #                                          confidence bound on the spread,
 #                                          not the point estimate: two or
@@ -1371,30 +1373,16 @@ class MeasureSession:
         live fan's width."""
         return self.average_and_spread(channel, exclude_id)[1]
 
-    def trusted_ceiling_hz(self, thresh=SPREAD_MAX_DB, exclude=None):
-        """Highest frequency the take-to-take statistics still trust:
-        scanning DOWN from the top of the grid, the top of the first
-        at-least-1/6-octave run where every measured channel's spread
-        stays under `thresh`. A red island lower in the band does not
-        pull the ceiling (it is visible on the strip and is the left
-        handle's business); the HF cliff does, to its edge exactly.
-        None while no channel has two takes -- no statistics, no
-        opinion.
-
-        The judged quantity is not the point estimate but the upper
-        TRUST_CONFIDENCE bound on the spread, s*sqrt(df/chi2_a(df)):
-        a sample std of three takes must not flip trust back up while
-        an outlier seating sits in the sample (a third take agreeing
-        with the first SHRINKS the point estimate below the threshold
-        and the ceiling would bounce). Under the bound, trust is
-        earned by accumulating agreeing takes -- x2.42 at two takes,
-        x1.61 at three, approaching 1 -- or restored instantly by
-        deleting the outlier, never by dilution. The bars on the
-        strip keep showing the point estimate: they say what
-        happened, the ceiling says what cannot be ruled out, so it
-        may sit below the red. The statistics only mean what the
-        takes vary over: reseat between takes, or the spread flatters
-        the seating."""
+    def _trust_mask(self, thresh, exclude=None):
+        """(freqs, ok) under the confidence bound, or None without
+        statistics. The judged quantity is not the point estimate but
+        the upper TRUST_CONFIDENCE bound on each channel's spread,
+        s*sqrt(df/chi2_a(df)): a sample std of three takes must not
+        flip trust back up while an outlier seating sits in the
+        sample. Trust is earned by accumulating agreeing takes --
+        x2.42 at two, x1.61 at three, approaching 1 -- or restored by
+        deleting the outlier, never by dilution. Shared by the
+        ceiling (the auto EQ handle) and the spread driver."""
         combined = None
         for c, entries in self._takes.items():
             if exclude is not None:
@@ -1411,8 +1399,24 @@ class MeasureSession:
                         else np.maximum(combined, sp))
         if combined is None:
             return None
-        f = np.asarray(self.freqs, float)
-        ok = combined <= thresh
+        return np.asarray(self.freqs, float), combined <= thresh
+
+    def trusted_ceiling_hz(self, thresh=SPREAD_MAX_DB):
+        """Highest frequency the take-to-take statistics still trust:
+        scanning DOWN from the top of the grid, the top of the first
+        at-least-1/6-octave run where the bound (see _trust_mask)
+        stays under `thresh`. A red island lower in the band does not
+        pull the ceiling (it is visible on the strip and is the left
+        handle's business); the HF cliff does, to its edge exactly.
+        None while no channel has two takes. The bars on the strip
+        keep showing the point estimate: they say what happened, the
+        ceiling says what cannot be ruled out, so it may sit below
+        the red. The statistics only mean what the takes vary over:
+        reseat between takes, or the spread flatters the seating."""
+        m = self._trust_mask(thresh)
+        if m is None:
+            return None
+        f, ok = m
         min_ratio = 2.0 ** (1.0 / 6.0)
         i = len(f) - 1
         while i >= 0:
@@ -1427,18 +1431,32 @@ class MeasureSession:
             i = j
         return float(f[0])
 
+    def _trusted_octaves(self, thresh, exclude=None):
+        """Total trustworthy bandwidth in octaves under the bound,
+        with an optional take excluded."""
+        m = self._trust_mask(thresh, exclude)
+        if m is None:
+            return None
+        f, ok = m
+        step = math.log2(f[-1] / f[0]) / max(1, len(f) - 1)
+        return float(ok.sum()) * step
+
     def spread_driver(self, thresh=SPREAD_MAX_DB):
-        """The one accepted take whose removal raises the trusted
-        ceiling the most, as (take_id, ceiling_without_hz), or None.
-        Leave-one-out over channels with at least three takes
-        (removing one of two leaves no statistics at all), judged
-        with the same confidence bound the ceiling uses -- the
-        reduced sample honestly pays the higher factor. A real
-        improvement is required (1/12 octave past the current
-        ceiling): when the scatter is spread evenly over the takes,
-        deleting any one of them fixes nothing and nothing is
-        flagged."""
-        base = self.trusted_ceiling_hz(thresh)
+        """The one accepted take whose removal wins back the most
+        trustworthy BANDWIDTH, as (take_id, octaves_regained), or
+        None. Judged over the whole band, not the ceiling: a
+        seal-leak take poisons the bass while the ceiling stays
+        pinned by an HF region red in every take, and a ceiling-only
+        verdict stays silent about it (observed in the field within
+        a day of shipping it). Leave-one-out over channels with at
+        least three takes (removing one of two leaves no statistics
+        at all), the reduced sample honestly paying the higher
+        confidence factor. A real improvement is required
+        (DRIVER_MIN_OCT): when the scatter is spread evenly over the
+        takes, deleting any one of them fixes nothing and nothing is
+        flagged -- a highlight that cannot deliver on its promise
+        would be a lie."""
+        base = self._trusted_octaves(thresh)
         if base is None:
             return None
         best = None
@@ -1446,13 +1464,14 @@ class MeasureSession:
             if len(entries) < 3:
                 continue
             for rec, _ in entries:
-                ceil = self.trusted_ceiling_hz(thresh,
-                                               exclude=rec.id)
-                if (ceil is None
-                        or ceil <= base * 2.0 ** (1.0 / 12.0)):
+                oc = self._trusted_octaves(thresh, exclude=rec.id)
+                if oc is None:
                     continue
-                if best is None or ceil > best[1]:
-                    best = (rec.id, ceil)
+                gain = oc - base
+                if gain < DRIVER_MIN_OCT:
+                    continue
+                if best is None or gain > best[1]:
+                    best = (rec.id, gain)
         return best
 
     def discard(self, channel, take_id):

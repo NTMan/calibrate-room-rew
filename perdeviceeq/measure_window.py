@@ -351,9 +351,9 @@ class MeasureWindow(Adw.Window):
         lbl.add_css_class("warning" if drives else "dim-label")
         if drives:
             lbl.set_tooltip_text(
-                "This take drives the spread: without it the trusted "
-                "EQ ceiling rises to %.1f kHz. Reseat and remeasure."
-                % (driver[1] / 1000.0))
+                "This take drives the spread: deleting it wins back "
+                "%.1f octaves of trustworthy band. Reseat and "
+                "remeasure." % driver[1])
         head.append(lbl)
         rm = Gtk.Button()
         rm.add_css_class("flat")
