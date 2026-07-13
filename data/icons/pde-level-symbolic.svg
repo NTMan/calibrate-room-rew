@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+     viewBox="0 0 16 16">
+  <!-- a ruler: measure the playback level (CC0, drawn for this app;
+       the icon-library ruler was unreachable at build time) -->
+  <path fill="#2e3436" d="M2.5 4C1.67 4 1 4.67 1 5.5v5c0 .83.67 1.5
+    1.5 1.5h11c.83 0 1.5-.67 1.5-1.5v-5C15 4.67 14.33 4 13.5 4Zm0
+    1.5h1V8h1V5.5h1.5V7h1V5.5H8.5V8h1V5.5H11V7h1V5.5h1.5v5h-11Z"/>
+</svg>

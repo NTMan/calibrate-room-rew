@@ -140,6 +140,14 @@ class MeasureWindow(Adw.Window):
         self._hi_auto = True
         self._lo_auto = True
         self._spread_driver = None      # LOO verdict, set on refresh
+        try:                       # bundled action icons: needed when
+            theme = Gtk.IconTheme.get_for_display(  # run from git; the
+                Gdk.Display.get_default())          # RPM installs them
+            theme.add_search_path(os.path.join(     # into hicolor
+                os.path.dirname(os.path.dirname(
+                    os.path.abspath(__file__))), "data", "icons"))
+        except Exception:
+            pass
         self._page = None            # selected channel's page widgets
         self._selected_ch = 0        # channel the ring has selected
         self._speakers = {}         # ch index -> Gtk.Button
@@ -258,11 +266,7 @@ class MeasureWindow(Adw.Window):
         self.vol_gone.set_halign(Gtk.Align.CENTER)
         self.vol_gone.set_visible(False)
         center_box.append(self.vol_gone)
-        self.vol_src = Gtk.Label()
-        self.vol_src.add_css_class("dim-label")
-        self.vol_src.add_css_class("caption")
-        self.vol_src.set_halign(Gtk.Align.CENTER)
-        center_box.append(self.vol_src)
+
         pult = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         pult.set_halign(Gtk.Align.CENTER)
         self.play_btn = self._pult_btn(
@@ -272,8 +276,8 @@ class MeasureWindow(Adw.Window):
             "media-playback-stop-symbolic", "Stop the sweep", self._on_stop)
         self.stop_btn.set_sensitive(False)
         self.relevel_btn = self._pult_btn(
-            "view-refresh-symbolic",
-            "Re-measure the playback level (auto-level the next sweep)",
+            "pde-level-symbolic",
+            "Measure the playback level now (probe sweeps only)",
             self._on_relevel)
         pult.append(self.play_btn)
         pult.append(self.stop_btn)
@@ -617,36 +621,28 @@ class MeasureWindow(Adw.Window):
         self._refresh_volume()
 
     def _refresh_volume(self):
-        """The spin shows the sweep level; the caption under it says
-        where that number came from, so it is never a mystery. Before
-        a session, a pending relevel keeps whatever the spin shows --
-        replacing it with the sink's LISTENING volume (the old
-        fallback) invented a number nobody asked for."""
+        """The spin always shows the last established sweep level --
+        the session's current, the remembered one, or the level the
+        hunt will start from. Never the sink's LISTENING volume: that
+        fallback once invented a number nobody asked for."""
         if self.session is not None:
             v = getattr(self.session, "_v_cur", None)
-            source = getattr(self.session, "level_source", None)
         else:
             src = self._source_name()
             v = (self.memory.volume_for(self.sink_node, src)
                  if src else None)
-            if self._relevel_pending:
-                source = "pending"
-                v = None                    # keep the spin as it is
-            elif v is not None:
-                source = "remembered"
-            else:
-                source = "pending"          # a fresh sink auto-levels
-                v = self._query_volume()
+            if v is None:
+                v = ms.AUTO_START_VOLUME
         if v is not None:
             self._set_volume_display(v)
-        self.vol_src.set_text({
-            "remembered": "remembered level",
-            "pending": "auto-level on the next sweep",
-            "auto": "auto-leveled",
-            "manual": "set by hand",
-        }.get(source, ""))
 
     def _on_relevel(self, _btn):
+        """Measure the level here and now: forget the remembered
+        value, re-arm the leveling and run probe sweeps immediately on
+        the selected channel. The spin follows the hunt live and ends
+        at the found level -- the number is always the last one
+        established, no captions needed. The locking sweep is
+        discarded (this button measures the LEVEL, not a take)."""
         if self._busy:
             return
         src = self._source_name()
@@ -659,6 +655,7 @@ class MeasureWindow(Adw.Window):
                 pass
         self._relevel_pending = True
         self._refresh_all()
+        self._start_measure(self._selected_ch, level_only=True)
 
     def _clean_count(self, ch):
         if self.session is None:
@@ -1027,10 +1024,15 @@ class MeasureWindow(Adw.Window):
                 col.append(Gtk.Label(label=self.ch_keys[k]))
                 dd = Gtk.DropDown.new_from_strings(["L", "R"])
                 dd.set_selected(self.mic_of.get(k, k))
-                dd.set_tooltip_text("Which rig channel captures %s"
+                dd.set_tooltip_text("Which mic capsule captures %s"
                                     % self.ch_keys[k])
                 dd.connect("notify::selected", self._make_map_cb(k))
-                col.append(dd)
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                              spacing=4)
+                row.append(Gtk.Image.new_from_icon_name(
+                    "audio-input-microphone-symbolic"))
+                row.append(dd)
+                col.append(row)
                 slot.append(col)
                 self.map_dds[k] = dd
 
@@ -1127,19 +1129,24 @@ class MeasureWindow(Adw.Window):
             return False
         return True
 
-    def _start_measure(self, ch):
+    def _start_measure(self, ch, level_only=False):
         if self._busy:
             return
         if not self._loud_ack:
-            self._confirm_loud(lambda: self._start_measure(ch))
+            self._confirm_loud(
+                lambda: self._start_measure(ch, level_only))
             return
         if not self._ensure_session():
             return
+        self._level_only = level_only
         self._busy = True
         self._set_ring_sensitive(False)
         self.create_btn.set_sensitive(False)
         self._update_pult()
-        self.center.set_text("Measuring %s\u2026" % self.ch_keys[ch])
+        self.center.set_text(
+            "Measuring the level on %s\u2026" % self.ch_keys[ch]
+            if level_only else
+            "Measuring %s\u2026" % self.ch_keys[ch])
         t = threading.Thread(target=self._measure_worker, args=(ch,),
                              daemon=True)
         t.start()
@@ -1181,6 +1188,15 @@ class MeasureWindow(Adw.Window):
                            round(100 * lv.get("volume", 0)),
                            lv.get("peak_dbfs", float("nan"))))
                     out = self.session.accept_level()
+                if getattr(self, "_level_only", False) \
+                        and out.kind == "take" and out.take is not None:
+                    # this button measures the LEVEL; the locking
+                    # sweep is evidence, not a take
+                    self.session.discard(ch, out.take.id)
+                    self._post_status(
+                        "%s: level %d%% (probe sweeps only)"
+                        % (self.ch_keys[ch],
+                           round(100 * (self.session._v_cur or 0))))
                 result["outcome"] = out
                 break
         except Exception as e:
