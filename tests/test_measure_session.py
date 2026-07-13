@@ -508,14 +508,15 @@ def test_trusted_ceiling_follows_the_statistics(shim_state, tmp_path):
         assert 8000.0 <= c <= 9000.0
 
 
-def _inject_takes(ses, ch, deltas, lo_hz):
+def _inject_takes(ses, ch, deltas, lo_hz, base_id=0):
     """Takes at one gain: curve k is flat plus deltas[k] above lo_hz."""
     f = np.asarray(ses.freqs, float)
     entries = []
     for k, d in enumerate(deltas):
         m = np.zeros_like(f)
         m[f >= lo_hz] += d
-        entries.append((ms.TakeRecord(k + 1, ch, ses.freqs, m, 5.0,
+        entries.append((ms.TakeRecord(base_id + k + 1, ch, ses.freqs,
+                                      m, 5.0,
                                       50.0, -6.0, 0, 0, str(k),
                                       chan_vol=0.1, soft_vol=0.1),
                         None))
@@ -541,3 +542,31 @@ def test_trust_is_earned_not_diluted(shim_state, tmp_path):
         # deleting the outlier restores trust immediately
         _inject_takes(ses, 0, [0.0, 0.2], lo_hz=15000.0)
         assert ses.trusted_ceiling_hz() == pytest.approx(f_top)
+
+
+def test_spread_driver_flags_the_outlier_only(shim_state, tmp_path):
+    """LOO: the take whose removal raises the ceiling gets flagged;
+    evenly spread scatter flags nothing (deleting any one take fixes
+    nothing); two takes are never judged; across channels the best
+    single improvement wins."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        f_top = float(np.asarray(ses.freqs)[-1])
+        # a pair cannot be judged
+        _inject_takes(ses, 0, [0.0, 4.5], lo_hz=15000.0)
+        assert ses.spread_driver() is None
+        # the bounce sample: the 4.5 take is the driver
+        _inject_takes(ses, 0, [0.0, 4.5, 0.2], lo_hz=15000.0)
+        drv = ses.spread_driver()
+        assert drv is not None and drv[0] == 2
+        assert drv[1] == pytest.approx(f_top)
+        # even scatter: no single removal clears the threshold
+        _inject_takes(ses, 0, [0.0, 6.0, 12.0], lo_hz=15000.0)
+        assert ses.spread_driver() is None
+        # two channels: the outlier is found in the right one
+        _inject_takes(ses, 0, [0.0, 0.05, 0.1], lo_hz=15000.0)
+        _inject_takes(ses, 1, [0.0, 4.5, 0.2], lo_hz=12000.0,
+                      base_id=10)
+        drv = ses.spread_driver()
+        assert drv is not None and drv[0] == 12
+        assert drv[1] == pytest.approx(f_top)

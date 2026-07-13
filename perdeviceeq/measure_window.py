@@ -138,6 +138,7 @@ class MeasureWindow(Adw.Window):
         self.fit_lo, self.fit_hi = FIT_FLO, FMAX_PLOT
         # the right handle follows the statistics until dragged
         self._hi_auto = True
+        self._spread_driver = None      # LOO verdict, set on refresh
         self._page = None            # selected channel's page widgets
         self._selected_ch = 0        # channel the ring has selected
         self._speakers = {}         # ch index -> Gtk.Button
@@ -322,7 +323,7 @@ class MeasureWindow(Adw.Window):
             cr.stroke()
         return draw
 
-    def _make_take_row(self, ch, rec, lo, hi):
+    def _make_take_row(self, ch, rec, lo, hi, driver=None):
         q = ms.take_quality(rec)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         body.set_margin_top(6)
@@ -343,8 +344,16 @@ class MeasureWindow(Adw.Window):
             info = "%s  %.1f dBFS" % (snr, rec.peak_dbfs)
             if rec.noise_dbfs is not None:
                 info += "  noise %.0f" % rec.noise_dbfs
+        drives = driver is not None and driver[0] == rec.id
+        if drives:
+            info += "  ·  spread driver"
         lbl = Gtk.Label(label=info, xalign=0.0, hexpand=True)
-        lbl.add_css_class("dim-label")
+        lbl.add_css_class("warning" if drives else "dim-label")
+        if drives:
+            lbl.set_tooltip_text(
+                "This take drives the spread: without it the trusted "
+                "EQ ceiling rises to %.1f kHz. Reseat and remeasure."
+                % (driver[1] / 1000.0))
         head.append(lbl)
         rm = Gtk.Button()
         rm.add_css_class("flat")
@@ -635,6 +644,8 @@ class MeasureWindow(Adw.Window):
                     lbl.remove_css_class(cls)
                 if status:
                     lbl.add_css_class(status)
+        self._spread_driver = (self.session.spread_driver()
+                               if self.session else None)
         self._rebuild_page()
         self._update_pult()
         self.create_btn.set_sensitive(ready and not self._busy)
@@ -686,7 +697,8 @@ class MeasureWindow(Adw.Window):
         else:
             lo, hi = -1.0, 1.0
         for rec in takes:
-            row = self._make_take_row(ch, rec, lo, hi)
+            row = self._make_take_row(ch, rec, lo, hi,
+                                      driver=self._spread_driver)
             exp.add_row(row)
             self._page["take_rows"].append(row)
         exp.set_title("Takes (%d)" % len(takes) if takes else "Takes")

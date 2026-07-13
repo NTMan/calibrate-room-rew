@@ -1344,7 +1344,7 @@ class MeasureSession:
             return None
         return [20.0 * math.log10(k) for k in f]
 
-    def average_and_spread(self, channel):
+    def average_and_spread(self, channel, exclude_id=None):
         """Mean curve + take-to-take spread of the channel's accepted
         takes, with recorded level moves compensated: each curve is
         shifted down by its take's known software-gain excess over the
@@ -1354,7 +1354,8 @@ class MeasureSession:
         finalize applies to the samples, so the live fan shows what the
         result will average. (None, None) without takes; spread is None
         until there are two."""
-        entries = self._takes.get(channel, [])
+        entries = [e for e in self._takes.get(channel, [])
+                   if exclude_id is None or e[0].id != exclude_id]
         if not entries:
             return None, None
         mags = [rec.mag_db for rec, _ in entries]
@@ -1364,13 +1365,13 @@ class MeasureSession:
                     for m, k in zip(mags, factors)]
         return mc.average_takes(mags)
 
-    def spread_db(self, channel):
+    def spread_db(self, channel, exclude_id=None):
         """Per-frequency std (ddof=1) across the channel's accepted
         takes, level moves compensated; None until there are two. The
         live fan's width."""
-        return self.average_and_spread(channel)[1]
+        return self.average_and_spread(channel, exclude_id)[1]
 
-    def trusted_ceiling_hz(self, thresh=SPREAD_MAX_DB):
+    def trusted_ceiling_hz(self, thresh=SPREAD_MAX_DB, exclude=None):
         """Highest frequency the take-to-take statistics still trust:
         scanning DOWN from the top of the grid, the top of the first
         at-least-1/6-octave run where every measured channel's spread
@@ -1395,11 +1396,15 @@ class MeasureSession:
         takes vary over: reseat between takes, or the spread flatters
         the seating."""
         combined = None
-        for c in self._takes:
-            sp = self.spread_db(c)
+        for c, entries in self._takes.items():
+            if exclude is not None:
+                entries = [e for e in entries if e[0].id != exclude]
+            if len(entries) < 2:
+                continue
+            sp = self.spread_db(c, exclude_id=exclude)
             if sp is None:
                 continue
-            df = len(self.takes_of(c)) - 1
+            df = len(entries) - 1
             k = math.sqrt(df / chi2.ppf(1.0 - TRUST_CONFIDENCE, df))
             sp = np.asarray(sp, float) * k
             combined = (sp if combined is None
@@ -1421,6 +1426,34 @@ class MeasureSession:
                 return float(f[i])
             i = j
         return float(f[0])
+
+    def spread_driver(self, thresh=SPREAD_MAX_DB):
+        """The one accepted take whose removal raises the trusted
+        ceiling the most, as (take_id, ceiling_without_hz), or None.
+        Leave-one-out over channels with at least three takes
+        (removing one of two leaves no statistics at all), judged
+        with the same confidence bound the ceiling uses -- the
+        reduced sample honestly pays the higher factor. A real
+        improvement is required (1/12 octave past the current
+        ceiling): when the scatter is spread evenly over the takes,
+        deleting any one of them fixes nothing and nothing is
+        flagged."""
+        base = self.trusted_ceiling_hz(thresh)
+        if base is None:
+            return None
+        best = None
+        for c, entries in self._takes.items():
+            if len(entries) < 3:
+                continue
+            for rec, _ in entries:
+                ceil = self.trusted_ceiling_hz(thresh,
+                                               exclude=rec.id)
+                if (ceil is None
+                        or ceil <= base * 2.0 ** (1.0 / 12.0)):
+                    continue
+                if best is None or ceil > best[1]:
+                    best = (rec.id, ceil)
+        return best
 
     def discard(self, channel, take_id):
         """Drop a bad take from the accumulation. The wav stays on disk
