@@ -224,3 +224,20 @@ def test_prune_can_drop_the_last_band_on_a_flat_target():
     out = fit_peq._prune([("PK", 500.0, 0.3, 1.0)], fg, target,
                          20.0, 20000.0, 6.0)
     assert out == []
+
+
+def test_prune_does_not_touch_bands_out_of_the_drops_reach():
+    """The locality contract: dropping a band may reshape only the
+    bands its response reaches; everything else must come out
+    IDENTICAL, not merely equivalent. A globally re-refined survivor
+    set was observed to rebuild distant bands into a fresh cancelling
+    stack while absorbing unrelated drops."""
+    fg = np.logspace(np.log10(20), np.log10(20000), 400)
+    real_lo = ("PK", 1000.0, -6.0, 1.0)
+    real_hi = ("HSC", 6000.0, 4.0, 1.0)
+    target = fit_peq._response([real_lo, real_hi], fg)
+    junk = ("PK", 100.0, 0.2, 1.0)
+    out = fit_peq._prune([real_lo, junk, real_hi], fg, target,
+                         20.0, 20000.0, 6.0)
+    assert junk not in out
+    assert real_lo in out and real_hi in out

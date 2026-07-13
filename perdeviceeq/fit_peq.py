@@ -42,6 +42,8 @@ from .config import FS
 RESID_TARGET_DB = 0.5
 GRID = 400
 PRUNE_EPS_DB = 0.25         # pruning may cost at most this much, anywhere
+PRUNE_OVERLAP_DB = 0.25     # a drop frees only bands it reaches this far
+PRUNE_SPAN_OCT = 0.5        # a trial may retune a freed band this far
 TRIM_MIN_DB = 0.05          # below this a trim is measurement noise
 TRIM_WARN_DB = 3.0          # past this it smells like a seating problem
 
@@ -71,13 +73,24 @@ def _response(bands, freqs):
     return out
 
 
-def _refine(bands, fg, desired, flo, fhi, max_boost):
+def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None):
+    """Joint least-squares of every band against `desired`. With
+    span_oct each band's frequency is leashed to that many octaves
+    around its start (the prune's trials must reshape, not relocate);
+    without it the frequency roams the whole fit range as before."""
     types = [b[0] for b in bands]
     x0, lo, hi = [], [], []
     for _, f, g, q in bands:
-        x0 += [np.log10(f), g, q]
-        lo += [np.log10(flo), -24.0, 0.3]
-        hi += [np.log10(fhi), max_boost, 8.0]
+        lf = np.log10(f)
+        if span_oct is None:
+            f_lo, f_hi = np.log10(flo), np.log10(fhi)
+        else:
+            s = span_oct * np.log10(2.0)
+            f_lo = max(np.log10(flo), lf - s)
+            f_hi = min(np.log10(fhi), lf + s)
+        x0 += [min(max(lf, f_lo), f_hi), g, q]
+        lo += [f_lo, -24.0, 0.3]
+        hi += [f_hi, max_boost, 8.0]
 
     def resfun(x):
         bl = [(types[i], 10 ** x[3 * i], x[3 * i + 1], x[3 * i + 2])
@@ -92,19 +105,32 @@ def _refine(bands, fg, desired, flo, fhi, max_boost):
 
 
 def _prune(bands, fg, target, flo, fhi, max_boost):
-    """Drop bands whose work the remaining ones absorb.
+    """Drop bands whose work their NEIGHBOURS absorb.
 
     The greedy placement is order-dependent and the joint refine only
     polishes the topology it is given, so a fit can converge on
     cancelling stacks (a -18 dB cut lifted back by a +6 shelf, or five
     sub-bass shelves netting +2 dB) that waste band budget and defeat
-    hand editing. Try removing each band in turn, re-refine the rest,
-    and keep the removal when the residual against the (capped) target
-    stays, at every grid point, within the ORIGINAL fit's local
-    residual or the fit's own floor, plus PRUNE_EPS_DB -- anchored to
-    the original so successive drops cannot ratchet the error upward.
-    A genuinely working band fails the pointwise test at its own
-    frequency and stays."""
+    hand editing. Try removing each band in turn, re-refine, and keep
+    the removal when the residual against the (capped) target stays,
+    at every grid point, within the ORIGINAL fit's local residual or
+    the fit's own floor, plus PRUNE_EPS_DB -- anchored to the original
+    so successive drops cannot ratchet the error upward. A genuinely
+    working band fails the pointwise test at its own frequency and
+    stays.
+
+    The trial refine is local twice over, and both leashes exist
+    because their absence was observed to do damage: a globally
+    re-refined survivor set once walked distant bands across a
+    residual-flat valley INTO a fresh cancelling stack while absorbing
+    unrelated sub-bass drops. Only the bands whose centers the dropped
+    band actually reaches (>= PRUNE_OVERLAP_DB) are refined, the rest
+    are frozen and folded into the target as a constant; and a freed
+    band's frequency may move at most PRUNE_SPAN_OCT octaves from its
+    start -- absorbing a neighbour is reshaping, not relocation. A
+    directly dropped stack member still dissolves (its partner is
+    inside the overlap set); an unrelated drop can no longer rebuild
+    the other end of the spectrum."""
     if not bands:
         return bands
     resid0 = np.abs(target - _response(bands, fg))
@@ -113,12 +139,22 @@ def _prune(bands, fg, target, flo, fhi, max_boost):
     while changed and bands:
         changed = False
         for i in range(len(bands)):
-            trial = bands[:i] + bands[i + 1:]
-            if trial:
-                trial = _refine(trial, fg, target, flo, fhi, max_boost)
-                r = np.abs(target - _response(trial, fg))
+            dresp = _mag_db_vec(*bands[i], fg)
+            rest = bands[:i] + bands[i + 1:]
+            free, frozen = [], []
+            for b in rest:
+                k = int(np.argmin(np.abs(fg - b[1])))
+                (free if abs(dresp[k]) >= PRUNE_OVERLAP_DB
+                 else frozen).append(b)
+            if free:
+                base = _response(frozen, fg)
+                trial = frozen + _refine(free, fg, target - base,
+                                         flo, fhi, max_boost,
+                                         span_oct=PRUNE_SPAN_OCT)
             else:
-                r = np.abs(target)
+                trial = rest
+            r = (np.abs(target - _response(trial, fg))
+                 if trial else np.abs(target))
             if bool(np.all(r <= allow)):
                 bands = trial
                 changed = True
