@@ -637,3 +637,51 @@ def test_level_source_provenance(shim_state, tmp_path):
                                       start_volume=0.6))
     with ses2:
         assert ses2.level_source == "remembered"
+
+
+def test_mirror_key_pairs():
+    assert ms.mirror_key("FL") == "FR"
+    assert ms.mirror_key("SR") == "SL"
+    assert ms.mirror_key("RL") == "RR"
+    assert ms.mirror_key("FC") is None
+    assert ms.mirror_key("LFE") is None
+    assert ms.mirror_key("MONO") is None
+
+
+def test_drive_shift_mirrors_the_trim_gate(shim_state, tmp_path):
+    """The ghost's level accounting must follow balance_trims: exact
+    on software volume, zero on one shared hardware volume, refused
+    when the difference is unknowable."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        f = np.asarray(ses.freqs, float)
+
+        def put(ch, soft, chan, base_id):
+            m = np.zeros_like(f)
+            ses._takes[ch] = [
+                (ms.TakeRecord(base_id + i, ch, ses.freqs, m, 5.0,
+                               50.0, -6.0, 0, 0, str(i),
+                               chan_vol=chan[i], soft_vol=soft[i]),
+                 None) for i in range(len(soft))]
+
+        # software volume, different drives: exact dB
+        put(0, [0.064, 0.064], [0.064, 0.064], 1)
+        put(1, [0.0689, 0.0689], [0.0689, 0.0689], 10)
+        d = ses.drive_shift_db(1, 0)
+        assert d == pytest.approx(20 * np.log10(0.064 / 0.0689),
+                                  abs=1e-6)
+        # one shared hardware volume: the law cancels, shift is zero
+        put(0, [1.0, 1.0], [0.216, 0.216], 1)
+        put(1, [1.0, 1.0], [0.216, 0.216], 10)
+        assert ses.drive_shift_db(1, 0) == pytest.approx(0.0)
+        # hardware volume at different positions: unknowable
+        put(0, [1.0, 1.0], [0.216, 0.216], 1)
+        put(1, [1.0, 1.0], [0.064, 0.064], 10)
+        assert ses.drive_shift_db(1, 0) is None
+        # a take without recorded gains disables the ghost
+        put(0, [None, 0.064], [0.064, 0.064], 1)
+        put(1, [0.064, 0.064], [0.064, 0.064], 10)
+        assert ses.drive_shift_db(1, 0) is None
+        # an unmeasured partner has nothing to show
+        ses._takes.pop(1)
+        assert ses.drive_shift_db(1, 0) is None

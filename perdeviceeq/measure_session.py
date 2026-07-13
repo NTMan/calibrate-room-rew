@@ -497,6 +497,20 @@ def gain_comp_factors(gains):
     return [ref / g for g in vals]
 
 
+def mirror_key(key):
+    """The L<->R mirror partner of a speaker key ("FL"->"FR",
+    "SL"->"SR", "RL"->"RR"), or None when the channel has no
+    symmetric partner (FC, LFE, MONO): the ghost overlay compares a
+    PAIR's symmetry, and a center or a sub has no symmetric
+    reference -- comparing a speaker against "the others" in a room
+    compares POSITIONS and their modes, not devices."""
+    if key.endswith("L"):
+        return key[:-1] + "R"
+    if key.endswith("R"):
+        return key[:-1] + "L"
+    return None
+
+
 def _clamp_vol(v):
     return max(0.02, min(1.0, v))
 
@@ -1476,6 +1490,45 @@ class MeasureSession:
         f, ok = m
         step = math.log2(f[-1] / f[0]) / max(1, len(f) - 1)
         return float(ok.sum()) * step
+
+    def drive_shift_db(self, src, dst):
+        """dB to add to `src`'s compensated mean to place it at
+        `dst`'s drive -- the display-side twin of balance_trims'
+        accounting, so an on-screen offset between two channels is
+        the TRUE acoustic difference, not a trace of different sweep
+        levels. 0.0 when both were driven identically; None when a
+        difference exists but cannot be known, mirroring the trim's
+        validity gate: every take's gains must be usable, and either
+        the volume was applied in software (softVolumes track
+        channelVolumes) or every take of both channels sat at one
+        identical volume, which cancels an unknown hardware law."""
+        pairs = []
+        for c in (src, dst):
+            entries = self._takes.get(c, [])
+            if not entries:
+                return None
+            for rec, _ in entries:
+                sv, cv = rec.soft_vol, rec.chan_vol
+                try:
+                    sv, cv = float(sv), float(cv)
+                except (TypeError, ValueError):
+                    return None
+                if not (math.isfinite(sv) and math.isfinite(cv)) \
+                        or sv <= 0 or cv <= 0:
+                    return None
+                pairs.append((sv, cv))
+        software = all(math.isclose(sv, cv, rel_tol=1e-3,
+                                    abs_tol=1e-6)
+                       for sv, cv in pairs)
+        one_vol = all(math.isclose(cv, pairs[0][1], rel_tol=1e-3,
+                                   abs_tol=1e-6) for _, cv in pairs)
+        if not (software or one_vol):
+            return None
+        gm = {}
+        for c in (src, dst):
+            softs = [rec.soft_vol for rec, _ in self._takes[c]]
+            gm[c] = 20.0 * math.log10(min(softs))
+        return gm[dst] - gm[src]
 
     def spread_driver(self, thresh=SPREAD_MAX_DB):
         """The one accepted take whose removal wins back the most
