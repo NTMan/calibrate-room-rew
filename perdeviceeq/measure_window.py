@@ -47,6 +47,17 @@ FIT_FLO = 20.0
 FMIN_PLOT, FMAX_PLOT = 20.0, 20000.0
 
 
+SPEAKER_NAMES = {
+    "FL": "Front Left", "FR": "Front Right", "FC": "Front Center",
+    "LFE": "Subwoofer", "RL": "Rear Left", "RR": "Rear Right",
+    "SL": "Side Left", "SR": "Side Right",
+}
+
+
+def _speaker_name(key):
+    return SPEAKER_NAMES.get(key, key)
+
+
 def _log_x(freq, x0, w):
     """x pixel for a frequency on a log axis spanning FMIN..FMAX_PLOT."""
     lo, hi = math.log10(FMIN_PLOT), math.log10(FMAX_PLOT)
@@ -244,7 +255,7 @@ class MeasureWindow(Adw.Window):
             body.append(count)
             spk.set_child(body)
             spk.connect("clicked", self._make_speaker_cb(i))
-            spk.set_tooltip_text("Select %s" % key)
+            spk.set_tooltip_text(_speaker_name(key))
             self.ring.put(spk, int(x), int(y))
             self._speakers[i] = spk
             self._speaker_counts[i] = count
@@ -314,7 +325,12 @@ class MeasureWindow(Adw.Window):
                       "expander": exp, "take_rows": []}
         return col
 
-    def _make_curve_draw(self, rec, lo, hi):
+    def _make_curve_draw(self, rec, lo, hi, mean=None, shift=0.0):
+        """The take's raw curve; where the (gain-compensated) take
+        strays from the channel mean past the trust threshold the
+        segment is painted red -- a lone bad take lights up alone, a
+        collective scatter lights the same region on EVERY row, and
+        "which take shrank the range" reads off the list."""
         freqs = rec.freq_hz
         mag = rec.mag_db
 
@@ -323,17 +339,39 @@ class MeasureWindow(Adw.Window):
             cr.rectangle(0, 0, w, h)
             cr.fill()
             span = max(1e-6, hi - lo)
+
+            def xy(j):
+                x = _log_x(freqs[j], 2, w - 4)
+                y = h - 3 - (float(mag[j]) - lo) / span * (h - 6)
+                return x, max(1, min(h - 1, y))
+
             cr.set_source_rgb(0.22, 0.52, 0.90)
             cr.set_line_width(1.4)
             for j in range(len(freqs)):
-                x = _log_x(freqs[j], 2, w - 4)
-                y = h - 3 - (float(mag[j]) - lo) / span * (h - 6)
-                y = max(1, min(h - 1, y))
+                x, y = xy(j)
                 cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
             cr.stroke()
+            if mean is None:
+                return
+            cr.set_source_rgb(0.87, 0.23, 0.23)
+            cr.set_line_width(1.8)
+            pen = False
+            for j in range(len(freqs)):
+                bad = abs(float(mag[j]) + shift
+                          - float(mean[j])) > ms.SPREAD_MAX_DB
+                if bad:
+                    x, y = xy(j)
+                    cr.move_to(x, y) if not pen else cr.line_to(x, y)
+                    pen = True
+                elif pen:
+                    cr.stroke()
+                    pen = False
+            if pen:
+                cr.stroke()
         return draw
 
-    def _make_take_row(self, ch, rec, lo, hi, driver=None):
+    def _make_take_row(self, ch, rec, lo, hi, driver=None,
+                       mean=None, shift=0.0):
         q = ms.take_quality(rec)
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         body.set_margin_top(6)
@@ -376,7 +414,8 @@ class MeasureWindow(Adw.Window):
         curve = Gtk.DrawingArea()
         curve.set_content_width(150)
         curve.set_content_height(60)
-        curve.set_draw_func(self._make_curve_draw(rec, lo, hi))
+        curve.set_draw_func(
+            self._make_curve_draw(rec, lo, hi, mean, shift))
         body.append(curve)
 
         # wrap in an explicit row: add_row auto-wraps a bare widget in a
@@ -737,9 +776,17 @@ class MeasureWindow(Adw.Window):
             hi = max(float(max(r.mag_db)) for r in takes) + 1.0
         else:
             lo, hi = -1.0, 1.0
+        mean, shifts = None, {}
+        if self.session is not None and takes:
+            mean, _sp = self.session.average_and_spread(ch)
+            sh = self.session.comp_shift_db(ch)
+            if sh is not None:
+                shifts = {r.id: s for r, s in zip(takes, sh)}
         for rec in takes:
             row = self._make_take_row(ch, rec, lo, hi,
-                                      driver=self._spread_driver)
+                                      driver=self._spread_driver,
+                                      mean=mean,
+                                      shift=shifts.get(rec.id, 0.0))
             exp.add_row(row)
             self._page["take_rows"].append(row)
         exp.set_title("Takes (%d)" % len(takes) if takes else "Takes")
@@ -1021,17 +1068,21 @@ class MeasureWindow(Adw.Window):
                             (1, self.map_right_slot)):
                 col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                               spacing=2)
-                col.append(Gtk.Label(label=self.ch_keys[k]))
                 dd = Gtk.DropDown.new_from_strings(["L", "R"])
                 dd.set_selected(self.mic_of.get(k, k))
                 dd.set_tooltip_text("Which mic capsule captures %s"
-                                    % self.ch_keys[k])
+                                    % _speaker_name(self.ch_keys[k]))
                 dd.connect("notify::selected", self._make_map_cb(k))
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
                               spacing=4)
-                row.append(Gtk.Image.new_from_icon_name(
-                    "audio-input-microphone-symbolic"))
-                row.append(dd)
+                icon = Gtk.Image.new_from_icon_name(
+                    "audio-input-microphone-symbolic")
+                if k == 0:                  # mirror: icons outside
+                    row.append(icon)
+                    row.append(dd)
+                else:
+                    row.append(dd)
+                    row.append(icon)
                 col.append(row)
                 slot.append(col)
                 self.map_dds[k] = dd
