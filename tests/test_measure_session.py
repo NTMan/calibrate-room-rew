@@ -331,3 +331,71 @@ def test_cancel_flag_is_cleared_at_each_take(shim_state, tmp_path):
         out = ses.take(0)                     # must still play and capture
         assert out.kind == "take"
         assert [r.id for r in ses.takes_of(0)] == [1]
+
+# --- level moves between takes: recorded, compensated, reported ------------
+
+def test_gain_comp_factors_policy():
+    """Align onto the quietest gain, downward only; any unknown or
+    unusable gain disables the whole set (no guessing)."""
+    f = ms.gain_comp_factors([0.5, 1.0, 0.25])
+    assert f == [pytest.approx(0.5), pytest.approx(0.25), 1.0]
+    assert ms.gain_comp_factors([0.3, 0.3]) == [1.0, 1.0]
+    assert ms.gain_comp_factors([]) is None
+    assert ms.gain_comp_factors([0.5, None]) is None
+    assert ms.gain_comp_factors([0.5, 0.0]) is None
+    assert ms.gain_comp_factors([0.5, -1.0]) is None
+    assert ms.gain_comp_factors([0.5, float("nan")]) is None
+
+
+def test_sink_applied_volumes_reads_props():
+    dump = [{"id": 7, "type": "PipeWire:Interface:Node",
+             "info": {"props": {"media.class": "Audio/Sink"},
+                      "params": {"Props": [
+                          {"mute": False,
+                           "channelVolumes": [0.064, 0.064],
+                           "softVolumes": [1.0, 1.0]}]}}}]
+    cv, sv = ms.sink_applied_volumes(dump, 7)
+    assert cv == [0.064, 0.064]
+    assert sv == [1.0, 1.0]                   # hardware-volume shape
+    assert ms.sink_applied_volumes(dump, 8) == ([], [])
+
+
+def test_level_move_between_takes_is_compensated(shim_state, tmp_path):
+    """The stop-crane between takes of one channel used to smear the
+    mean and widen the corridor by pure bookkeeping; with the applied
+    gains recorded per take, the known move is removed exactly and the
+    result sits at the quietest take's level, saying so in `levels`."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        out1 = ses.take(0)
+        assert out1.take.chan_vol == pytest.approx(0.027, rel=1e-3)
+        assert out1.take.soft_vol == pytest.approx(0.027, rel=1e-3)
+        ses.set_level(0.60)                   # the manual stop-crane
+        out2 = ses.take(0)
+        assert out2.take.soft_vol == pytest.approx(0.216, rel=1e-3)
+        # +18 dB of bookkeeping is gone from the fan and the mean
+        assert float(np.max(out2.spread_db)) < 0.5
+        avg, sp = ses.average_and_spread(0)
+        assert float(np.max(sp)) < 0.5
+        shifts = ses.comp_shift_db(0)
+        assert shifts[0] == pytest.approx(0.0, abs=1e-9)
+        assert shifts[1] == pytest.approx(-18.062, abs=0.05)
+        # one unknown gain disables compensation for the channel
+        rec2 = ses._takes[0][1][0]
+        rec2.soft_vol = None
+        assert ses.comp_shift_db(0) is None
+        assert float(np.max(ses.spread_db(0))) > 10.0
+        rec2.soft_vol = 0.216
+    r = ses.finalize(0, str(tmp_path / "result.json"))
+    lv = r["levels"]
+    assert lv["take_soft_volumes"] == [pytest.approx(0.027, rel=1e-3),
+                                       pytest.approx(0.216, rel=1e-3)]
+    assert lv["take_channel_volumes"] == lv["take_soft_volumes"]
+    assert lv["gain_comp_db"][0] == pytest.approx(0.0, abs=1e-6)
+    assert lv["gain_comp_db"][1] == pytest.approx(-18.062, abs=0.05)
+    # the reference is the quietest take: its cubic, not the last level
+    assert lv["sink_volume"] == pytest.approx(0.30, abs=1e-3)
+    med_r = float(np.median(np.asarray(r["data"]["mag_db_raw"])))
+    med_1 = float(np.median(np.asarray(out1.take.mag_db)))
+    assert abs(med_r - med_1) < 0.5
+    assert_matches_chain(r["data"]["freq_hz"], r["data"]["mag_db_raw"])

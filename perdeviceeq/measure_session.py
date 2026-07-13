@@ -68,7 +68,16 @@ Method notes (worth not re-deriving):
   clip -- so the first sound neither blasts nor overshoots into a clip
   (see AutoLevel). Without --auto-level the sink volume is never raised
   above its value at start (it is not written at all). Everything ends
-  up in `levels`.
+  up in `levels`. The sink's applied volumes (channelVolumes and
+  softVolumes) are read from its Props during every sweep and stored on
+  the take: when the level was moved between takes of one channel (the
+  manual override, or re-armed auto-level) and the move was applied in
+  software, averaging and finalize align the takes onto the channel's
+  quietest one by exactly the recorded gain ratio -- the known
+  bookkeeping is removed, seating variation is kept. A hardware-volume
+  device (softVolumes pinned at 1.0, e.g. BT absolute volume) records
+  unity gains, the alignment is a no-op and mixed levels stay visible
+  in the spread, which is the honest answer there.
 - SNR: pw-record is asked for a bare stream with --raw; without it the
   stdout stream is prefixed with a format descriptor (rate/channels POD)
   whose bytes decode to a NaN at the start of channel 0 on every
@@ -428,6 +437,46 @@ def set_sink_volume(sink_id, cubic):
     r = _run(["wpctl", "set-volume", str(sink_id), "%.4f" % cubic])
     if r.returncode != 0:
         raise MeasureError("wpctl set-volume failed: %s" % r.stderr.strip())
+
+
+def sink_applied_volumes(dump, sink_id):
+    """(channelVolumes, softVolumes) linear arrays from the sink's
+    Props. channelVolumes is the user-facing volume cubed; softVolumes
+    is the gain PipeWire actually multiplies into the samples -- equal
+    on a software-volume sink, pinned at 1.0 when the device does the
+    volume in hardware (a BT sink's absolute volume), where the applied
+    gain is genuinely unknowable from the node."""
+    for o in _nodes(dump):
+        if o["id"] == sink_id:
+            d = props_param(o)
+            cv = [float(v) for v in d.get("channelVolumes") or []]
+            sv = [float(v) for v in d.get("softVolumes") or []]
+            return cv, sv
+    return [], []
+
+
+def gain_comp_factors(gains):
+    """Per-take linear factors (each <= 1.0) that align takes captured
+    at different software volumes onto the quietest one: a take
+    recorded with gain g is scaled by min/g, removing exactly the known
+    level move and nothing else. Downward only, so scaling the samples
+    can never clip. Any unknown or unusable gain (None, <= 0,
+    non-finite) returns None and disables compensation for the whole
+    set -- aligning the known takes around an unknown one would shift
+    real data by a guess."""
+    vals = []
+    for g in gains:
+        try:
+            g = float(g)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(g) or g <= 0.0:
+            return None
+        vals.append(g)
+    if not vals:
+        return None
+    ref = min(vals)
+    return [ref / g for g in vals]
 
 
 def _clamp_vol(v):
@@ -792,6 +841,11 @@ class TakeRecord:
     clipped: int              # full-scale sample count (0 = clean)
     repaired: int             # interpolated non-finite samples
     wav_path: str
+    chan_vol: object = None   # sink channelVolumes entry (linear) for
+                              # the played channel at sweep time
+    soft_vol: object = None   # softVolumes ditto -- the gain PipeWire
+                              # actually multiplied into the samples;
+                              # 1.0 when the device does the volume
 
 
 TAKE_CLEAN = "clean"        # counts toward a channel's three good takes
@@ -994,6 +1048,26 @@ class MeasureSession:
         set_sink_volume(self.sink["id"],
                         self._v_cur if on else self.volume_start)
 
+    def _applied_gains(self, channel):
+        """The sink's applied volumes for the played channel, read from
+        the node while the measurement level is engaged: (channelVolumes
+        entry, softVolumes entry), linear, None when unreadable. Read
+        AFTER the sweep so the server had the whole take to settle any
+        just-written volume. Metadata must never break a sweep, hence
+        the broad catch."""
+        try:
+            cv, sv = sink_applied_volumes(pw_dump(), self.sink["id"])
+        except Exception:
+            return None, None
+
+        def pick(arr):
+            if not arr:
+                return None
+            if 0 <= channel < len(arr):
+                return arr[channel]
+            return sum(arr) / len(arr)
+        return pick(cv), pick(sv)
+
     def _channel_map(self, channel):
         """The target speaker's position for pw-play --channel-map, e.g.
         'FL'. A mono sweep tagged with that single position plays only that
@@ -1036,6 +1110,7 @@ class MeasureSession:
                                           raw_dump_path=raw_path,
                                           cancel=self._cancel,
                                           channel_map=cmap)
+                    gains = self._applied_gains(channel)
                 finally:
                     self._set_meas_volume(False)  # restore listening volume
             finally:
@@ -1097,7 +1172,8 @@ class MeasureSession:
                 notes.append("WARNING: auto-level gave up after %s (peak "
                              "%.1f dBFS outside %g..%g)"
                              % (why, pk, *AUTO_WINDOW))
-                self._pending = (channel, data, chan, pk, clipped, bad)
+                self._pending = (channel, data, chan, pk, clipped, bad,
+                                 gains)
                 return TakeOutcome(
                     "level_stuck", notes=notes,
                     level={"peak_dbfs": pk, "volume": self._v_cur,
@@ -1109,17 +1185,20 @@ class MeasureSession:
                          "max_steps": AUTO_MAX_ADJUST}
                 self._v_cur = v_new             # next sweep sets the sink
                 return TakeOutcome("level_probe", level=level, notes=notes)
-        return self._accept(channel, data, chan, pk, clipped, bad, notes)
+        return self._accept(channel, data, chan, pk, clipped, bad, notes,
+                            gains)
 
     def accept_level(self):
         """Keep the pending level_stuck capture as a take at the current
         level -- the caller's 'continue anyway' decision."""
         if self._pending is None:
             raise MeasureError("no leveling decision is pending")
-        channel, data, chan, pk, clipped, repaired = self._pending
+        (channel, data, chan, pk, clipped, repaired,
+         gains) = self._pending
         self._pending = None
         self._leveled = True
-        return self._accept(channel, data, chan, pk, clipped, repaired, [])
+        return self._accept(channel, data, chan, pk, clipped, repaired,
+                            [], gains)
 
     def relevel(self):
         """Re-arm auto-level: the next take() ramps from a safe-low volume
@@ -1138,7 +1217,8 @@ class MeasureSession:
         self._auto_state["initial"] = round(v, 4)
         self._v_cur = v
 
-    def _accept(self, channel, data, chan, pk, clipped, repaired, notes):
+    def _accept(self, channel, data, chan, pk, clipped, repaired, notes,
+                gains=(None, None)):
         snr = self._quick_snr(chan)
         if snr is not None and snr < mc.SNR_WARN_DB:
             notes.append("WARNING: low SNR (%.1f dB): raise the level or "
@@ -1148,7 +1228,8 @@ class MeasureSession:
                              self.sweep.fs)
         t = mc.analyze_take(chan, self.sweep, self.freqs)
         rec = TakeRecord(self._take_seq, channel, self.freqs, t.mag_db,
-                         t.delay_ms, t.snr_db, pk, clipped, repaired, path)
+                         t.delay_ms, t.snr_db, pk, clipped, repaired, path,
+                         chan_vol=gains[0], soft_vol=gains[1])
         self._takes.setdefault(channel, []).append((rec, chan))
         return TakeOutcome("take", take=rec,
                            spread_db=self.spread_db(channel), notes=notes)
@@ -1173,13 +1254,46 @@ class MeasureSession:
         """The channel's accepted TakeRecords, oldest first."""
         return [rec for rec, _ in self._takes.get(channel, [])]
 
+    def _comp_factors(self, entries):
+        """gain_comp_factors over the entries' recorded soft gains;
+        None disables compensation (an unknown gain, or no takes)."""
+        return gain_comp_factors([rec.soft_vol for rec, _ in entries])
+
+    def comp_shift_db(self, channel):
+        """Per-take dB shifts (all <= 0) aligning the channel's
+        accepted takes onto its quietest recorded software gain, in
+        takes_of() order; None when compensation is off (an unknown
+        gain somewhere, or no takes)."""
+        f = self._comp_factors(self._takes.get(channel, []))
+        if f is None:
+            return None
+        return [20.0 * math.log10(k) for k in f]
+
+    def average_and_spread(self, channel):
+        """Mean curve + take-to-take spread of the channel's accepted
+        takes, with recorded level moves compensated: each curve is
+        shifted down by its take's known software-gain excess over the
+        channel's quietest take, so a manual level change or a re-level
+        between takes neither smears the mean nor widens the corridor.
+        Unknown gains fall back to the raw curves. The exact alignment
+        finalize applies to the samples, so the live fan shows what the
+        result will average. (None, None) without takes; spread is None
+        until there are two."""
+        entries = self._takes.get(channel, [])
+        if not entries:
+            return None, None
+        mags = [rec.mag_db for rec, _ in entries]
+        factors = self._comp_factors(entries)
+        if factors is not None:
+            mags = [m + 20.0 * math.log10(k)
+                    for m, k in zip(mags, factors)]
+        return mc.average_takes(mags)
+
     def spread_db(self, channel):
         """Per-frequency std (ddof=1) across the channel's accepted
-        takes; None until there are two. The live fan's width."""
-        recs = self.takes_of(channel)
-        if len(recs) < 2:
-            return None
-        return mc.average_takes(recs)[1]
+        takes, level moves compensated; None until there are two. The
+        live fan's width."""
+        return self.average_and_spread(channel)[1]
 
     def discard(self, channel, take_id):
         """Drop a bad take from the accumulation. The wav stays on disk
@@ -1201,18 +1315,47 @@ class MeasureSession:
         channel. The wizard measures both ears in one session but each
         coupler has its own mic-cal file (L_RAW vs R_RAW), so it finalizes
         each channel with that channel's cal. mag_db_uncal is stored
-        regardless, so a different cal can still be applied later."""
+        regardless, so a different cal can still be applied later.
+
+        Takes captured at different software volumes are aligned onto
+        the channel's quietest one before averaging (recordings scaled
+        by the recorded gain ratio, downward only); the per-take gains
+        and the applied shifts land in `levels` so a stored result can
+        be re-fit later with full knowledge of how it was driven."""
         entries = self._takes.get(channel, [])
         if not entries:
             raise MeasureError("no accepted takes on channel %d" % channel)
+        factors = self._comp_factors(entries)
+        recordings = [samples for _, samples in entries]
+        comp_db = None
+        if factors is not None:
+            comp_db = [round(20.0 * math.log10(k), 3) for k in factors]
+            if any(abs(k - 1.0) > 1e-9 for k in factors):
+                # align the takes onto the channel's quietest recorded
+                # gain: exact, downward only, so it can never clip
+                recordings = [s * k
+                              for s, k in zip(recordings, factors)]
         dump = pw_dump()
         v_final, raw_final, _ = sink_volume_state(dump, self.sink["id"])
-        # the sink is restored to the listening level after each sweep now,
-        # so report the measurement level the sweeps actually used
-        v_report = self._v_cur if self._v_cur is not None else v_final
+        # per-channel truth: the (compensated) result sits at the level
+        # of THIS channel's quietest take; the session-wide scalar (the
+        # last sweep's level, possibly another channel's) is only the
+        # fallback when the applied gains could not be read
+        v_report = None
+        if factors is not None:
+            k = min(range(len(entries)),
+                    key=lambda i: entries[i][0].soft_vol)
+            cv = entries[k][0].chan_vol
+            if cv is not None and cv > 0:
+                v_report = cv ** (1.0 / 3.0)
+        if v_report is None:
+            v_report = self._v_cur if self._v_cur is not None else v_final
         auto = dict(self._auto_state)
         auto["final"] = (round(v_report, 4) if self.cfg.auto_level
                          else None)
+
+        def _r6(v):
+            return None if v is None else round(v, 6)
         levels = {
             "sink_volume": (round(v_report, 4)
                             if v_report is not None else None),
@@ -1224,10 +1367,14 @@ class MeasureSession:
                 "playback_stream", {}).get("volume"),
             "capture_peak_dbfs": [round(r.peak_dbfs, 2)
                                   for r, _ in entries],
+            "take_channel_volumes": [_r6(r.chan_vol)
+                                     for r, _ in entries],
+            "take_soft_volumes": [_r6(r.soft_vol) for r, _ in entries],
+            "gain_comp_db": comp_db,
             "auto_level": auto,
         }
         result = mc.process_takes(
-            [samples for _, samples in entries], self.sweep,
+            recordings, self.sweep,
             cal=(cal if cal is not None else self.cfg.cal),
             smoothing_fraction=self.cfg.smoothing,
             device=(self.cfg.device or self.sink_ident["description"]

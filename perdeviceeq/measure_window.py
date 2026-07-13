@@ -671,15 +671,23 @@ class MeasureWindow(Adw.Window):
     def _refresh_summary(self, ch, takes):
         """The channel's result at a glance: the mean response over the
         takes with the take-to-take spread as a band around it, greyed
-        outside the EQ range, red where the spread is untrustworthy."""
+        outside the EQ range, red where the spread is untrustworthy.
+        Level moves between takes are compensated with the session's
+        recorded gains, so the mean matches what finalize will build."""
         area = self._page["summary"]
         if not takes:
             area.set_visible(False)
             return
+        shifts = self.session.comp_shift_db(ch)
+        by_id = {}
+        if shifts is not None:
+            by_id = {r.id: s for r, s
+                     in zip(self.session.takes_of(ch), shifts)}
         clean = [r for r in takes
                  if ms.take_quality(r) == ms.TAKE_CLEAN]
         base = clean if clean else takes
-        mean = sum(r.mag_db for r in base) / len(base)
+        mean = sum(r.mag_db + by_id.get(r.id, 0.0)
+                   for r in base) / len(base)
         spread = self.session.spread_db(ch)
         sp = spread if spread is not None else mean * 0.0
         lo = float((mean - sp / 2.0).min()) - 1.0

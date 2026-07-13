@@ -279,9 +279,11 @@ def analyze_take(recording, sweep, freqs, pre_flat_ms=10.0,
 
 def average_takes(takes):
     """Magnitude-only (power/RMS) average + per-frequency spread (dB std,
-    ddof=1). Alignment is inherent: each take was windowed around its own
+    ddof=1). Items are Take-likes (anything with .mag_db) or bare
+    magnitude arrays -- the session passes gain-compensated arrays.
+    Alignment is inherent: each take was windowed around its own
     impulse peak. Returns (avg_db, spread_db_or_None)."""
-    mags = np.vstack([t.mag_db for t in takes])
+    mags = np.vstack([getattr(t, "mag_db", t) for t in takes])
     avg = 10 * np.log10(np.mean(10 ** (mags / 10), axis=0))
     spread = mags.std(axis=0, ddof=1) if len(takes) > 1 else None
     return avg, spread
