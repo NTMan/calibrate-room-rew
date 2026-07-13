@@ -372,9 +372,10 @@ class MeasureWindow(Adw.Window):
         lbl = Gtk.Label(xalign=0.0)
         lbl.set_markup("<b>EQ range</b>  <span size='small'>red bars "
                        "are the take-to-take spread; the right handle "
-                       "follows it (parks where red starts) until you "
-                       "drag it. Reseat between takes or the spread "
-                       "flatters the seating.</span>")
+                       "follows it until you drag it (cautious while "
+                       "takes are few, so it may sit below the red). "
+                       "Reseat between takes or the spread flatters "
+                       "the seating.</span>")
         lbl.set_wrap(True)
         box.append(lbl)
         self.range_area = Gtk.DrawingArea()

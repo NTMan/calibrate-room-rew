@@ -115,6 +115,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import numpy as np
+from scipy.stats import chi2
 
 from . import measure_core as mc
 from .pipewire import sink_channels
@@ -138,6 +139,10 @@ AUTO_TRUST_FLOOR_PK = -20.0              # trust the room's floor read only
 SPREAD_MAX_DB = 3.0                      # take-to-take spread above this
 #                                          is untrustworthy (red on the
 #                                          strip; the auto EQ ceiling)
+TRUST_CONFIDENCE = 0.68                  # the ceiling judges an upper
+#                                          confidence bound on the spread,
+#                                          not the point estimate: two or
+#                                          three takes cannot certify calm
 REPAIR_MAX_MS = 2.0                      # interp this many ms of dropouts;
 #                                          more non-finite than that = fault
 VERIFY_AFTER_S = 0.4                     # pw-play start -> pw-dump link check
@@ -1373,14 +1378,30 @@ class MeasureSession:
         pull the ceiling (it is visible on the strip and is the left
         handle's business); the HF cliff does, to its edge exactly.
         None while no channel has two takes -- no statistics, no
-        opinion. The statistics only mean what the takes vary over:
-        reseat between takes, or the spread flatters the seating."""
+        opinion.
+
+        The judged quantity is not the point estimate but the upper
+        TRUST_CONFIDENCE bound on the spread, s*sqrt(df/chi2_a(df)):
+        a sample std of three takes must not flip trust back up while
+        an outlier seating sits in the sample (a third take agreeing
+        with the first SHRINKS the point estimate below the threshold
+        and the ceiling would bounce). Under the bound, trust is
+        earned by accumulating agreeing takes -- x2.42 at two takes,
+        x1.61 at three, approaching 1 -- or restored instantly by
+        deleting the outlier, never by dilution. The bars on the
+        strip keep showing the point estimate: they say what
+        happened, the ceiling says what cannot be ruled out, so it
+        may sit below the red. The statistics only mean what the
+        takes vary over: reseat between takes, or the spread flatters
+        the seating."""
         combined = None
         for c in self._takes:
             sp = self.spread_db(c)
             if sp is None:
                 continue
-            sp = np.asarray(sp, float)
+            df = len(self.takes_of(c)) - 1
+            k = math.sqrt(df / chi2.ppf(1.0 - TRUST_CONFIDENCE, df))
+            sp = np.asarray(sp, float) * k
             combined = (sp if combined is None
                         else np.maximum(combined, sp))
         if combined is None:

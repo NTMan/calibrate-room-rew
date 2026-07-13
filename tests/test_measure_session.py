@@ -506,3 +506,38 @@ def test_trusted_ceiling_follows_the_statistics(shim_state, tmp_path):
         _inject_pair(ses, 1, 8.0, lo_hz=9000.0, base_id=3)
         c = ses.trusted_ceiling_hz()
         assert 8000.0 <= c <= 9000.0
+
+
+def _inject_takes(ses, ch, deltas, lo_hz):
+    """Takes at one gain: curve k is flat plus deltas[k] above lo_hz."""
+    f = np.asarray(ses.freqs, float)
+    entries = []
+    for k, d in enumerate(deltas):
+        m = np.zeros_like(f)
+        m[f >= lo_hz] += d
+        entries.append((ms.TakeRecord(k + 1, ch, ses.freqs, m, 5.0,
+                                      50.0, -6.0, 0, 0, str(k),
+                                      chan_vol=0.1, soft_vol=0.1),
+                        None))
+    ses._takes[ch] = entries
+
+
+def test_trust_is_earned_not_diluted(shim_state, tmp_path):
+    """The observed bounce: two takes 4.5 dB apart in the highs pull
+    the ceiling down, a third agreeing take SHRINKS the sample std
+    under the threshold and the point estimate would trust again.
+    Under the confidence bound the ceiling stays down at three,
+    stays down at four, is earned back at five agreeing takes -- or
+    instantly by deleting the outlier."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        f_top = float(np.asarray(ses.freqs)[-1])
+        seq = [0.0, 4.5, 0.2, 0.1, 0.15]
+        for n in (2, 3, 4):
+            _inject_takes(ses, 0, seq[:n], lo_hz=15000.0)
+            assert ses.trusted_ceiling_hz() < 15000.0, n
+        _inject_takes(ses, 0, seq, lo_hz=15000.0)         # five takes
+        assert ses.trusted_ceiling_hz() == pytest.approx(f_top)
+        # deleting the outlier restores trust immediately
+        _inject_takes(ses, 0, [0.0, 0.2], lo_hz=15000.0)
+        assert ses.trusted_ceiling_hz() == pytest.approx(f_top)
