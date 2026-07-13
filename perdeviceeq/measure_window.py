@@ -31,7 +31,6 @@ from . import measure_prefs                         # noqa: E402
 RING = 240
 SPEAKER = 56
 CLEAN_TARGET = 3            # clean takes per channel before "all clean"
-SPREAD_MAX_DB = 3.0         # take-to-take spread above this is untrusted
 
 # Where each channel sits on the ring, as a compass angle from the front
 # (0 = straight ahead, positive = clockwise toward the right), so a
@@ -44,7 +43,7 @@ CHAN_ANGLE = {
     "RC": 180, "LFE": 180,
 }
 FIT_BANDS = 12
-FIT_FLO, FIT_FHI = 20.0, 12000.0
+FIT_FLO = 20.0
 FMIN_PLOT, FMAX_PLOT = 20.0, 20000.0
 
 
@@ -136,7 +135,9 @@ class MeasureWindow(Adw.Window):
         self._pinned = False        # user chose "stay": ignore the default
         self._popup_open = False    # a stay/go dialog is on screen
         self._retargeting = False   # a retarget is scheduled/in flight
-        self.fit_lo, self.fit_hi = FIT_FLO, FIT_FHI
+        self.fit_lo, self.fit_hi = FIT_FLO, FMAX_PLOT
+        # the right handle follows the statistics until dragged
+        self._hi_auto = True
         self._page = None            # selected channel's page widgets
         self._selected_ch = 0        # channel the ring has selected
         self._speakers = {}         # ch index -> Gtk.Button
@@ -369,9 +370,11 @@ class MeasureWindow(Adw.Window):
     def _build_fit_area(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         lbl = Gtk.Label(xalign=0.0)
-        lbl.set_markup("<b>EQ range</b>  <span size='small'>drag the "
-                       "handles; red bars are the take-to-take spread "
-                       "(untrustworthy, don't EQ there)</span>")
+        lbl.set_markup("<b>EQ range</b>  <span size='small'>red bars "
+                       "are the take-to-take spread; the right handle "
+                       "follows it (parks where red starts) until you "
+                       "drag it. Reseat between takes or the spread "
+                       "flatters the seating.</span>")
         lbl.set_wrap(True)
         box.append(lbl)
         self.range_area = Gtk.DrawingArea()
@@ -440,11 +443,11 @@ class MeasureWindow(Adw.Window):
         cr.fill()
         spread, freqs = self._max_spread()
         if spread and freqs:
-            top = max(SPREAD_MAX_DB, max(spread))
+            top = max(ms.SPREAD_MAX_DB, max(spread))
             bw = max(1.0, pw_ / len(freqs))
             for j in range(len(freqs)):
                 gx = self._freq_to_x(freqs[j])
-                if spread[j] >= SPREAD_MAX_DB:
+                if spread[j] >= ms.SPREAD_MAX_DB:
                     cr.set_source_rgba(0.87, 0.19, 0.19, 0.85)
                 else:
                     cr.set_source_rgba(0.5, 0.5, 0.5, 0.5)
@@ -488,12 +491,29 @@ class MeasureWindow(Adw.Window):
             self.fit_lo = max(FMIN_PLOT, min(f, self.fit_hi - 1))
         else:
             self.fit_hi = min(FMAX_PLOT, max(f, self.fit_lo + 1))
+            self._hi_auto = False           # the user took the handle
         self.range_area.queue_draw()
         self._update_range_label()
 
     def _update_range_label(self):
-        self.range_label.set_text("Fit %d – %d Hz"
-                                  % (round(self.fit_lo), round(self.fit_hi)))
+        auto = " · auto" if getattr(self, "_hi_auto", True) else ""
+        self.range_label.set_text(
+            "Fit %d – %d Hz%s"
+            % (round(self.fit_lo), round(self.fit_hi), auto))
+
+    def _auto_fit_hi(self):
+        """Park the right handle at the edge of trust after every
+        change to the takes: 20 kHz while there are no statistics,
+        the start of the red otherwise. A manual drag of the right
+        handle disengages this for the rest of the window."""
+        if not self._hi_auto or self.session is None:
+            return
+        ceil = self.session.trusted_ceiling_hz()
+        hi = FMAX_PLOT if ceil is None else min(FMAX_PLOT, ceil)
+        hi = max(hi, self.fit_lo * 2.0)
+        if abs(hi - self.fit_hi) >= 1.0:
+            self.fit_hi = hi
+        self._update_range_label()
 
     # ---- drawing ----------------------------------------------------------
     def _draw_disc(self, _area, cr, w, h, *_):
@@ -618,6 +638,7 @@ class MeasureWindow(Adw.Window):
         self._update_pult()
         self.create_btn.set_sensitive(ready and not self._busy)
         self._refresh_volume()
+        self._auto_fit_hi()
         if getattr(self, "range_area", None) is not None:
             self.range_area.queue_draw()
 
@@ -636,7 +657,7 @@ class MeasureWindow(Adw.Window):
             return "bad"
         spread = self.session.spread_db(ch)
         if spread is not None and len(spread) \
-                and max(spread) >= SPREAD_MAX_DB:
+                and max(spread) >= ms.SPREAD_MAX_DB:
             return "warn"
         return ""
 
@@ -716,7 +737,7 @@ class MeasureWindow(Adw.Window):
                 x = _log_x(freqs[j], 2, w - 4)
                 sv = float(spread[j]) if j < len(spread) else 0.0
                 yt, yb = yof(mean[j] + sv / 2.0), yof(mean[j] - sv / 2.0)
-                if sv >= SPREAD_MAX_DB:
+                if sv >= ms.SPREAD_MAX_DB:
                     cr.set_source_rgba(0.87, 0.19, 0.19, 0.35)
                 else:
                     cr.set_source_rgba(0.22, 0.52, 0.90, 0.18)

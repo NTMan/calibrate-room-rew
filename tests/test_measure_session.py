@@ -468,3 +468,41 @@ def test_relevel_final_is_reported(shim_state, tmp_path):
     assert len(r["levels"]["take_noise_dbfs"]) == 1
     assert r["levels"]["take_noise_dbfs"][0] is not None
     assert r["sink_api"] == "alsa"
+
+# --- the trusted ceiling that drives the auto EQ-range handle ---------------
+
+def _inject_pair(ses, ch, delta, lo_hz=0.0, hi_hz=1e9, base_id=1):
+    """Two takes at one gain whose curves differ by `delta` dB inside
+    [lo_hz, hi_hz) and agree elsewhere."""
+    f = np.asarray(ses.freqs, float)
+    m1 = np.zeros_like(f)
+    m2 = m1.copy()
+    m2[(f >= lo_hz) & (f < hi_hz)] += delta
+    r1 = ms.TakeRecord(base_id, ch, ses.freqs, m1, 5.0, 50.0, -6.0,
+                       0, 0, "a", chan_vol=0.1, soft_vol=0.1)
+    r2 = ms.TakeRecord(base_id + 1, ch, ses.freqs, m2, 5.0, 50.0,
+                       -6.0, 0, 0, "b", chan_vol=0.1, soft_vol=0.1)
+    ses._takes[ch] = [(r1, None), (r2, None)]
+
+
+def test_trusted_ceiling_follows_the_statistics(shim_state, tmp_path):
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        f_top = float(np.asarray(ses.freqs)[-1])
+        assert ses.trusted_ceiling_hz() is None       # no statistics
+        # identical takes: the whole band is trusted
+        _inject_pair(ses, 0, 0.0)
+        assert ses.trusted_ceiling_hz() == pytest.approx(f_top)
+        # an HF cliff pulls the ceiling to its edge exactly
+        _inject_pair(ses, 0, 8.0, lo_hz=12000.0)      # spread ~5.7 dB
+        c = ses.trusted_ceiling_hz()
+        assert 11000.0 <= c <= 12000.0
+        # a red island mid-band is the strip's business, not the
+        # ceiling's
+        _inject_pair(ses, 0, 8.0, lo_hz=500.0, hi_hz=700.0)
+        assert ses.trusted_ceiling_hz() == pytest.approx(f_top)
+        # the ceiling is the min across measured channels
+        _inject_pair(ses, 0, 0.0)
+        _inject_pair(ses, 1, 8.0, lo_hz=9000.0, base_id=3)
+        c = ses.trusted_ceiling_hz()
+        assert 8000.0 <= c <= 9000.0

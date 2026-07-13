@@ -135,6 +135,9 @@ AUTO_PEAK_CEIL = HOT_DBFS - 1.0          # aim strictly below the hot flag
 AUTO_SNR_MARGIN_DB = 1.0                 # aim past clean, not onto its edge
 AUTO_TRUST_FLOOR_PK = -20.0              # trust the room's floor read only
 #                                          on a probe at least this hot
+SPREAD_MAX_DB = 3.0                      # take-to-take spread above this
+#                                          is untrustworthy (red on the
+#                                          strip; the auto EQ ceiling)
 REPAIR_MAX_MS = 2.0                      # interp this many ms of dropouts;
 #                                          more non-finite than that = fault
 VERIFY_AFTER_S = 0.4                     # pw-play start -> pw-dump link check
@@ -1361,6 +1364,42 @@ class MeasureSession:
         takes, level moves compensated; None until there are two. The
         live fan's width."""
         return self.average_and_spread(channel)[1]
+
+    def trusted_ceiling_hz(self, thresh=SPREAD_MAX_DB):
+        """Highest frequency the take-to-take statistics still trust:
+        scanning DOWN from the top of the grid, the top of the first
+        at-least-1/6-octave run where every measured channel's spread
+        stays under `thresh`. A red island lower in the band does not
+        pull the ceiling (it is visible on the strip and is the left
+        handle's business); the HF cliff does, to its edge exactly.
+        None while no channel has two takes -- no statistics, no
+        opinion. The statistics only mean what the takes vary over:
+        reseat between takes, or the spread flatters the seating."""
+        combined = None
+        for c in self._takes:
+            sp = self.spread_db(c)
+            if sp is None:
+                continue
+            sp = np.asarray(sp, float)
+            combined = (sp if combined is None
+                        else np.maximum(combined, sp))
+        if combined is None:
+            return None
+        f = np.asarray(self.freqs, float)
+        ok = combined <= thresh
+        min_ratio = 2.0 ** (1.0 / 6.0)
+        i = len(f) - 1
+        while i >= 0:
+            if not ok[i]:
+                i -= 1
+                continue
+            j = i
+            while j >= 0 and ok[j]:
+                j -= 1
+            if j < 0 or f[i] / f[j + 1] >= min_ratio:
+                return float(f[i])
+            i = j
+        return float(f[0])
 
     def discard(self, channel, take_id):
         """Drop a bad take from the accumulation. The wav stays on disk
