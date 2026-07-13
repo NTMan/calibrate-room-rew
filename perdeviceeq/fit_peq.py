@@ -41,6 +41,7 @@ from .config import FS
 
 RESID_TARGET_DB = 0.5
 GRID = 400
+GREEDY_SPAN_OCT = 1.0       # a band may retune this far from placement
 PRUNE_EPS_DB = 0.25         # pruning may cost at most this much, anywhere
 PRUNE_OVERLAP_DB = 0.25     # a drop frees only bands it reaches this far
 PRUNE_SPAN_OCT = 0.5        # a trial may retune a freed band this far
@@ -73,21 +74,26 @@ def _response(bands, freqs):
     return out
 
 
-def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None):
+def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
+            anchors=None):
     """Joint least-squares of every band against `desired`. With
     span_oct each band's frequency is leashed to that many octaves
-    around its start (the prune's trials must reshape, not relocate);
-    without it the frequency roams the whole fit range as before."""
+    around its anchor -- the placement frequency in the greedy loop
+    (passed via `anchors`), the band's current frequency in the
+    prune's one-shot trials (the default). Without span_oct the
+    frequency roams the whole fit range."""
     types = [b[0] for b in bands]
+    if anchors is None:
+        anchors = [b[1] for b in bands]
     x0, lo, hi = [], [], []
-    for _, f, g, q in bands:
+    for (_, f, g, q), fa in zip(bands, anchors):
         lf = np.log10(f)
         if span_oct is None:
             f_lo, f_hi = np.log10(flo), np.log10(fhi)
         else:
             s = span_oct * np.log10(2.0)
-            f_lo = max(np.log10(flo), lf - s)
-            f_hi = min(np.log10(fhi), lf + s)
+            f_lo = max(np.log10(flo), np.log10(fa) - s)
+            f_hi = min(np.log10(fhi), np.log10(fa) + s)
         x0 += [min(max(lf, f_lo), f_hi), g, q]
         lo += [f_lo, -24.0, 0.3]
         hi += [f_hi, max_boost, 8.0]
@@ -167,11 +173,22 @@ def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
     Cuts are unbounded; boost is capped at max_boost (filling deep nulls
     wastes headroom and amplifies noise), so the fit targets the desired
     correction clipped from above, while the residual is reported against
-    the true (uncapped) target so unfillable dips stay visible."""
+    the true (uncapped) target so unfillable dips stay visible.
+
+    The joint refine after each placement may retune a band at most
+    GREEDY_SPAN_OCT octaves from where it was PLACED (the anchor, not
+    the band's latest position, or it would creep an octave per
+    iteration). Placement picked that spot because the residual peaked
+    there and chose the type by it; unleashed, the refine used to slide
+    a high-shelf placed above fhi/2 down under a mid dip, growing a
+    cancelling -18 dB partner to carve the dip back out. The leash also
+    makes the topology a function of the argmax sequence, so channels
+    with similar curves come out with parallel band tables instead of
+    unrecognizable decompositions of the same net response."""
     fg, yg = _grid_interp(freq, mag, flo, fhi)
     desired = yg.mean() - yg                       # flat target correction
     target = np.minimum(desired, max_boost)        # never ask beyond the cap
-    bands = []
+    bands, anchors = [], []
     for _ in range(n_bands):
         resid = target - _response(bands, fg)
         k = int(np.argmax(np.abs(resid)))
@@ -181,7 +198,9 @@ def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
         btype = "LSC" if f0 <= flo * 2 else "HSC" if f0 >= fhi / 2 else "PK"
         g0 = float(np.clip(resid[k], -24.0, max_boost))
         bands.append((btype, f0, g0, 2.0))
-        bands = _refine(bands, fg, target, flo, fhi, max_boost)
+        anchors.append(f0)
+        bands = _refine(bands, fg, target, flo, fhi, max_boost,
+                        span_oct=GREEDY_SPAN_OCT, anchors=anchors)
     bands = _prune(bands, fg, target, flo, fhi, max_boost)
     resid = desired - _response(bands, fg)         # vs TRUE target
     return bands, fg, desired, resid

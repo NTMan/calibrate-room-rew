@@ -241,3 +241,32 @@ def test_prune_does_not_touch_bands_out_of_the_drops_reach():
                          20.0, 20000.0, 6.0)
     assert junk not in out
     assert real_lo in out and real_hi in out
+
+
+def test_refine_honors_the_anchor_leash():
+    """A band may not relocate past its anchor's leash even when the
+    desired correction sits elsewhere entirely."""
+    fg = np.logspace(np.log10(20), np.log10(20000), 400)
+    want = fit_peq._response([("PK", 3500.0, -6.0, 1.0)], fg)
+    out = fit_peq._refine([("PK", 1000.0, -6.0, 1.0)], fg, want,
+                          20.0, 20000.0, 6.0, span_oct=1.0,
+                          anchors=[1000.0])
+    assert out[0][1] <= 2000.0 + 1.0
+
+
+def test_greedy_does_not_grow_a_cancelling_stack():
+    """A mid dip under a capped HF plateau used to come out as a
+    shelf slid under the dip plus a -18 dB partner carving it back;
+    with the anchored leash the bands stay near the features and no
+    gain wildly overshoots them."""
+    fg = np.logspace(np.log10(20), np.log10(20000), 300)
+    shape = fit_peq._response([("PK", 3000.0, -12.0, 1.0),
+                               ("HSC", 9000.0, 6.0, 0.7)], fg)
+    bands, _, _, resid = fit_peq.fit_channel(fg, -shape, 20.0,
+                                             20000.0, 15, 6.0)
+    # the residual bound is sanity only (the synthetic plateau ends at
+    # the grid edge, where a leashed shelf cannot match the reference
+    # exactly); the regression guard is the gain bound -- the stack
+    # solution carried -18.7 for a -12 feature
+    assert float(np.max(np.abs(resid))) < 2.0
+    assert max(abs(g) for _, _, g, _ in bands) <= 14.0
