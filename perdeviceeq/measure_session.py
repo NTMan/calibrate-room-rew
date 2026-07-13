@@ -1431,6 +1431,31 @@ class MeasureSession:
             i = j
         return float(f[0])
 
+    def trusted_floor_hz(self, thresh=SPREAD_MAX_DB):
+        """Mirror of trusted_ceiling_hz for the bottom of the band:
+        scanning UP from the bottom of the grid, the bottom of the
+        first at-least-1/6-octave trusted run under the bound. A red
+        island mid-band does not push the floor up; a bass cliff (a
+        seal that seats differently every take) does, to its edge
+        exactly. None while no channel has two takes."""
+        m = self._trust_mask(thresh)
+        if m is None:
+            return None
+        f, ok = m
+        min_ratio = 2.0 ** (1.0 / 6.0)
+        i, n = 0, len(f)
+        while i < n:
+            if not ok[i]:
+                i += 1
+                continue
+            j = i
+            while j < n and ok[j]:
+                j += 1
+            if j >= n or f[j - 1] / f[i] >= min_ratio:
+                return float(f[i])
+            i = j
+        return float(f[-1])
+
     def _trusted_octaves(self, thresh, exclude=None):
         """Total trustworthy bandwidth in octaves under the bound,
         with an optional take excluded."""

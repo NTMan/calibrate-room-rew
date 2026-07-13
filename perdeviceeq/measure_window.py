@@ -136,8 +136,9 @@ class MeasureWindow(Adw.Window):
         self._popup_open = False    # a stay/go dialog is on screen
         self._retargeting = False   # a retarget is scheduled/in flight
         self.fit_lo, self.fit_hi = FIT_FLO, FMAX_PLOT
-        # the right handle follows the statistics until dragged
+        # each handle follows the statistics until dragged
         self._hi_auto = True
+        self._lo_auto = True
         self._spread_driver = None      # LOO verdict, set on refresh
         self._page = None            # selected channel's page widgets
         self._selected_ch = 0        # channel the ring has selected
@@ -380,11 +381,11 @@ class MeasureWindow(Adw.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         lbl = Gtk.Label(xalign=0.0)
         lbl.set_markup("<b>EQ range</b>  <span size='small'>red bars "
-                       "are the take-to-take spread; the right handle "
-                       "follows it until you drag it (cautious while "
-                       "takes are few, so it may sit below the red). "
-                       "Reseat between takes or the spread flatters "
-                       "the seating.</span>")
+                       "are the take-to-take spread; the handles "
+                       "follow it until you drag them (cautious while "
+                       "takes are few, so they may sit inside the "
+                       "red). Reseat between takes or the spread "
+                       "flatters the seating.</span>")
         lbl.set_wrap(True)
         box.append(lbl)
         self.range_area = Gtk.DrawingArea()
@@ -499,6 +500,7 @@ class MeasureWindow(Adw.Window):
         f = self._x_to_freq(sx + ox)
         if self._drag_handle == "lo":
             self.fit_lo = max(FMIN_PLOT, min(f, self.fit_hi - 1))
+            self._lo_auto = False           # the user took the handle
         else:
             self.fit_hi = min(FMAX_PLOT, max(f, self.fit_lo + 1))
             self._hi_auto = False           # the user took the handle
@@ -506,23 +508,37 @@ class MeasureWindow(Adw.Window):
         self._update_range_label()
 
     def _update_range_label(self):
-        auto = " · auto" if getattr(self, "_hi_auto", True) else ""
+        lo_a = getattr(self, "_lo_auto", True)
+        hi_a = getattr(self, "_hi_auto", True)
+        auto = (" · auto" if lo_a and hi_a else
+                " · auto hi" if hi_a else
+                " · auto lo" if lo_a else "")
         self.range_label.set_text(
             "Fit %d – %d Hz%s"
             % (round(self.fit_lo), round(self.fit_hi), auto))
 
-    def _auto_fit_hi(self):
-        """Park the right handle at the edge of trust after every
-        change to the takes: 20 kHz while there are no statistics,
-        the start of the red otherwise. A manual drag of the right
-        handle disengages this for the rest of the window."""
-        if not self._hi_auto or self.session is None:
+    def _auto_fit_range(self):
+        """Park each handle at its edge of trust after every change
+        to the takes: the full sweep while there are no statistics,
+        the start of the red otherwise -- the ceiling from the top,
+        the floor from the bottom (a leaky-seal bass is a blind zone
+        exactly like an HF cliff). A manual drag of a handle
+        disengages that handle's automation for the rest of the
+        window; the other keeps following."""
+        if self.session is None:
             return
-        ceil = self.session.trusted_ceiling_hz()
-        hi = FMAX_PLOT if ceil is None else min(FMAX_PLOT, ceil)
-        hi = max(hi, self.fit_lo * 2.0)
+        hi, lo = self.fit_hi, self.fit_lo
+        if self._hi_auto:
+            ceil = self.session.trusted_ceiling_hz()
+            hi = FMAX_PLOT if ceil is None else min(FMAX_PLOT, ceil)
+        if self._lo_auto:
+            floor = self.session.trusted_floor_hz()
+            lo = FIT_FLO if floor is None else max(FIT_FLO, floor)
+        lo = min(lo, hi / 2.0)              # keep at least an octave
         if abs(hi - self.fit_hi) >= 1.0:
             self.fit_hi = hi
+        if abs(lo - self.fit_lo) >= 0.1:
+            self.fit_lo = lo
         self._update_range_label()
 
     # ---- drawing ----------------------------------------------------------
@@ -650,7 +666,7 @@ class MeasureWindow(Adw.Window):
         self._update_pult()
         self.create_btn.set_sensitive(ready and not self._busy)
         self._refresh_volume()
-        self._auto_fit_hi()
+        self._auto_fit_range()
         if getattr(self, "range_area", None) is not None:
             self.range_area.queue_draw()
 

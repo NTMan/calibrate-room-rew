@@ -596,3 +596,21 @@ def test_driver_judges_bandwidth_not_the_ceiling(shim_state, tmp_path):
         drv = ses.spread_driver()
         assert drv is not None and drv[0] == 2
         assert drv[1] > 4.0          # ~5 octaves of bass won back
+
+
+def test_trusted_floor_follows_the_statistics(shim_state, tmp_path):
+    """Mirror of the ceiling: a bass cliff (leaky seal every other
+    take) lifts the floor to its edge; a mid-band island does not."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        f0 = float(np.asarray(ses.freqs)[0])
+        assert ses.trusted_floor_hz() is None      # no statistics
+        _inject_pair(ses, 0, 0.0)
+        assert ses.trusted_floor_hz() == pytest.approx(f0)
+        _inject_pair(ses, 0, 8.0, lo_hz=0.0, hi_hz=700.0)
+        fl = ses.trusted_floor_hz()
+        assert 700.0 <= fl <= 780.0
+        # a red island mid-band is the strip's business, not the
+        # floor's
+        _inject_pair(ses, 0, 8.0, lo_hz=2000.0, hi_hz=3000.0)
+        assert ses.trusted_floor_hz() == pytest.approx(f0)
