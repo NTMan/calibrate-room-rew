@@ -31,7 +31,7 @@ Deferred to a later increment: dragging band handles on the graph, GtkColumnView
 for the band table, per-row sparklines, the online AutoEQ catalog.
 """
 
-import json, math, os, sys
+import json, math, os, sys, threading
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -41,7 +41,7 @@ from gi.repository import Gtk, Gio, GLib, Gdk, Adw
 from . import config, eq, pipewire, integration
 from .config import (APP_ID, TYPE_NAMES, CLEAN_ID, FAVORITES_FILE,
                      UI_FILE_CANDIDATES)
-from .profiles import ProfileStore
+from .profiles import ProfileStore, editor_body
 
 DB_MAX = 24.0
 FMIN, FMAX = config.FMIN, config.FMAX
@@ -56,6 +56,13 @@ def _ui_path():
             return p
     raise FileNotFoundError(
         "GUI design not found; looked in:\n  " + "\n  ".join(UI_FILE_CANDIDATES))
+
+
+def _fmt_hz(f):
+    """20, 512.5, 8.1k -- the plaque's band endpoints."""
+    if f >= 1000:
+        return "%gk" % round(f / 1000.0, 1)
+    return "%g" % round(f, 1)
 
 
 def _log_freqs(n=240):
@@ -224,7 +231,199 @@ class EqWindow(Adw.ApplicationWindow):
         rclick.set_button(3)
         rclick.connect("pressed", self._on_right_click)
         self.graph_area.add_controller(rclick)
-        self.graph_frame.set_child(self.graph_area)
+
+        self._canvas = None          # measurement overlay cache
+        self.show_meas = True
+        self.meas_toggle = Gtk.ToggleButton()
+        self.meas_toggle.set_icon_name("view-reveal-symbolic")
+        self.meas_toggle.set_active(True)
+        self.meas_toggle.add_css_class("flat")
+        self.meas_toggle.set_tooltip_text(
+            "Show the measurement behind this profile")
+        self.meas_toggle.connect("toggled", self._on_meas_toggle)
+        self.trust_label = Gtk.Label(xalign=0.0)
+        self.trust_label.set_hexpand(True)
+        self.trust_label.add_css_class("dim-label")
+        self.fit_state_label = Gtk.Label()
+        self.refit_btn = Gtk.Button(label="Re-fit")
+        self.refit_btn.add_css_class("flat")
+        self.refit_btn.set_tooltip_text(
+            "Rebuild the bands from the stored measurement")
+        self.refit_btn.connect("clicked", self._on_refit)
+        self.trust_bar = Gtk.Box(spacing=8)
+        for w in (self.meas_toggle, self.trust_label,
+                  self.fit_state_label, self.refit_btn):
+            self.trust_bar.append(w)
+        self.trust_bar.set_margin_start(6)
+        self.trust_bar.set_margin_end(6)
+        self.trust_bar.set_margin_bottom(4)
+        self.trust_bar.set_visible(False)
+        wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                       spacing=4)
+        wrap.append(self.graph_area)
+        wrap.append(self.trust_bar)
+        self.graph_frame.set_child(wrap)
+
+    def _on_meas_toggle(self, btn):
+        self.show_meas = btn.get_active()
+        self.graph_area.queue_draw()
+
+    def _overlay_curve(self):
+        """(freqs, measured, spread, trust_band) for the slot on
+        screen, or None: no canvas, overlay off, or the slot has no
+        measured channel ('all' over a multi-channel canvas)."""
+        c = self._canvas
+        if not c or not self.show_meas or not c.get("curves"):
+            return None
+        key = self.cur_ch
+        if key not in c["curves"]:
+            if self.apply_all and len(c["curves"]) == 1:
+                key = next(iter(c["curves"]))
+            else:
+                return None
+        cv = c["curves"][key]
+        return cv["f"], cv["meas"], cv["spread"], c["band"].get(key)
+
+    def _canvas_refresh(self):
+        """Recompute the measurement overlay and the trust plaque for
+        the loaded profile: cheap (a few ms over the stored
+        magnitudes), runs on every load and debounced save so the
+        stale / incomplete / edited chips never lie."""
+        p = self.store.get(self.current_pid) or {}
+        m = p.get("measurement")
+        has = isinstance(m, dict) and bool(m.get("takes"))
+        self.trust_bar.set_visible(bool(has))
+        if not has:
+            self._canvas = None
+            self.graph_area.queue_draw()
+            return
+        from . import refit, trust      # heavy deps stay lazy
+        fit = p.get("fit") or {}
+        params = fit.get("params") or {}
+        cache = {"curves": {}, "band": {}, "err": None,
+                 "ylo": None, "yhi": None}
+        try:
+            results, _ = refit.channel_results(
+                m, smoothing=params.get("smoothing", 6))
+        except refit.RefitError as e:
+            cache["err"] = str(e)
+            results = {}
+        rep = trust.assess(p)
+        lo_all = hi_all = None
+        for key, r in results.items():
+            d = r["data"]
+            f = [float(v) for v in d["freq_hz"]]
+            mag = [float(v) for v in d["mag_db_smoothed"]]
+            band = ((rep or {}).get("channels", {})
+                    .get(key, {}).get("band"))
+            nlo = params.get("f_lo") or (band[0] if band else f[0])
+            nhi = params.get("f_hi") or (band[1] if band else f[-1])
+            sel = [v for fv, v in zip(f, mag) if nlo <= fv <= nhi]
+            off = (sum(sel) / len(sel)) if sel else 0.0
+            meas = [v - off for v in mag]
+            sp = d.get("spread_db")
+            spread = ([float(v) for v in sp]
+                      if sp is not None else None)
+            lo = min(v - (spread[i] if spread else 0.0)
+                     for i, v in enumerate(meas))
+            hi = max(v + (spread[i] if spread else 0.0)
+                     for i, v in enumerate(meas))
+            lo_all = lo if lo_all is None else min(lo_all, lo)
+            hi_all = hi if hi_all is None else max(hi_all, hi)
+            cache["curves"][key] = {"f": f, "meas": meas,
+                                    "spread": spread}
+            cache["band"][key] = band
+        if lo_all is not None:
+            cache["ylo"], cache["yhi"] = lo_all - 3.0, hi_all + 3.0
+        self._canvas = cache
+
+        ids = {t.get("id") for t in m.get("takes") or []}
+        used = set(fit.get("takes") or [])
+        stale = refit.fit_is_stale(p)
+        incomplete = bool(fit) and bool(ids - used)
+        edited = bool(fit.get("edited"))
+        if cache["err"]:
+            txt = "Measurement: %s" % cache["err"]
+        elif rep:
+            band = rep.get("band")
+            btxt = ("%s–%s Hz" % (_fmt_hz(band[0]),
+                                       _fmt_hz(band[1]))
+                    if band else "no controlled band")
+            txt = "Trust %d · %s" % (rep.get("score", 0), btxt)
+        else:
+            txt = "Measurement attached"
+        self.trust_label.set_text(txt)
+        tip = "\n".join((rep or {}).get("reasons") or [])
+        self.trust_bar.set_tooltip_text(tip or None)
+        chips = [t for t, on in (("stale", stale),
+                                 ("incomplete", incomplete),
+                                 ("edited", edited)) if on]
+        self.fit_state_label.set_visible(bool(chips))
+        self.fit_state_label.set_text(" · ".join(chips))
+        for cls in ("error", "warning", "dim-label"):
+            self.fit_state_label.remove_css_class(cls)
+        if chips:
+            self.fit_state_label.add_css_class(
+                "error" if stale else
+                "warning" if incomplete else "dim-label")
+        self.refit_btn.set_sensitive(
+            not cache["err"] and bool(fit or ids)
+            and self._editable(self.current_pid))
+        self.graph_area.queue_draw()
+
+    def _on_refit(self, *_):
+        """Re-fit the profile from its own canvas; hand edits ask."""
+        p = self.store.get(self.current_pid) or {}
+        if (p.get("fit") or {}).get("edited"):
+            dlg = Adw.AlertDialog(
+                heading="Discard hand edits?",
+                body="The bands were edited by hand after the fit. "
+                     "Re-fitting rebuilds them from the stored "
+                     "measurement and discards those edits.")
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("refit", "Re-fit")
+            dlg.set_response_appearance(
+                "refit", Adw.ResponseAppearance.DESTRUCTIVE)
+            dlg.set_default_response("cancel")
+            dlg.set_close_response("cancel")
+            dlg.connect("response", lambda _d, r:
+                        self._refit_now() if r == "refit" else None)
+            dlg.present(self)
+            return
+        self._refit_now()
+
+    def _refit_now(self):
+        pid = self.current_pid
+        p = self.store.get(pid)
+        if p is None:
+            return
+        self.refit_btn.set_sensitive(False)
+        res = {}
+
+        def done():
+            self.refit_btn.set_sensitive(True)
+            if res.get("err") is not None:
+                dlg = Adw.AlertDialog(
+                    heading="Could not re-fit",
+                    body=str(res["err"]))
+                dlg.add_response("ok", "OK")
+                dlg.set_default_response("ok")
+                dlg.set_close_response("ok")
+                dlg.present(self)
+            elif self.current_pid == pid:
+                self.store.save_user(res["prof"])
+                self._load_profile(pid)
+            return False
+
+        def work():
+            from . import refit
+            try:
+                res["prof"] = refit.refit_profile(
+                    p, allow_edited=True)
+            except Exception as e:
+                res["err"] = e
+            GLib.idle_add(done)
+        threading.Thread(target=work, daemon=True).start()
 
     # ---- graph geometry / interaction (drag band handles) ------------------
     def _x_of(self, f):
@@ -236,9 +435,16 @@ class EqWindow(Adw.ApplicationWindow):
     def _y_window(self):
         """The plot's dB window follows the preamp, so the drawn
         response (preamp + bands) stays centered instead of clipping
-        at a fixed +-24 edge; the gridline labels stay absolute."""
+        at a fixed +-24 edge; the gridline labels stay absolute. A
+        visible measurement overlay widens the window so its fan
+        stays on the plot."""
         p = float(self.preamp or 0.0)
-        return -DB_MAX + p, DB_MAX + p
+        lo, hi = -DB_MAX + p, DB_MAX + p
+        c = getattr(self, "_canvas", None)
+        if c and self.show_meas and c.get("ylo") is not None:
+            lo = min(lo, c["ylo"])
+            hi = max(hi, c["yhi"])
+        return lo, hi
 
     def _y_of(self, db):
         """Map a dB value to a plot y pixel."""
@@ -613,15 +819,20 @@ class EqWindow(Adw.ApplicationWindow):
         return {"bands": [bnd.to_dict() for bnd in s["bands"]]}
 
     def _working_body(self):
-        """Assemble the full profile body from the current editor state."""
+        """Assemble the full profile body from the current editor
+        state. editor_body() reattaches the stored v3 blocks (the
+        editor edits sound, not the canvas) and marks a measured fit
+        whose sound diverged as edited."""
         p = self.store.get(self.current_pid)
-        return {"id": self.current_pid,
-                "name": p.get("name", self.current_pid),
+        body = {"id": self.current_pid,
+                "name": (p or {}).get("name", self.current_pid),
                 "apply_all": self.apply_all,
                 "preamp": float(self.preamp),
                 "ch_keys": list(self.ch_keys),
                 "all": self._slot_to_dict("all"),
-                "channels": {k: self._slot_to_dict(k) for k in self.ch_keys}}
+                "channels": {k: self._slot_to_dict(k)
+                             for k in self.ch_keys}}
+        return editor_body(body, p)
 
     def _load_slot(self, ch):
         """Show one channel slot in the editor (preamp, table, graph, title)."""
@@ -777,6 +988,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._update_undo_buttons()
         if apply:
             self._apply_now()
+        self._canvas_refresh()
 
     def _ensure_editable(self):
         """If the current profile is read-only (built-in / Clean), fork it to a
@@ -826,6 +1038,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._apply_now()
         if not self._restoring:
             self._push_history()
+        self._canvas_refresh()
         return GLib.SOURCE_REMOVE
 
     def _apply_now(self):
@@ -881,6 +1094,7 @@ class EqWindow(Adw.ApplicationWindow):
         if self._editable(self.current_pid):
             self.store.save_user(self._working_body())
         self._apply_now()
+        self._canvas_refresh()
 
     def _push_history(self):
         """Append a snapshot, dropping any redo tail (cap _HISTORY_CAP)."""
@@ -1771,6 +1985,50 @@ class EqWindow(Adw.ApplicationWindow):
             cr.move_to(ml, y); cr.line_to(ml + pw_, y); cr.stroke()
             cr.set_source_rgba(1, 1, 1, 0.45)
             cr.move_to(4, y + 3); cr.show_text("%+d" % db)
+
+        ov = self._overlay_curve()
+        if ov is not None:
+            fo, meas, spread, band = ov
+            cr.save()
+            cr.rectangle(ml, mt, pw_, ph)
+            cr.clip()
+            if spread is not None:
+                cr.set_source_rgba(0.55, 0.65, 0.85, 0.14)
+                for i, f in enumerate(fo):
+                    x, y = x_of(f), y_of(meas[i] + spread[i])
+                    cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
+                for i in range(len(fo) - 1, -1, -1):
+                    cr.line_to(x_of(fo[i]),
+                               y_of(meas[i] - spread[i]))
+                cr.close_path()
+                cr.fill()
+            cr.set_source_rgba(0.85, 0.85, 0.90, 0.55)
+            cr.set_line_width(1.2)
+            for i, f in enumerate(fo):
+                x, y = x_of(f), y_of(meas[i])
+                cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
+            cr.stroke()
+            resp = eq.response_db(self.preamp, self.bands, fo)
+            cr.set_source_rgba(0.45, 0.95, 0.55, 0.90)
+            cr.set_line_width(1.5)
+            for i, f in enumerate(fo):
+                x, y = x_of(f), y_of(meas[i] + resp[i])
+                cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
+            cr.stroke()
+            cr.set_source_rgba(0, 0, 0, 0.30)
+            if band is not None:
+                blo, bhi = max(band[0], FMIN), min(band[1], FMAX)
+                if blo > FMIN:
+                    cr.rectangle(ml, mt, x_of(blo) - ml, ph)
+                    cr.fill()
+                if bhi < FMAX:
+                    cr.rectangle(x_of(bhi), mt,
+                                 ml + pw_ - x_of(bhi), ph)
+                    cr.fill()
+            else:                    # nothing certified: dim it all
+                cr.rectangle(ml, mt, pw_, ph)
+                cr.fill()
+            cr.restore()
 
         active = not self.bypass_row.get_active()
         freqs = _log_freqs(int(max(60, pw_)))

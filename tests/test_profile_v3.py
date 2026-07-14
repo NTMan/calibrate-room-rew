@@ -104,3 +104,24 @@ def test_save_drops_empty_or_non_dict_blocks(tmp_path, monkeypatch):
     pid = st.save_user(dict(_v2(), measurement={}, fit="stale"))
     raw = json.loads((tmp_path / ("%s.json" % pid)).read_text())
     assert "measurement" not in raw and "fit" not in raw
+
+
+def test_editor_body_carries_blocks_and_marks_edited():
+    stored = dict(_v2(), version=3, **_blocks())
+    body = {k: stored[k] for k in
+            ("id", "name", "apply_all", "preamp", "ch_keys",
+             "all", "channels")}
+    same = profiles.editor_body(dict(body), stored)
+    for key in profiles.V3_BLOCKS:
+        assert same[key] == _blocks()[key]
+    assert same["fit"] == _blocks()["fit"]      # untouched sound
+    out = profiles.editor_body(dict(body, preamp=-6.0), stored)
+    assert out["fit"]["edited"] is True
+    assert "edited" not in stored["fit"]        # input not mutated
+    again = profiles.editor_body(dict(body, preamp=-7.0), out)
+    assert again["fit"]["edited"] is True
+    # nothing stored / no fit: nothing invented
+    assert "measurement" not in profiles.editor_body(dict(body), None)
+    nofit = {k: v for k, v in stored.items() if k != "fit"}
+    assert "fit" not in profiles.editor_body(dict(body, preamp=-6.0),
+                                             nofit)

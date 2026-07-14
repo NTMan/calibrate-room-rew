@@ -33,6 +33,31 @@ def _clean_profile():
             "path": None}
 
 
+PLAYBACK_KEYS = ("apply_all", "preamp", "ch_keys", "all", "channels")
+
+
+def editor_body(body, stored):
+    """The editor rebuilds only the PLAYBACK body (it edits sound,
+    not history). This reattaches the stored profile's v3 blocks so
+    a debounced save can never strip a canvas, and marks a measured
+    fit whose sound diverged from the stored one as edited -- the
+    re-fit path then knows hand work is at stake. Undoing back to
+    the exact fitted sound does not clear the mark; only a re-fit
+    does."""
+    out = dict(body)
+    for key in V3_BLOCKS:
+        block = (stored or {}).get(key)
+        if isinstance(block, dict) and block and key not in out:
+            out[key] = block
+    fit = out.get("fit")
+    if (isinstance(fit, dict) and isinstance(stored, dict)
+            and not fit.get("edited")
+            and any(out.get(k) != stored.get(k)
+                    for k in PLAYBACK_KEYS)):
+        out["fit"] = dict(fit, edited=True)
+    return out
+
+
 class ProfileStore:
     """Loads profiles from system (read-only) + user dirs and the bindings map.
     A built-in Clean profile is always present. 'No binding == Clean'."""
