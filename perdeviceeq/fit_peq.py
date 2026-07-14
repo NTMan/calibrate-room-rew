@@ -323,7 +323,8 @@ def _curve(result):
 
 
 def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
-                 max_boost=6.0, mono=False, report=False):
+                 max_boost=6.0, mono=False, report=False,
+                 progress=None):
     """Fit a profile dict from measurement result dicts. `results` maps
     a channel key (e.g. "FL") to a process_takes result. With mono=True a
     single result is fit once and applied to all channels (apply_all);
@@ -339,6 +340,9 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
     name = name or "Measured %s" % datetime.date.today().isoformat()
     prof = {"name": name, "version": SCHEMA_VERSION, "preamp": 0.0,
             "all": {"bands": []}, "channels": {}, "ch_keys": []}
+    if progress:                # (done, total, key-being-fit | None)
+        progress(0, max(1, len(results)),
+                 next(iter(results), None))
     if mono:
         (_key, result), = results.items()
         freq, mag = _curve(result)
@@ -352,7 +356,11 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
         prof["apply_all"] = False
         prof["ch_keys"] = list(results.keys())
         fits, means = {}, {}
-        for key, result in results.items():
+        keys = list(results.keys())
+        for i, key in enumerate(keys):
+            if progress and i:
+                progress(i, len(keys), key)
+            result = results[key]
             freq, mag = _curve(result)
             fits[key] = fit_channel(freq, mag, f_lo, f_hi, bands,
                                     max_boost)
@@ -378,6 +386,8 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
                       "a seating/seal difference between the channels "
                       "-- reseat and remeasure rather than EQ it away"
                       % TRIM_WARN_DB)
+    if progress:
+        progress(max(1, len(results)), max(1, len(results)), None)
     return prof
 
 

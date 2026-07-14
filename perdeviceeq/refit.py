@@ -141,7 +141,7 @@ def channel_results(measurement, take_ids=None, smoothing=6):
 
 def refit_profile(prof, bands=None, f_lo=None, f_hi=None,
                   max_boost=None, smoothing=None, take_ids=None,
-                  allow_edited=False):
+                  allow_edited=False, progress=None):
     """Re-derive the playback body from the profile's own canvas.
 
     Fit parameters default to the stored fit.params (falling back to
@@ -186,7 +186,8 @@ def refit_profile(prof, bands=None, f_lo=None, f_hi=None,
                                   f_lo=params["f_lo"],
                                   f_hi=params["f_hi"],
                                   max_boost=params["max_boost"],
-                                  mono=params["mono"])
+                                  mono=params["mono"],
+                                  progress=progress)
     out = dict(prof)
     for k in ("apply_all", "preamp", "ch_keys", "all", "channels"):
         out[k] = fitted[k]

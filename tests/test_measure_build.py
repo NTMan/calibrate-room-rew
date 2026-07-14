@@ -295,3 +295,93 @@ def test_append_rename_only_and_edited_gate(shim_state, store,
                                   "test_sink", pid,
                                   allow_edited=True)
     assert store.get(pid)["fit"]["edited"] is False
+
+
+def test_commit_take_builds_the_canvas_incrementally(shim_state,
+                                                     store, tmp_path):
+    from perdeviceeq import refit
+    pid = store.save_user({"id": "inc", "name": "Inc", "version": 3,
+                           "apply_all": True, "preamp": 0.0,
+                           "ch_keys": [], "all": {"bands": []},
+                           "channels": {}})
+    flat = tmp_path / "flat.txt"
+    flat.write_text("20 0.0\n1000 0.0\n20000 0.0\n")
+    ses = ms.MeasureSession(_cfg(tmp_path))
+    with ses:
+        ses.take(0)
+        r0 = ses.takes_of(0)[-1]
+        ids = measure_build.commit_take(
+            store, pid, ses, 0, "FL", r0.id, cal=str(flat),
+            source={"name": "EARS", "serial": "861"})
+        m = store.get(pid)["measurement"]
+        assert len(m["takes"]) == 1          # landed immediately
+        assert m["source"]["serial"] == "861"
+        assert m["source"]["cal"]["0"]["file"] == "flat.txt"
+        ses.take(0)
+        r1 = ses.takes_of(0)[-1]
+        ids2 = measure_build.commit_take(
+            store, pid, ses, 0, "FL", r1.id,
+            canvas_session=ids["session"])
+        ses.take(1)
+        r2 = ses.takes_of(1)[-1]
+        measure_build.commit_take(store, pid, ses, 1, "FR", r2.id,
+                                  canvas_session=ids["session"])
+    p = store.get(pid)
+    m = p["measurement"]
+    assert ids2["session"] == ids["session"]
+    assert len(m["sessions"]) == 1           # one live session, once
+    assert len(m["takes"]) == 3
+    assert p["provenance"] == {"kind": "measured"}
+    assert "fit" not in p                    # commits never fit
+    events = []
+    measure_build.refit_and_save(
+        store, pid,
+        progress=lambda d, n, k: events.append((d, n, k)))
+    p = store.get(pid)
+    assert not refit.fit_is_stale(p)
+    assert sorted(p["fit"]["takes"]) == sorted(t["id"]
+                                               for t in m["takes"])
+    assert [e[0] for e in events] == [0, 1, 2]
+    assert events[-1] == (2, 2, None)
+    assert {e[2] for e in events[:-1]} == {"FL", "FR"}
+
+
+def test_commit_take_respects_the_rig_gate(shim_state, store,
+                                           tmp_path):
+    ses = ms.MeasureSession(_cfg(tmp_path))
+    with ses:
+        ses.take(0)
+    pid = measure_build.build_and_bind(
+        ses, {0: "FL"}, store, "test_sink", name="p",
+        source={"serial": "861"})
+    before = store.get(pid)["measurement"]
+    ses2 = _second_session(tmp_path, [(0, 0)])
+    rid = ses2.takes_of(0)[-1].id
+    with pytest.raises(measure_build.SourceMismatch):
+        measure_build.commit_take(store, pid, ses2, 0, "FL", rid,
+                                  source={"serial": "999"})
+    assert store.get(pid)["measurement"] == before
+
+
+def test_remove_takes_prunes_sessions_and_stales_the_fit(
+        shim_state, store, tmp_path):
+    from perdeviceeq import refit
+    ses = ms.MeasureSession(_cfg(tmp_path))
+    with ses:
+        ses.take(0)
+        ses.take(0)
+    pid = measure_build.build_and_bind(
+        ses, {0: "FL"}, store, "test_sink", name="p")
+    m = store.get(pid)["measurement"]
+    first, second = [t["id"] for t in m["takes"]]
+    sid, = m["sessions"]
+    assert measure_build.remove_takes(store, pid, ["nope"]) == 0
+    assert measure_build.remove_takes(store, pid, [first]) == 1
+    p = store.get(pid)
+    assert [t["id"] for t in p["measurement"]["takes"]] == [second]
+    assert sid in p["measurement"]["sessions"]   # still referenced
+    assert refit.fit_is_stale(p)                 # consumed take gone
+    assert measure_build.remove_takes(store, pid, [second]) == 1
+    p = store.get(pid)
+    assert p["measurement"]["takes"] == []
+    assert p["measurement"]["sessions"] == {}    # pruned with it
