@@ -23,6 +23,7 @@ import numpy as np
 
 from . import fit_peq
 from . import measure_core as mc
+from .profiles import playback_sha256
 
 FIT_ALGO = "fit_peq"
 
@@ -212,6 +213,7 @@ def build_and_bind(session, channels, store, sink_node, name,
                                                     take_ids, params),
                    "edited": False}
     prof["measurement"] = measurement
+    prof["fit"]["output_sha256"] = playback_sha256(prof)
     pid = store.save_user(prof)
     store.set_binding(sink_node, pid)
     return pid

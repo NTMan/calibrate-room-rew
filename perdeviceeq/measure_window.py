@@ -193,6 +193,10 @@ class MeasureWindow(Adw.Window):
         self.create_btn.connect("clicked", self._on_create)
         if self.edit_pid:
             self.create_btn.set_label("Save")
+        self.name_row = b.get_object("name_row")
+        self.name_row.set_text(
+            (self.edit_prof or {}).get("name")
+            or "Measured %s" % self.sink_desc)
 
         self._build_mic_controls(b.get_object("mic_row"),
                                  b.get_object("capsules_row"),
@@ -467,16 +471,6 @@ class MeasureWindow(Adw.Window):
                                          "residual is under ~0.5 dB")
         row.append(self.bands_spin)
         box.append(row)
-        nrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                       spacing=8)
-        nrow.append(Gtk.Label(label="Name"))
-        self.name_entry = Gtk.Entry()
-        self.name_entry.set_hexpand(True)
-        self.name_entry.set_text(
-            (self.edit_prof or {}).get("name")
-            or "Measured %s" % self.sink_desc)
-        nrow.append(self.name_entry)
-        box.append(nrow)
         self.replace_check = Gtk.CheckButton(
             label="Replace stored takes of re-measured channels")
         self.replace_check.set_tooltip_text(
@@ -1487,7 +1481,7 @@ class MeasureWindow(Adw.Window):
                 "serial": (existing or {}).get("serial", "")}
 
     def _profile_name(self):
-        return (self.name_entry.get_text().strip()
+        return (self.name_row.get_text().strip()
                 or "Measured %s" % self.sink_desc)
 
     # ---- dialogs / teardown -----------------------------------------------

@@ -15,6 +15,7 @@ import pytest
 
 from perdeviceeq import measure_build, measure_session as ms
 from perdeviceeq import measure_core as mc
+from perdeviceeq import profiles
 from perdeviceeq import profiles as profiles_mod
 from perdeviceeq.profiles import ProfileStore
 
@@ -104,6 +105,7 @@ def test_build_and_bind_creates_and_binds(shim_state, store, tmp_path):
     assert fit["edited"] is False
     assert fit["inputs_sha256"] == measure_build.fit_fingerprint(
         m, fit["takes"], fit["params"])
+    assert fit["output_sha256"] == profiles.playback_sha256(p)
 
 
 def test_build_and_bind_uses_per_channel_cal(shim_state, store, tmp_path):

@@ -2027,6 +2027,21 @@ class EqWindow(Adw.ApplicationWindow):
             else:                    # nothing certified: dim it all
                 cr.rectangle(ml, mt, pw_, ph)
                 cr.fill()
+            cr.select_font_face("Sans", 0, 0)
+            cr.set_font_size(9)
+            lx, ly = ml + 10, mt + 14
+            for lab, rgba in (
+                    ("measured", (0.85, 0.85, 0.90, 0.9)),
+                    ("predicted", (0.45, 0.95, 0.55, 0.9)),
+                    ("EQ", (0.30, 0.78, 1.0, 0.9))):
+                cr.set_source_rgba(*rgba)
+                cr.set_line_width(2.0)
+                cr.move_to(lx, ly - 3)
+                cr.line_to(lx + 14, ly - 3)
+                cr.stroke()
+                cr.move_to(lx + 18, ly)
+                cr.show_text(lab)
+                lx += 18 + cr.text_extents(lab).width + 14
             cr.restore()
 
         active = not self.bypass_row.get_active()

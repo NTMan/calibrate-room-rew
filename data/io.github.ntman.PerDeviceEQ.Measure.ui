@@ -47,6 +47,11 @@
                 <child>
                   <object class="AdwPreferencesGroup" id="mic_group">
                     <child>
+                      <object class="AdwEntryRow" id="name_row">
+                        <property name="title" translatable="yes">Profile name</property>
+                      </object>
+                    </child>
+                    <child>
                       <object class="AdwActionRow" id="mic_row">
                         <property name="title" translatable="yes">Measurement mic</property>
                         <property name="subtitle" translatable="yes">Input the sweep is captured on</property>

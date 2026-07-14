@@ -125,3 +125,16 @@ def test_editor_body_carries_blocks_and_marks_edited():
     nofit = {k: v for k, v in stored.items() if k != "fit"}
     assert "fit" not in profiles.editor_body(dict(body, preamp=-6.0),
                                              nofit)
+
+
+def test_edited_mark_is_derived_from_the_fit_output():
+    stored = dict(_v2(), version=3, **_blocks())
+    stored["fit"] = dict(
+        stored["fit"],
+        output_sha256=profiles.playback_sha256(stored))
+    body = {k: stored[k] for k in
+            ("id", "name") + profiles.PLAYBACK_KEYS}
+    hot = profiles.editor_body(dict(body, preamp=-6.0), stored)
+    assert hot["fit"]["edited"] is True
+    cold = profiles.editor_body(dict(body), hot)   # undo landed
+    assert cold["fit"]["edited"] is False

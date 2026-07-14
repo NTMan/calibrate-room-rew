@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from perdeviceeq import measure_build, refit
+from perdeviceeq import measure_build, profiles, refit
 from perdeviceeq import measure_core as mc
 from perdeviceeq import measure_session as ms
 from perdeviceeq import profiles as profiles_mod
@@ -180,6 +180,7 @@ def test_refit_updates_fit_and_keeps_canvas():
     assert f["takes"] == ["a", "b"]
     assert f["inputs_sha256"] == measure_build.fit_fingerprint(
         out["measurement"], f["takes"], f["params"])
+    assert f["output_sha256"] == profiles.playback_sha256(out)
     assert refit.fit_is_stale(out) is False
 
 

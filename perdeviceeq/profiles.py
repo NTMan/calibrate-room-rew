@@ -15,6 +15,7 @@ guarantees a save/load round-trip never strips them.
 No GTK. Filesystem + JSON only.
 """
 
+import hashlib
 import os, sys, json, uuid
 
 from .config import (SYS_PROFILE_DIRS, USER_PROFILES_DIR, BINDINGS_FILE,
@@ -36,25 +37,42 @@ def _clean_profile():
 PLAYBACK_KEYS = ("apply_all", "preamp", "ch_keys", "all", "channels")
 
 
+def playback_sha256(p):
+    """sha256 over the canonical playback body -- the five keys that
+    make the sound. The fit stamps its output with this, so `edited`
+    can be derived instead of sticky: diverge and it appears, undo
+    back to the exact fitted sound and it clears."""
+    body = {k: p.get(k) for k in PLAYBACK_KEYS}
+    blob = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def editor_body(body, stored):
     """The editor rebuilds only the PLAYBACK body (it edits sound,
     not history). This reattaches the stored profile's v3 blocks so
-    a debounced save can never strip a canvas, and marks a measured
-    fit whose sound diverged from the stored one as edited -- the
-    re-fit path then knows hand work is at stake. Undoing back to
-    the exact fitted sound does not clear the mark; only a re-fit
-    does."""
+    a debounced save can never strip a canvas, and keeps the fit's
+    `edited` mark truthful. A fit carrying output_sha256 (the hash
+    of the playback body it produced) gets the mark DERIVED: diverge
+    and it appears, undo back to the exact fitted sound and it
+    clears. A fit from before the output hash falls back to the
+    sticky rule: any divergence sets the mark, only a re-fit clears
+    it."""
     out = dict(body)
     for key in V3_BLOCKS:
         block = (stored or {}).get(key)
         if isinstance(block, dict) and block and key not in out:
             out[key] = block
     fit = out.get("fit")
-    if (isinstance(fit, dict) and isinstance(stored, dict)
-            and not fit.get("edited")
-            and any(out.get(k) != stored.get(k)
-                    for k in PLAYBACK_KEYS)):
-        out["fit"] = dict(fit, edited=True)
+    if isinstance(fit, dict):
+        ref = fit.get("output_sha256")
+        if ref:                     # derived: undo clears the mark
+            ed = playback_sha256(out) != ref
+            if bool(fit.get("edited")) != ed:
+                out["fit"] = dict(fit, edited=ed)
+        elif (isinstance(stored, dict) and not fit.get("edited")
+                and any(out.get(k) != stored.get(k)
+                        for k in PLAYBACK_KEYS)):
+            out["fit"] = dict(fit, edited=True)   # pre-hash fits
     return out
 
 

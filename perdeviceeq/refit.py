@@ -26,6 +26,7 @@ from . import fit_peq
 from . import measure_core as mc
 from .measure_build import FIT_ALGO, fit_fingerprint
 from .measure_session import gain_comp_factors
+from .profiles import playback_sha256
 
 
 class RefitError(RuntimeError):
@@ -194,6 +195,7 @@ def refit_profile(prof, bands=None, f_lo=None, f_hi=None,
                   "takes": list(used),
                   "inputs_sha256": fit_fingerprint(m, used, params),
                   "edited": False}
+    out["fit"]["output_sha256"] = playback_sha256(out)
     return out
 
 
