@@ -233,10 +233,18 @@ class EqWindow(Adw.ApplicationWindow):
         return ml + (math.log10(f) - math.log10(FMIN)) / \
             (math.log10(FMAX) - math.log10(FMIN)) * pw_
 
+    def _y_window(self):
+        """The plot's dB window follows the preamp, so the drawn
+        response (preamp + bands) stays centered instead of clipping
+        at a fixed +-24 edge; the gridline labels stay absolute."""
+        p = float(self.preamp or 0.0)
+        return -DB_MAX + p, DB_MAX + p
+
     def _y_of(self, db):
         """Map a dB value to a plot y pixel."""
         ml, mt, pw_, ph = self._plot
-        return mt + (DB_MAX - db) / (2 * DB_MAX) * ph
+        lo, hi = self._y_window()
+        return mt + (hi - db) / (hi - lo) * ph
 
     def _f_of(self, x):
         """Inverse of _x_of: plot x pixel back to frequency (clamped)."""
@@ -251,8 +259,9 @@ class EqWindow(Adw.ApplicationWindow):
         ml, mt, pw_, ph = self._plot
         if ph <= 0:
             return None
+        lo, hi = self._y_window()
         t = min(1.0, max(0.0, (y - mt) / ph))
-        return DB_MAX - t * (2 * DB_MAX)
+        return hi - t * (hi - lo)
 
     @staticmethod
     def _hsv(h, s, v):
@@ -275,7 +284,8 @@ class EqWindow(Adw.ApplicationWindow):
         best, bestd = None, r * r
         for b in self.bands:
             bx = self._x_of(max(b.freq, FMIN))  # freq-0 trim: left edge
-            by = self._y_of(max(-DB_MAX, min(DB_MAX, b.gain)))
+            wlo, whi = self._y_window()
+            by = self._y_of(max(wlo, min(whi, b.gain)))
             d = (bx - x) ** 2 + (by - y) ** 2
             if d <= bestd:
                 best, bestd = b, d
@@ -1732,8 +1742,10 @@ class EqWindow(Adw.ApplicationWindow):
             return ml + (math.log10(f) - math.log10(FMIN)) / \
                 (math.log10(FMAX) - math.log10(FMIN)) * pw_
 
+        wlo, whi = self._y_window()
+
         def y_of(db):
-            return mt + (DB_MAX - db) / (2 * DB_MAX) * ph
+            return mt + (whi - db) / (whi - wlo) * ph
 
         cr.set_line_width(1.0)
         cr.select_font_face("Sans", 0, 0); cr.set_font_size(9)
@@ -1744,7 +1756,8 @@ class EqWindow(Adw.ApplicationWindow):
             cr.set_source_rgba(1, 1, 1, 0.45)
             lab = ("%dk" % (f // 1000)) if f >= 1000 else str(f)
             cr.move_to(x - 8, mt + ph + 14); cr.show_text(lab)
-        for db in range(int(-DB_MAX), int(DB_MAX) + 1, 6):
+        for db in range(int(math.ceil(wlo / 6.0)) * 6,
+                        int(math.floor(whi)) + 1, 6):
             y = y_of(db)
             cr.set_source_rgba(1, 1, 1, 0.16 if db == 0 else 0.08)
             cr.move_to(ml, y); cr.line_to(ml + pw_, y); cr.stroke()
@@ -1758,7 +1771,7 @@ class EqWindow(Adw.ApplicationWindow):
             else cr.set_source_rgba(0.6, 0.6, 0.6, 0.7)
         cr.set_line_width(2.0)
         for i, f in enumerate(freqs):
-            db = max(-DB_MAX, min(DB_MAX, curve[i]))
+            db = max(wlo, min(whi, curve[i]))
             px, py = x_of(f), y_of(db)
             cr.move_to(px, py) if i == 0 else cr.line_to(px, py)
         cr.stroke()
@@ -1770,7 +1783,7 @@ class EqWindow(Adw.ApplicationWindow):
 
         for b in self.bands:
             bx = x_of(max(b.freq, FMIN))    # freq-0 trim pins left
-            by = y_of(max(-DB_MAX, min(DB_MAX, b.gain)))
+            by = y_of(max(wlo, min(whi, b.gain)))
             r, g, bl = self._band_color(b.freq)
             cr.arc(bx, by, 5.5, 0, 2 * math.pi)
             if b.enabled:
