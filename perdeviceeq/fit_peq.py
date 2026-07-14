@@ -4,7 +4,7 @@
 Reads one or two measure_run result.json files (the core has already
 averaged the takes into data.mag_db_smoothed), fits up to --bands biquads
 per channel to a FLAT target (the HEQ intent: a neutral headphone measures
-flat) over a trusted band, and writes a per-device-eq v2 profile, per
+flat) over a trusted band, and writes a per-device-eq profile, per
 channel, ready for the app's "Import profile...".
 
 Filters are evaluated with the SAME biquad transfer function the app and
@@ -37,7 +37,7 @@ import numpy as np
 from scipy.optimize import least_squares
 
 from . import eq
-from .config import FS
+from .config import FS, SCHEMA_VERSION
 
 RESID_TARGET_DB = 0.5
 GRID = 400
@@ -324,7 +324,7 @@ def _curve(result):
 
 def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
                  max_boost=6.0, mono=False, report=False):
-    """Fit a v2 profile dict from measurement result dicts. `results` maps
+    """Fit a profile dict from measurement result dicts. `results` maps
     a channel key (e.g. "FL") to a process_takes result. With mono=True a
     single result is fit once and applied to all channels (apply_all);
     otherwise each channel is fit separately and ch_keys follows the
@@ -337,7 +337,7 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
     Returns the profile body (preamp 0.0: the app derives
     Safe/Session)."""
     name = name or "Measured %s" % datetime.date.today().isoformat()
-    prof = {"name": name, "version": 2, "preamp": 0.0,
+    prof = {"name": name, "version": SCHEMA_VERSION, "preamp": 0.0,
             "all": {"bands": []}, "channels": {}, "ch_keys": []}
     if mono:
         (_key, result), = results.items()

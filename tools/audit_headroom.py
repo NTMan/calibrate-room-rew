@@ -13,8 +13,8 @@ Usage:
     audit_headroom.py --dump-demo > profile.json
 
 profile.json is either this tool's own schema ({"preamp": g, "channels":
-{"FL": [band, ...]}}, band key "on") or a schema-v2 profile saved by the
-app (~/.config/per-device-eq/profiles/*.json: one shared preamp, band
+{"FL": [band, ...]}}, band key "on") or a profile saved by the app
+(~/.config/per-device-eq/profiles/*.json, v2+: one shared preamp, band
 key "enabled", optional linked "all" slot; v1 files must be converted
 with tools/migrate_profiles_v1_to_v2.py first). --profile NAME resolves
 a saved app profile by its "name" field: case-insensitive, an

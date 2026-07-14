@@ -76,7 +76,7 @@ def test_cli_writes_importable_v2_profile(tmp_path):
     assert r.returncode == 0, r.stderr
     p = json.loads(out.read_text())
     # exactly the shape gui._import_profile / ProfileStore expect (v2)
-    assert p["version"] == 2
+    assert p["version"] == 3
     assert p["apply_all"] is False
     assert p["ch_keys"] == ["FL", "FR"]
     assert p["preamp"] == 0.0                  # the app derives Safe/Session
@@ -103,7 +103,7 @@ def test_fit_profiles_direct_call():
     prof = fit_peq.fit_profiles(results, name="Unit", bands=12,
                                 f_lo=20.0, f_hi=12000.0)
     assert prof["name"] == "Unit"
-    assert prof["version"] == 2
+    assert prof["version"] == 3
     assert prof["apply_all"] is False
     assert prof["ch_keys"] == ["FL", "FR"]
     assert prof["preamp"] == 0.0

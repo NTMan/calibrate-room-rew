@@ -3,7 +3,7 @@
 
 Ties a finished measure_session (the accepted takes) to fit_peq (the fit)
 and a ProfileStore (save + bind): finalize each measured channel with its
-own cal, fit a v2 profile, save it as a user profile, bind it to the sink
+own cal, fit a profile, save it as a user profile, bind it to the sink
 and return the new id. The window calls build_and_bind on a worker thread
 and then switches the main editor to that id so the result is heard at
 once. No GTK and no store construction here (the store is injected).
@@ -23,7 +23,7 @@ def build_and_bind(session, channels, store, sink_node, name,
     cal-file path (from the mic profile); a channel absent from cal falls
     back to the session's cfg.cal. Each channel's result is written to the
     session's output dir as result_<key>.json (kept for later
-    recompensate/re-fit), fit to flat, and assembled into one v2 profile.
+    recompensate/re-fit), fit to flat, and assembled into one profile.
     Returns the new user-profile id, already bound to sink_node."""
     cal = cal or {}
     results = {}

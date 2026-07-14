@@ -66,7 +66,7 @@ def test_build_and_bind_creates_and_binds(shim_state, store, tmp_path):
     p = store.get(pid)
     assert p is not None
     assert p["name"] == "ATVEL S7 (EARS RAW)"
-    assert p["version"] == 2
+    assert p["version"] == 3
     assert p["apply_all"] is False
     assert set(p["ch_keys"]) == {"FL", "FR"}
     for key in ("FL", "FR"):

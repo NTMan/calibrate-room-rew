@@ -1,7 +1,7 @@
 """Profile schema v2 (one shared preamp, "version": 2) and the one-shot
 v1 converter in tools/migrate_profiles_v1_to_v2.py.
 
-The app reads ONLY v2 files (ProfileStore skips others with a pointer to
+The app reads ONLY v3 files (ProfileStore skips others with a pointer to
 the converter); the converter folds the applied slots' preamps into
 their minimum -- the only direction that can never introduce clipping --
 strips per-slot leftovers and stamps the version. v1 originals stay next
@@ -70,6 +70,7 @@ def test_convert_dir_roundtrip(tmp_path):
 def test_store_skips_v1_files(tmp_path, monkeypatch, capsys):
     v2 = mig.migrate_body(_v1_unlinked())
     v2["id"] = "good"; v2["name"] = "Good"
+    v2["version"] = profiles.SCHEMA_VERSION   # store reads current only
     (tmp_path / "good.json").write_text(json.dumps(v2))
     old = dict(_v1_unlinked(), id="old", name="Old")
     (tmp_path / "old.json").write_text(json.dumps(old))
@@ -80,4 +81,4 @@ def test_store_skips_v1_files(tmp_path, monkeypatch, capsys):
                         str(tmp_path / "bindings.json"))
     st = profiles.ProfileStore()
     assert "good" in st.profiles and "old" not in st.profiles
-    assert "migrate_profiles_v1_to_v2" in capsys.readouterr().err
+    assert "migrate_profiles_v2_to_v3" in capsys.readouterr().err

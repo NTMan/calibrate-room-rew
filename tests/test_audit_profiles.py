@@ -50,7 +50,7 @@ def test_resolve_profile_by_name(tmp_path):
     for pid, name in (("a1", "soundcore Liberty 5"), ("b2", "iLoud Micro")):
         (tmp_path / ("%s.json" % pid)).write_text(
             json.dumps({"id": pid, "name": name, "apply_all": True,
-                        "version": 2, "preamp": 0.0, "all": {"bands": []}}))
+                        "version": 3, "preamp": 0.0, "all": {"bands": []}}))
     raw, path = ah.resolve_profile("soundcore liberty 5", str(tmp_path))
     assert raw["id"] == "a1"
     raw, path = ah.resolve_profile("micro", str(tmp_path))   # unique substring
@@ -85,7 +85,7 @@ def test_main_app_profile_end_to_end(tmp_path, monkeypatch, capsys):
     wav = tmp_path / "cap.wav"
     sf.write(wav, np.column_stack([sig, sig]), fs, subtype="FLOAT")
 
-    prof = {"id": "p1", "name": "Test Buds", "version": 2,
+    prof = {"id": "p1", "name": "Test Buds", "version": 3,
             "apply_all": False, "preamp": -1.0, "ch_keys": ["FL", "FR"],
             "channels": {"FL": {"bands": [
                              {"type": "PK", "freq": 1000, "gain": 12.0,

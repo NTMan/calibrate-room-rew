@@ -82,7 +82,12 @@ MEASURE_STATE_FILE = os.path.join(CONFIG_DIR, "measure-state.json")
 
 TYPE_TO_LABEL = {"PK": "bq_peaking", "LSC": "bq_lowshelf", "HSC": "bq_highshelf"}
 TYPE_NAMES = ["PK", "LSC", "HSC"]
-SCHEMA_VERSION = 2      # profile body schema; see tools/migrate_profiles_v1_to_v2.py
+SCHEMA_VERSION = 3      # profile body schema; older files convert once via
+#                         tools/migrate_profiles_v1_to_v2.py (v1 -> v2) and
+#                         tools/migrate_profiles_v2_to_v3.py (v2 -> v3)
+# the optional v3 blocks the store/GUI carry verbatim through save /
+# import / export; producers own their shape (see perdeviceeq/profiles.py)
+V3_BLOCKS = ("provenance", "device", "fit", "measurement")
 CLEAN_ID = "clean"
 
 

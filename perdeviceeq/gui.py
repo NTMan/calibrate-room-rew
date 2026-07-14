@@ -1673,7 +1673,7 @@ class EqWindow(Adw.ApplicationWindow):
                 return
             if data.get("version") != config.SCHEMA_VERSION:
                 print("per-device-eq: not importing %s (profile schema v%s; "
-                      "run tools/migrate_profiles_v1_to_v2.py once to "
+                      "run tools/migrate_profiles_v2_to_v3.py once to "
                       "convert)" % (path, data.get("version", 1)),
                       file=sys.stderr)
                 return
@@ -1684,6 +1684,10 @@ class EqWindow(Adw.ApplicationWindow):
                     "ch_keys": list(data.get("ch_keys") or []),
                     "channels": data.get("channels") or {},
                     "all": data.get("all") or {"bands": []}}
+            for key in config.V3_BLOCKS:  # measurement canvas travels too
+                block = data.get(key)
+                if isinstance(block, dict) and block:
+                    body[key] = block
             pid = self.store.save_user(body)
             self.favorites.add(pid)
             _save_favorites(self.favorites)
@@ -1701,6 +1705,10 @@ class EqWindow(Adw.ApplicationWindow):
                 "ch_keys": list(p.get("ch_keys") or []),
                 "channels": p.get("channels") or {},
                 "all": p.get("all") or {"bands": []}}
+        for key in config.V3_BLOCKS:      # measurement canvas travels too
+            block = p.get(key)
+            if isinstance(block, dict) and block:
+                body[key] = block
         dialog = Gtk.FileDialog()
         dialog.set_title("Export profile")
         dialog.set_initial_name(self._safe_filename(body["name"]) + ".json")

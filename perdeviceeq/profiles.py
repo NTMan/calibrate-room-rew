@@ -2,13 +2,23 @@
 """Profile store: load reusable EQ profiles (system read-only + user
 read-write), the built-in Clean profile, and the node.name -> profile bindings.
 
+Schema v3 = the v2 playback body (one shared preamp, per-channel bands)
+plus four OPTIONAL dict blocks the store carries verbatim: `provenance`
+(where the profile came from), `device` (what it corrects), `fit` (how
+the bands were derived and from which takes) and `measurement` (the
+canvas: the single rig with its per-capture-channel cal points, the
+sessions, and the per-take uncalibrated magnitudes on the profile's
+log grid). A profile without `measurement` is an import or a hand-made
+one. The blocks' shape is owned by their producers; the store only
+guarantees a save/load round-trip never strips them.
+
 No GTK. Filesystem + JSON only.
 """
 
 import os, sys, json, uuid
 
 from .config import (SYS_PROFILE_DIRS, USER_PROFILES_DIR, BINDINGS_FILE,
-                     CONFIG_DIR, CLEAN_ID, SCHEMA_VERSION)
+                     CONFIG_DIR, CLEAN_ID, SCHEMA_VERSION, V3_BLOCKS)
 from .eq import profile_graph, profile_has_content
 
 
@@ -58,7 +68,7 @@ class ProfileStore:
                 continue
             if p.get("version") != SCHEMA_VERSION:
                 print("per-device-eq: skipping %s (profile schema v%s; run "
-                      "tools/migrate_profiles_v1_to_v2.py once to convert)"
+                      "tools/migrate_profiles_v2_to_v3.py once to convert)"
                       % (path, p.get("version", 1)), file=sys.stderr)
                 continue
             pid = p.get("id") or os.path.splitext(fn)[0]
@@ -87,7 +97,7 @@ class ProfileStore:
 
     @classmethod
     def _body(cls, p):
-        return {"id": p["id"], "name": p.get("name", p["id"]),
+        body = {"id": p["id"], "name": p.get("name", p["id"]),
                 "version": SCHEMA_VERSION,
                 "apply_all": bool(p.get("apply_all", True)),
                 "preamp": float(p.get("preamp", 0.0)),
@@ -95,6 +105,11 @@ class ProfileStore:
                 "all": cls._sane_slot(p.get("all")),
                 "channels": {k: cls._sane_slot(v)
                              for k, v in (p.get("channels") or {}).items()}}
+        for key in V3_BLOCKS:            # carried verbatim, never made up
+            block = p.get(key)
+            if isinstance(block, dict) and block:
+                body[key] = block
+        return body
 
     def save_user(self, prof):
         """Write/overwrite a user profile (.json named by id). Returns the id."""
