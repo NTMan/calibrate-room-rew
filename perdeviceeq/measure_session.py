@@ -922,6 +922,59 @@ class TakeRecord:
     created_utc: object = None      # ISO 8601 UTC acceptance time
 
 
+def spread_trust_bound(spread, n_takes):
+    """Upper TRUST_CONFIDENCE bound on a sample std over `n_takes`
+    takes: s * sqrt(df / chi2_a(df)). A std of three takes must not
+    flip trust back up while an outlier seating sits in the sample;
+    trust is earned by accumulating agreeing takes -- x2.42 at two,
+    x1.61 at three, approaching 1 -- or restored by deleting the
+    outlier, never by dilution."""
+    df = n_takes - 1
+    k = math.sqrt(df / chi2.ppf(1.0 - TRUST_CONFIDENCE, df))
+    return np.asarray(spread, float) * k
+
+
+def trusted_band_hz(freqs, ok, min_run_oct=1.0 / 6.0):
+    """(floor, ceiling) of the trusted band from a per-frequency ok
+    mask: each edge scans inward to the first at-least-`min_run_oct`
+    contiguous trusted run, so a short island never moves an edge
+    while a cliff moves it to its exact brink. A mask with no
+    qualifying run degenerates to floor >= ceiling, which reads as
+    'no trusted band'. The pure half of trusted_ceiling_hz /
+    trusted_floor_hz, shared with the profile-side trust report."""
+    f = np.asarray(freqs, float)
+    ok = np.asarray(ok, bool)
+    min_ratio = 2.0 ** min_run_oct
+    n = len(f)
+    ceiling = float(f[0])
+    i = n - 1
+    while i >= 0:
+        if not ok[i]:
+            i -= 1
+            continue
+        j = i
+        while j >= 0 and ok[j]:
+            j -= 1
+        if j < 0 or f[i] / f[j + 1] >= min_ratio:
+            ceiling = float(f[i])
+            break
+        i = j
+    floor = float(f[-1])
+    i = 0
+    while i < n:
+        if not ok[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and ok[j]:
+            j += 1
+        if j >= n or f[j - 1] / f[i] >= min_ratio:
+            floor = float(f[i])
+            break
+        i = j
+    return floor, ceiling
+
+
 TAKE_CLEAN = "clean"        # counts toward a channel's three good takes
 TAKE_FLAGGED = "flagged"    # usable but not ideal; does NOT count
 TAKE_CLIPPED = "clipped"    # unusable
@@ -1482,9 +1535,7 @@ class MeasureSession:
             sp = self.spread_db(c, exclude_id=exclude)
             if sp is None:
                 continue
-            df = len(entries) - 1
-            k = math.sqrt(df / chi2.ppf(1.0 - TRUST_CONFIDENCE, df))
-            sp = np.asarray(sp, float) * k
+            sp = spread_trust_bound(sp, len(entries))
             combined = (sp if combined is None
                         else np.maximum(combined, sp))
         if combined is None:
@@ -1506,20 +1557,7 @@ class MeasureSession:
         m = self._trust_mask(thresh)
         if m is None:
             return None
-        f, ok = m
-        min_ratio = 2.0 ** (1.0 / 6.0)
-        i = len(f) - 1
-        while i >= 0:
-            if not ok[i]:
-                i -= 1
-                continue
-            j = i
-            while j >= 0 and ok[j]:
-                j -= 1
-            if j < 0 or f[i] / f[j + 1] >= min_ratio:
-                return float(f[i])
-            i = j
-        return float(f[0])
+        return trusted_band_hz(*m)[1]
 
     def trusted_floor_hz(self, thresh=SPREAD_MAX_DB):
         """Mirror of trusted_ceiling_hz for the bottom of the band:
@@ -1531,20 +1569,7 @@ class MeasureSession:
         m = self._trust_mask(thresh)
         if m is None:
             return None
-        f, ok = m
-        min_ratio = 2.0 ** (1.0 / 6.0)
-        i, n = 0, len(f)
-        while i < n:
-            if not ok[i]:
-                i += 1
-                continue
-            j = i
-            while j < n and ok[j]:
-                j += 1
-            if j >= n or f[j - 1] / f[i] >= min_ratio:
-                return float(f[i])
-            i = j
-        return float(f[-1])
+        return trusted_band_hz(*m)[0]
 
     def _trusted_octaves(self, thresh, exclude=None):
         """Total trustworthy bandwidth in octaves under the bound,
