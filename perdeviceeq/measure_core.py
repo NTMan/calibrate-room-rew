@@ -174,7 +174,10 @@ def extract_linear_ir(ir, fs, pre_flat_ms=10.0, pre_taper_ms=10.0,
     return seg, peak
 
 
-def log_grid(f_lo=20.0, f_hi=20000.0, ppo=96):
+GRID_F_LO, GRID_F_HI, GRID_PPO = 20.0, 20000.0, 96   # the analysis grid
+
+
+def log_grid(f_lo=GRID_F_LO, f_hi=GRID_F_HI, ppo=GRID_PPO):
     """Uniform-in-log2 frequency grid, `ppo` points per octave."""
     n = int(round(math.log2(f_hi / f_lo) * ppo)) + 1
     return f_lo * 2.0 ** (np.arange(n) / ppo)
@@ -290,7 +293,8 @@ def average_takes(takes):
 
 
 def process_takes(recordings, sweep, cal=None, smoothing_fraction=6,
-                  f_lo=20.0, f_hi=20000.0, ppo=96, pre_flat_ms=10.0,
+                  f_lo=GRID_F_LO, f_hi=GRID_F_HI, ppo=GRID_PPO,
+                  pre_flat_ms=10.0,
                   pre_taper_ms=10.0, post_ms=350.0, reg=1e-8, device=None, rig=None, mic=None, cal_file=None,
                   sink_api=None, eq_profile_state=None, levels=None,
                   path_clean=None, foreign_streams=None):

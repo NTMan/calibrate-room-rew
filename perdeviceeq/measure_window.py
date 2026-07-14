@@ -1360,6 +1360,7 @@ class MeasureWindow(Adw.Window):
         bands = self.bands_spin.get_value_as_int()
         f_lo = float(self.fit_lo)
         f_hi = float(self.fit_hi)
+        source = self._source_info()
         self._busy = True
         self.create_btn.set_sensitive(False)
         self._set_ring_sensitive(False)
@@ -1371,7 +1372,7 @@ class MeasureWindow(Adw.Window):
                 res["pid"] = measure_build.build_and_bind(
                     self.session, channels, self.parent.store,
                     self.sink_node, name, cal=cal, bands=bands,
-                    f_lo=f_lo, f_hi=f_hi)
+                    f_lo=f_lo, f_hi=f_hi, source=source)
             except Exception as e:
                 res["error"] = e
             GLib.idle_add(self._create_done, res)
@@ -1413,6 +1414,18 @@ class MeasureWindow(Adw.Window):
             body["id"] = existing["id"]
         pid = self.mic_store.save(body)
         self.memory.remember(self.sink_node, mic_profile=pid)
+
+    def _source_info(self):
+        """What the session cannot know about the rig: its display
+        name and serial (from the saved mic profile matching the
+        selected source, when one exists). Feeds measure_build's
+        source block; called on the main thread before the worker."""
+        src = self._selected_source()
+        if not src:
+            return None
+        existing = self.mic_store.match(src["name"])
+        return {"name": src["desc"],
+                "serial": (existing or {}).get("serial", "")}
 
     def _profile_name(self):
         return "Measured %s" % self.sink_desc

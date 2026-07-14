@@ -29,8 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from perdeviceeq import measure_core as mc
 from perdeviceeq.measure_session import (
     AUTO_MAX_ADJUST, AUTO_PEAK_CEIL, AUTO_START_VOLUME,
-    FaultyCaptureError,
-    MeasureError, MeasureSession, RefusalError, SessionConfig)
+    FaultyCaptureError, MeasureError, MeasureSession, RefusalError,
+    SessionConfig, default_save_base)
 
 
 # --- interaction ---------------------------------------------------------
@@ -67,7 +67,9 @@ def measure(a):
                         f_end=a.f_end, pre_silence=a.pre_silence,
                         post_silence=a.post_silence, cal=a.cal,
                         smoothing=a.smoothing, device=a.device, rig=a.rig,
-                        mic=a.mic, save_dir=a.save_dir,
+                        mic=a.mic,
+                        save_dir=(a.save_dir
+                                  or default_save_base()),
                         mute_others=a.mute_others, auto_level=a.auto_level,
                         raw_capture_dump=a.raw_capture_dump)
     ses = MeasureSession(cfg)

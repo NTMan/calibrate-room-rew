@@ -108,11 +108,12 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from contextlib import ExitStack
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 from scipy.stats import chi2
@@ -515,6 +516,10 @@ def mirror_key(key):
     return None
 
 
+def _utc_now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 def _clamp_vol(v):
     return max(0.02, min(1.0, v))
 
@@ -887,7 +892,7 @@ class SessionConfig:
     device: str = None
     rig: str = None
     mic: str = None
-    save_dir: str = None
+    save_dir: str = None    # None -> throwaway tempdir, wiped on exit
     mute_others: bool = False
     auto_level: bool = False
     raw_capture_dump: bool = False
@@ -913,6 +918,8 @@ class TakeRecord:
                               # actually multiplied into the samples;
                               # 1.0 when the device does the volume
     noise_dbfs: object = None  # core pre-sweep noise-floor estimate
+    capture_channel: object = None  # analyze column (which mic saw it)
+    created_utc: object = None      # ISO 8601 UTC acceptance time
 
 
 TAKE_CLEAN = "clean"        # counts toward a channel's three good takes
@@ -964,15 +971,18 @@ class MeasureSession:
     """Single-take measurement lifecycle for the CLI and the wizard.
 
     Preconditions run in the constructor and raise RefusalError before
-    anything is played or changed. __enter__ writes the sweep files and
-    engages foreign-stream muting and the profile bypass (restored on
-    ANY exit) and, with auto_level, sets the quiet start volume.
-    take(channel) runs one physical sweep and returns a TakeOutcome;
-    discard() drops a bad take from the accumulation (the wav stays on
-    disk as evidence, ids are never reused); finalize(channel)
-    assembles the channel's result via measure_core and writes
-    result.json. No printing, no prompts: decisions surface as
-    outcomes, warning texts as `notes`.
+    anything is played or changed. __enter__ writes the sweep files
+    -- into a throwaway tempdir when cfg.save_dir is unset, wiped again
+    on __exit__: the canvas in the profile is the artifact, not the
+    wavs -- and engages foreign-stream muting and the profile bypass
+    (restored on ANY exit) and, with auto_level, sets the quiet start
+    volume. take(channel) runs one physical sweep and returns a
+    TakeOutcome; discard() drops a bad take from the accumulation (the
+    wav stays on disk for the session's lifetime, ids are never
+    reused); finalize(channel) assembles the channel's result via
+    measure_core and writes it as JSON only when out_path is given.
+    No printing, no prompts: decisions surface as outcomes, warning
+    texts as `notes`.
     """
 
     def __init__(self, cfg):
@@ -1031,11 +1041,18 @@ class MeasureSession:
         slug = re.sub(r"[^\w.+-]+", "_",
                       cfg.device or self.sink_ident["name"]
                       or "device").strip("_")
-        self.outdir = os.path.join(
-            cfg.save_dir or default_save_base(),
-            "%s_%s" % (slug, datetime.now().strftime("%Y%m%d-%H%M%S")))
+        if cfg.save_dir:
+            self.outdir = os.path.join(
+                cfg.save_dir,
+                "%s_%s" % (slug,
+                           datetime.now().strftime("%Y%m%d-%H%M%S")))
+        else:                     # nothing here is worth keeping: the
+            self.outdir = None    # canvas in the profile is the record
+        self._ephemeral = not cfg.save_dir
+        self._slug = slug
 
         self.wav = None                     # written on __enter__
+        self.started_utc = None             # stamped on __enter__
         self.path_clean = None
         self.eq_state = None
         self._stack = None
@@ -1060,7 +1077,12 @@ class MeasureSession:
     # -- lifecycle ----------------------------------------------------------
 
     def __enter__(self):
-        os.makedirs(self.outdir, exist_ok=True)
+        if self.outdir is None:             # ephemeral working dir
+            self.outdir = tempfile.mkdtemp(
+                prefix="per-device-eq-%s-" % self._slug)
+        else:
+            os.makedirs(self.outdir, exist_ok=True)
+        self.started_utc = _utc_now()
         self.wav = write_sweep_files(self.outdir, self.sweep,
                                      self.cfg.pre_silence,
                                      self.cfg.post_silence)
@@ -1078,9 +1100,14 @@ class MeasureSession:
 
     def __exit__(self, *exc):
         stack, self._stack = self._stack, None
+        ret = False
         if stack is not None:
-            return stack.__exit__(*exc)
-        return False
+            ret = stack.__exit__(*exc)
+        if self._ephemeral and self.outdir:
+            shutil.rmtree(self.outdir, ignore_errors=True)
+            self.outdir = None
+            self.wav = None       # take() after exit fails loudly again
+        return ret
 
     # -- one physical sweep --------------------------------------------------
 
@@ -1301,8 +1328,8 @@ class MeasureSession:
                              "peak below %g dBFS)"
                              % (why, pk, snr_txt, mc.SNR_WARN_DB,
                                 AUTO_PEAK_CEIL))
-                self._pending = (channel, data, chan, pk, clipped, bad,
-                                 gains)
+                self._pending = (channel, a, data, chan, pk, clipped,
+                                 bad, gains)
                 return TakeOutcome(
                     "level_stuck", notes=notes,
                     level={"peak_dbfs": pk, "snr_db": snr_q,
@@ -1318,20 +1345,20 @@ class MeasureSession:
                 self._v_cur = v_new             # next sweep sets the sink
                 return TakeOutcome("level_probe", level=level, notes=notes)
         return self._accept(channel, data, chan, pk, clipped, bad, notes,
-                            gains)
+                            gains, capture=a)
 
     def accept_level(self):
         """Keep the pending level_stuck capture as a take at the current
         level -- the caller's 'continue anyway' decision."""
         if self._pending is None:
             raise MeasureError("no leveling decision is pending")
-        (channel, data, chan, pk, clipped, repaired,
+        (channel, capture, data, chan, pk, clipped, repaired,
          gains) = self._pending
         self._pending = None
         self._leveled = True
         self.level_source = "manual"       # the user accepted this level
         return self._accept(channel, data, chan, pk, clipped, repaired,
-                            [], gains)
+                            [], gains, capture=capture)
 
     def relevel(self):
         """Re-arm auto-level: the next take() ramps from a safe-low volume
@@ -1352,7 +1379,7 @@ class MeasureSession:
         self.level_source = "pending"
 
     def _accept(self, channel, data, chan, pk, clipped, repaired, notes,
-                gains=(None, None)):
+                gains=(None, None), capture=None):
         snr, _ = self._quick_snr(chan)
         if snr is not None and snr < mc.SNR_WARN_DB:
             notes.append("WARNING: low SNR (%.1f dB): raise the level or "
@@ -1364,7 +1391,9 @@ class MeasureSession:
         rec = TakeRecord(self._take_seq, channel, self.freqs, t.mag_db,
                          t.delay_ms, t.snr_db, pk, clipped, repaired, path,
                          chan_vol=gains[0], soft_vol=gains[1],
-                         noise_dbfs=t.noise_dbfs)
+                         noise_dbfs=t.noise_dbfs,
+                         capture_channel=capture,
+                         created_utc=_utc_now())
         self._takes.setdefault(channel, []).append((rec, chan))
         return TakeOutcome("take", take=rec,
                            spread_db=self.spread_db(channel), notes=notes)
@@ -1613,7 +1642,9 @@ class MeasureSession:
 
     def finalize(self, channel, out_path=None, cal=None):
         """Average the channel's accepted takes into a result dict via
-        measure_core.process_takes and write it as result.json.
+        measure_core.process_takes; out_path, when given, also writes
+        the dict as JSON (the CLI's result.json -- the wizard keeps it
+        in memory and stores the canvas in the profile instead).
 
         cal defaults to the session's cfg.cal; pass cal= to override per
         channel. The wizard measures both ears in one session but each
@@ -1693,6 +1724,6 @@ class MeasureSession:
             sink_api=self.sink_ident.get("device_api"),
             eq_profile_state=self.eq_state, levels=levels,
             path_clean=self.path_clean, foreign_streams=self.foreign)
-        out = out_path or os.path.join(self.outdir, "result.json")
-        mc.save_result(result, out)
+        if out_path:
+            mc.save_result(result, out_path)
         return result

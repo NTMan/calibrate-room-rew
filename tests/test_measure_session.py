@@ -704,3 +704,26 @@ def test_meas_volume_reports_a_real_write(shim_state, tmp_path,
         # calling it directly must never raise even without pw-play
         monkeypatch.setenv("PATH", str(tmp_path))
         ses._warm_sink()
+
+
+def test_ephemeral_outdir_wiped_and_takes_stamped(shim_state, tmp_path):
+    """No save_dir: the working dir is a throwaway tempdir, gone with
+    the session; each accepted take is stamped with the analyze column
+    and its UTC time (the canvas needs both)."""
+    cfg = ms.SessionConfig(sink="test_sink", source="test_source",
+                           channels=2, samples=131072)
+    ses = ms.MeasureSession(cfg)
+    assert ses.outdir is None            # nothing until __enter__
+    with ses:
+        out = ses.outdir
+        assert out and os.path.isdir(out)
+        ses.take(0)
+        ses.take(1, analyze=0)           # right cup on the left mic
+        assert (Path(out) / "take01.wav").exists()
+        r0 = ses.takes_of(0)[0]
+        r1 = ses.takes_of(1)[0]
+        assert r0.capture_channel == 0
+        assert r1.capture_channel == 0   # the analyze column, not 1
+        assert r0.created_utc and "T" in r0.created_utc
+    assert not os.path.exists(out)       # wiped with the session
+    assert ses.outdir is None and ses.wav is None
