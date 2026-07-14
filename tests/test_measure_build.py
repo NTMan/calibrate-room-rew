@@ -159,3 +159,137 @@ def test_fingerprint_tracks_takes_cal_and_params():
     assert measure_build.fit_fingerprint(m, ["a", "b"], p) != base
     m["source"]["cal"] = {"0": {"sha256": "x"}}
     assert measure_build.fit_fingerprint(m, ["a", "b"], p) != base
+
+
+def _second_session(tmp_path, take_channels):
+    ses = ms.MeasureSession(_cfg(tmp_path))
+    with ses:
+        for ch, analyze in take_channels:
+            ses.take(ch, analyze=analyze)
+    return ses
+
+
+def test_append_grows_the_canvas_and_refits(shim_state, store,
+                                            tmp_path):
+    from perdeviceeq import refit
+    flat = tmp_path / "flat.txt"
+    flat.write_text("20 0.0\n1000 0.0\n20000 0.0\n")
+    tilt = tmp_path / "tilt.txt"
+    tilt.write_text("20 0.0\n1000 -3.0\n20000 -6.0\n")
+    ses = ms.MeasureSession(_cfg(tmp_path))
+    with ses:
+        ses.take(0)
+        ses.take(1)
+    pid = measure_build.build_and_bind(
+        ses, {0: "FL", 1: "FR"}, store, "test_sink", name="v1",
+        cal={0: str(flat)}, source={"name": "EARS", "serial": "861"})
+    ses2 = _second_session(tmp_path, [(0, 0)])
+    out = measure_build.append_and_bind(
+        ses2, {0: "FL"}, store, "test_sink", pid,
+        cal={0: str(tilt)},                 # cal update on column 0
+        source={"serial": "861"}, name="v2")
+    assert out == pid
+    p = store.get(pid)
+    m = p["measurement"]
+    assert p["name"] == "v2"
+    assert len(m["sessions"]) == 2
+    by = {}
+    for t in m["takes"]:
+        by.setdefault(t["channel"], []).append(t)
+    assert len(by["FL"]) == 2 and len(by["FR"]) == 1
+    # the freshly selected cal replaced the stored column entry
+    assert m["source"]["cal"]["0"]["file"] == "tilt.txt"
+    # the fit was rebuilt over the merged canvas: coherent again
+    assert sorted(p["fit"]["takes"]) == sorted(t["id"]
+                                               for t in m["takes"])
+    assert not refit.fit_is_stale(p)
+    assert store.binding_for("test_sink") == pid
+
+
+def test_append_refuses_a_different_rig(shim_state, store, tmp_path):
+    ses = ms.MeasureSession(_cfg(tmp_path))
+    with ses:
+        ses.take(0)
+    pid = measure_build.build_and_bind(
+        ses, {0: "FL"}, store, "test_sink", name="p",
+        source={"serial": "861"})
+    ses2 = _second_session(tmp_path, [(0, 0)])
+    with pytest.raises(measure_build.SourceMismatch):
+        measure_build.append_and_bind(
+            ses2, {0: "FL"}, store, "test_sink", pid,
+            source={"serial": "999"})
+    # serial unknown on both sides: the node identity decides
+    p = dict(store.get(pid))
+    p["measurement"] = dict(p["measurement"])
+    p["measurement"]["source"] = dict(p["measurement"]["source"],
+                                      serial="", node_match="other")
+    store.save_user(p)
+    with pytest.raises(measure_build.SourceMismatch):
+        measure_build.append_and_bind(
+            ses2, {0: "FL"}, store, "test_sink", pid)
+
+
+def test_replace_drops_the_channels_old_takes(shim_state, store,
+                                              tmp_path):
+    ses = ms.MeasureSession(_cfg(tmp_path))
+    with ses:
+        ses.take(0)
+        ses.take(1)
+    pid = measure_build.build_and_bind(
+        ses, {0: "FL", 1: "FR"}, store, "test_sink", name="p")
+    old_fl = {t["id"] for t in
+              store.get(pid)["measurement"]["takes"]
+              if t["channel"] == "FL"}
+    ses2 = _second_session(tmp_path, [(0, 0)])
+    measure_build.append_and_bind(ses2, {0: "FL"}, store,
+                                  "test_sink", pid,
+                                  replace=("FL",))
+    m = store.get(pid)["measurement"]
+    fl = [t for t in m["takes"] if t["channel"] == "FL"]
+    fr = [t for t in m["takes"] if t["channel"] == "FR"]
+    assert len(fl) == 1 and not (old_fl & {t["id"] for t in fl})
+    assert len(fr) == 1                       # untouched channel
+
+
+def test_append_creates_canvas_on_a_bare_profile(shim_state, store,
+                                                 tmp_path):
+    pid = store.save_user({"id": "bare", "name": "Bare",
+                           "version": 3, "apply_all": True,
+                           "preamp": 0.0, "ch_keys": [],
+                           "all": {"bands": []}, "channels": {}})
+    ses = _second_session(tmp_path, [(0, 0), (1, 1)])
+    out = measure_build.append_and_bind(
+        ses, {0: "FL", 1: "FR"}, store, "test_sink", pid)
+    p = store.get(out)
+    assert out == pid and p["name"] == "Bare"
+    assert p["provenance"] == {"kind": "measured"}
+    assert len(p["measurement"]["takes"]) == 2
+    for key in ("FL", "FR"):
+        assert p["channels"][key]["bands"]
+
+
+def test_append_rename_only_and_edited_gate(shim_state, store,
+                                            tmp_path):
+    from perdeviceeq import refit
+    ses = ms.MeasureSession(_cfg(tmp_path))
+    with ses:
+        ses.take(0)
+    pid = measure_build.build_and_bind(
+        ses, {0: "FL"}, store, "test_sink", name="old")
+    before = store.get(pid)["measurement"]
+    measure_build.append_and_bind(None, {}, store, "test_sink",
+                                  pid, name="new")
+    p = store.get(pid)
+    assert p["name"] == "new"
+    assert p["measurement"] == before         # rename moved nothing
+    p = dict(p)
+    p["fit"] = dict(p["fit"], edited=True)
+    store.save_user(p)
+    ses2 = _second_session(tmp_path, [(0, 0)])
+    with pytest.raises(refit.RefitError, match="edited"):
+        measure_build.append_and_bind(ses2, {0: "FL"}, store,
+                                      "test_sink", pid)
+    measure_build.append_and_bind(ses2, {0: "FL"}, store,
+                                  "test_sink", pid,
+                                  allow_edited=True)
+    assert store.get(pid)["fit"]["edited"] is False

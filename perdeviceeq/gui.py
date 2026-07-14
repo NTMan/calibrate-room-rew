@@ -1626,8 +1626,8 @@ class EqWindow(Adw.ApplicationWindow):
             edit = Gtk.Button.new_from_icon_name("document-edit-symbolic")
             edit.add_css_class("flat")
             edit.set_valign(Gtk.Align.CENTER)
-            edit.set_tooltip_text("Rename")
-            edit.connect("clicked", self._make_rename_cb(p))
+            edit.set_tooltip_text("Edit")
+            edit.connect("clicked", self._make_edit_cb(p))
             box.append(edit)
 
         if self._removable(p):
@@ -1687,42 +1687,41 @@ class EqWindow(Adw.ApplicationWindow):
         dlg.connect("response", on_resp)
         dlg.present(self)
 
-    def _make_rename_cb(self, p):
-        """Factory: open the rename dialog for the row's profile."""
+    def _make_edit_cb(self, p):
+        """Factory: open the measurement window on the row's
+        profile."""
         def cb(_btn):
-            self._rename_profile(p)
+            self._edit_profile(p)
         return cb
 
-    def _rename_profile(self, p):
-        """Rename a user profile in place (same id) via a dialog."""
-        pid = p["id"]
-        entry = Gtk.Entry()
-        entry.set_text(p.get("name", ""))
-        entry.set_activates_default(True)
-        dlg = Adw.AlertDialog(heading="Rename profile",
-                              body="Choose a new name for this profile.")
-        dlg.set_extra_child(entry)
-        dlg.add_response("cancel", "Cancel")
-        dlg.add_response("rename", "Rename")
-        dlg.set_response_appearance("rename", Adw.ResponseAppearance.SUGGESTED)
-        dlg.set_default_response("rename")
-        dlg.set_close_response("cancel")
-
-        def on_resp(_d, resp):
-            if resp != "rename":
-                return
-            new = entry.get_text().strip()
-            if not new:
-                return
-            prof = dict(self.store.get(pid))
-            prof["name"] = new
-            self.store.save_user(prof)       # same id, new name
-            if pid == self.current_pid:
-                self.profile_button.set_label(self._display_name(self.store.get(pid)))
-            self._populate_picker()
-        dlg.connect("response", on_resp)
-        self.profile_popover.popdown()       # so the dialog isn't covered
-        dlg.present(self)
+    def _edit_profile(self, p):
+        """The profile's Edit: the measurement window carries the
+        name field, take appends and channel re-measures. Works
+        against the current sink; the rig gate lives in the
+        window."""
+        if not self.live or not self.node:
+            return
+        self.profile_popover.popdown()
+        if self._measure_win is not None:
+            self._measure_win.present()
+            return
+        try:
+            from .measure_window import MeasureWindow
+        except Exception as e:
+            dlg = Adw.AlertDialog(
+                heading="Editing needs extra packages",
+                body="The measurement window needs python3-numpy, "
+                     "python3-scipy and python3-soundfile.\n\n%s" % e)
+            dlg.add_response("ok", "OK")
+            dlg.present(self)
+            return
+        desc = next((s["desc"] for s in self.sinks
+                     if s["name"] == self.node), self.node)
+        self._measure_win = MeasureWindow(self, self.node, desc,
+                                          edit_pid=p["id"])
+        self._measure_win.connect("close-request",
+                                  self._on_measure_closed)
+        self._measure_win.present()
 
     def _make_clone_cb(self, p):
         """Factory: duplicate the row's profile."""

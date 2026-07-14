@@ -117,12 +117,16 @@ def _ensure_css():
 class MeasureWindow(Adw.Window):
     """Measurement wizard for one output sink."""
 
-    def __init__(self, parent, sink_node, sink_desc):
+    def __init__(self, parent, sink_node, sink_desc, edit_pid=None):
         super().__init__()
         self.parent = parent
         self.sink_node = sink_node
         self.sink_desc = sink_desc
-        self.set_title("Measure speakers")
+        self.edit_pid = edit_pid            # editing this profile
+        self.edit_prof = (parent.store.get(edit_pid)
+                          if edit_pid else None)
+        self.set_title("Edit profile" if edit_pid
+                       else "Measure speakers")
         self.set_default_size(620, 760)
         self.set_modal(True)
         self.set_transient_for(parent)
@@ -143,6 +147,7 @@ class MeasureWindow(Adw.Window):
         self._entered = False
         self._busy = False
         self._loud_ack = False
+        self._edited_ack = False    # user ok with discarding edits
         self._relevel_pending = False
         self._sink_gone = False
         self._pinned = False        # user chose "stay": ignore the default
@@ -186,6 +191,8 @@ class MeasureWindow(Adw.Window):
         self.warning = b.get_object("warning")
         self.create_btn = b.get_object("create_btn")
         self.create_btn.connect("clicked", self._on_create)
+        if self.edit_pid:
+            self.create_btn.set_label("Save")
 
         self._build_mic_controls(b.get_object("mic_row"),
                                  b.get_object("capsules_row"),
@@ -460,6 +467,23 @@ class MeasureWindow(Adw.Window):
                                          "residual is under ~0.5 dB")
         row.append(self.bands_spin)
         box.append(row)
+        nrow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                       spacing=8)
+        nrow.append(Gtk.Label(label="Name"))
+        self.name_entry = Gtk.Entry()
+        self.name_entry.set_hexpand(True)
+        self.name_entry.set_text(
+            (self.edit_prof or {}).get("name")
+            or "Measured %s" % self.sink_desc)
+        nrow.append(self.name_entry)
+        box.append(nrow)
+        self.replace_check = Gtk.CheckButton(
+            label="Replace stored takes of re-measured channels")
+        self.replace_check.set_tooltip_text(
+            "Channels you measure now drop their previous takes "
+            "from the profile instead of adding to them")
+        self.replace_check.set_visible(bool(self.edit_pid))
+        box.append(self.replace_check)
         self._range_plot = None
         self._drag_handle = None
         self._update_range_label()
@@ -730,6 +754,8 @@ class MeasureWindow(Adw.Window):
                                if self.session else None)
         self._rebuild_page()
         self._update_pult()
+        if self.edit_pid:           # editing: rename alone saves
+            ready = True
         self.create_btn.set_sensitive(ready and not self._busy)
         self._refresh_volume()
         self._auto_fit_range()
@@ -1347,11 +1373,13 @@ class MeasureWindow(Adw.Window):
 
     # ---- create profile ---------------------------------------------------
     def _on_create(self, _btn):
-        if self.session is None or self._busy:
+        if self._busy or (self.session is None
+                          and not self.edit_pid):
             return
         name = self._profile_name()
-        channels = {i: self.ch_keys[i] for i in range(self.n_ch)
-                    if self.session.takes_of(i)}
+        ses = self.session
+        channels = ({i: self.ch_keys[i] for i in range(self.n_ch)
+                     if ses.takes_of(i)} if ses else {})
         cal = {}
         for i in channels:
             path = self.cal.get(self.mic_of.get(i, 0))
@@ -1361,6 +1389,29 @@ class MeasureWindow(Adw.Window):
         f_lo = float(self.fit_lo)
         f_hi = float(self.fit_hi)
         source = self._source_info()
+        replace = (tuple(channels.values())
+                   if (self.edit_pid and channels
+                       and self.replace_check.get_active())
+                   else ())
+        if self.edit_pid and channels:
+            prof = self.parent.store.get(self.edit_pid) or {}
+            stored = ((prof.get("measurement") or {})
+                      .get("source"))
+            node = ses.source_ident.get("name") if ses else None
+            if stored and not measure_build.rig_matches(
+                    stored, (source or {}).get("serial"), node):
+                self._error(
+                    "This profile was measured with %s; measuring "
+                    "with a different rig needs a new profile."
+                    % (stored.get("name")
+                       or stored.get("node_match")
+                       or "another rig"))
+                return
+            if ((prof.get("fit") or {}).get("edited")
+                    and not self._edited_ack):
+                self._confirm_edited(
+                    lambda: self._on_create(None))
+                return
         self._busy = True
         self.create_btn.set_sensitive(False)
         self._set_ring_sensitive(False)
@@ -1369,10 +1420,18 @@ class MeasureWindow(Adw.Window):
 
         def work():
             try:
-                res["pid"] = measure_build.build_and_bind(
-                    self.session, channels, self.parent.store,
-                    self.sink_node, name, cal=cal, bands=bands,
-                    f_lo=f_lo, f_hi=f_hi, source=source)
+                if self.edit_pid:
+                    res["pid"] = measure_build.append_and_bind(
+                        self.session, channels, self.parent.store,
+                        self.sink_node, self.edit_pid, cal=cal,
+                        source=source, name=name, replace=replace,
+                        bands=bands, f_lo=f_lo, f_hi=f_hi,
+                        allow_edited=True)
+                else:
+                    res["pid"] = measure_build.build_and_bind(
+                        self.session, channels, self.parent.store,
+                        self.sink_node, name, cal=cal, bands=bands,
+                        f_lo=f_lo, f_hi=f_hi, source=source)
             except Exception as e:
                 res["error"] = e
             GLib.idle_add(self._create_done, res)
@@ -1428,9 +1487,33 @@ class MeasureWindow(Adw.Window):
                 "serial": (existing or {}).get("serial", "")}
 
     def _profile_name(self):
-        return "Measured %s" % self.sink_desc
+        return (self.name_entry.get_text().strip()
+                or "Measured %s" % self.sink_desc)
 
     # ---- dialogs / teardown -----------------------------------------------
+    def _confirm_edited(self, on_ok):
+        """The profile's bands were edited by hand after the fit;
+        saving re-fits the whole canvas and discards that work, so
+        ask once per window."""
+        dlg = Adw.AlertDialog(
+            heading="Discard hand edits?",
+            body="This profile's bands were edited by hand after "
+                 "the fit. Saving re-fits from the whole canvas "
+                 "and discards those edits.")
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("refit", "Save and re-fit")
+        dlg.set_response_appearance(
+            "refit", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+
+        def on_resp(_d, resp):
+            if resp == "refit":
+                self._edited_ack = True
+                on_ok()
+        dlg.connect("response", on_resp)
+        dlg.present(self)
+
     def _confirm_loud(self, on_ok):
         dlg = Adw.AlertDialog(
             heading="This will play loudly",
