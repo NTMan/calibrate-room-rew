@@ -136,6 +136,10 @@ AUTO_PEAK_CEIL = HOT_DBFS - 1.0          # aim strictly below the hot flag
 AUTO_SNR_MARGIN_DB = 1.0                 # aim past clean, not onto its edge
 AUTO_TRUST_FLOOR_PK = -20.0              # trust the room's floor read only
 #                                          on a probe at least this hot
+BT_WARM_S = 2.0                          # silence played to a bluez sink
+#                                          after a volume change: absolute
+#                                          volume applies asynchronously
+#                                          (observed ~3 s into a sweep)
 SPREAD_MAX_DB = 3.0                      # take-to-take spread above this
 #                                          is untrustworthy (red on the
 #                                          strip; the auto EQ ceiling)
@@ -1111,13 +1115,42 @@ class MeasureSession:
         """Set the measurement level for one sweep (on) or restore the
         user's listening volume after (off) -- per sweep, like the mute and
         EQ, so opening the wizard or measuring never leaves the device
-        parked at the measurement level."""
+        parked at the measurement level. Returns whether the sink
+        volume was actually written (the caller settles a Bluetooth
+        sink before sweeping into a fresh change)."""
         if self._v_cur is None or self.volume_start is None:
-            return
+            return False
         if abs(self._v_cur - self.volume_start) < 1e-4:
-            return                          # nothing to change; leave it be
+            return False                    # nothing to change; leave it be
         set_sink_volume(self.sink["id"],
                         self._v_cur if on else self.volume_start)
+        return True
+
+    def _warm_sink(self):
+        """Play BT_WARM_S of silence to the sink. A Bluetooth headset
+        applies absolute volume asynchronously and may be resuming
+        from A2DP suspend; the observed field failure was a sweep
+        whose head played at the OLD volume with the 6 dB step landing
+        three seconds in -- a mixed-level take no gate can repair.
+        The silence wakes the link and gives the volume time to land
+        before the real sweep starts. Best-effort: a failed warm-up
+        must never fail the take."""
+        try:
+            import soundfile as sf
+            wav = os.path.join(self.outdir, "warmup-silence.wav")
+            if not os.path.exists(wav):
+                sf.write(wav, np.zeros(int(BT_WARM_S * self.sweep.fs),
+                                       dtype=np.float32),
+                         self.sweep.fs)
+            subprocess.run(
+                ["pw-play", "--volume", "1.0",
+                 "-P", "{ node.target = %d, node.dont-reconnect = true,"
+                       " application.name = \"per-device-eq warmup\" }"
+                       % self.sink["id"], wav],
+                timeout=BT_WARM_S + 5.0,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
     def _applied_gains(self, channel):
         """The sink's applied volumes for the played channel, read from
@@ -1172,7 +1205,10 @@ class MeasureSession:
             eq = ProfileBypass(self.sink_ident["name"])
             self.eq_state = eq.__enter__()  # bypass the device EQ for it
             try:
-                self._set_meas_volume(True)     # measurement level
+                changed = self._set_meas_volume(True)  # meas. level
+                if changed and (self.sink_ident.get("device_api")
+                                or "").startswith("bluez"):
+                    self._warm_sink()
                 try:
                     data, info = run_take(self.sink, self.source, self.wav,
                                           self.wav_duration, cfg.channels,

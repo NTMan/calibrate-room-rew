@@ -685,3 +685,22 @@ def test_drive_shift_mirrors_the_trim_gate(shim_state, tmp_path):
         # an unmeasured partner has nothing to show
         ses._takes.pop(1)
         assert ses.drive_shift_db(1, 0) is None
+
+
+def test_meas_volume_reports_a_real_write(shim_state, tmp_path,
+                                          monkeypatch):
+    """The BT warm-up keys off whether the sink volume was actually
+    written; a no-op toggle must not trigger it, a bluez sink with a
+    fresh change must."""
+    ses = ms.MeasureSession(make_cfg(tmp_path, start_volume=0.6))
+    with ses:
+        ses.volume_start = 0.6
+        ses._v_cur = 0.6
+        assert ses._set_meas_volume(True) is False
+        ses._v_cur = 0.4
+        assert ses._set_meas_volume(True) is True
+        ses._set_meas_volume(False)
+        # the warm-up itself is best-effort and bluez-gated in take();
+        # calling it directly must never raise even without pw-play
+        monkeypatch.setenv("PATH", str(tmp_path))
+        ses._warm_sink()
