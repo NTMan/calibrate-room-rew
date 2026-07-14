@@ -19,6 +19,8 @@ import math
 import os
 import threading
 
+import numpy as np
+
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -817,42 +819,56 @@ class MeasureWindow(Adw.Window):
                    for r in base) / len(base)
         spread = self.session.spread_db(ch)
         sp = spread if spread is not None else mean * 0.0
-        ghost = self._partner_ghost(ch)
+        ghost, glabel = self._partner_ghost(ch, mean)
         lo = float((mean - sp / 2.0).min()) - 1.0
         hi = float((mean + sp / 2.0).max()) + 1.0
         if ghost is not None:
             lo = min(lo, float(ghost.min()) - 1.0)
             hi = max(hi, float(ghost.max()) + 1.0)
         area.set_draw_func(self._make_summary_draw(
-            base[0].freq_hz, mean, sp, lo, hi, ghost))
+            base[0].freq_hz, mean, sp, lo, hi, ghost, glabel))
         area.set_visible(True)
         area.queue_draw()
 
-    def _partner_ghost(self, ch):
-        """The mirror partner's compensated mean, shifted onto this
-        channel's drive -- a dashed reference for the PAIR's symmetry.
-        None when the channel has no L<->R partner, the partner has no
-        takes, the capsules differ (two couplers share no level
-        reference), or the drive difference is unknowable (the trim's
-        gate, see drive_shift_db)."""
+    def _partner_ghost(self, ch, mean):
+        """(curve, label) of the mirror partner's compensated mean --
+        a dashed reference for the PAIR's symmetry -- or (None, None).
+        Level-true (shifted onto this channel's drive, the trim's
+        accounting) when the drive difference is knowable; when it is
+        NOT (a hardware-volume device releveled between channels), the
+        ghost falls back to shape-only: aligned by the 200-2000 Hz
+        band means, the level claim explicitly dropped and the label
+        saying so -- a stable seal leak is a SHAPE difference, and
+        silently hiding the ghost once hid exactly that. Nothing is
+        drawn when the channel has no L<->R partner, the partner has
+        no takes, or the capsules differ (two couplers share no
+        reference of any kind)."""
         if self.session is None:
-            return None
+            return None, None
         pk = ms.mirror_key(self.ch_keys[ch])
         if pk is None or pk not in self.ch_keys:
-            return None
+            return None, None
         p = self.ch_keys.index(pk)
         if not self.session.takes_of(p):
-            return None
+            return None, None
         if self.mic_of.get(p, p) != self.mic_of.get(ch, ch):
-            return None
+            return None, None
         pavg, _sp = self.session.average_and_spread(p)
+        if pavg is None:
+            return None, None
         shift = self.session.drive_shift_db(p, ch)
-        if pavg is None or shift is None:
-            return None
-        return pavg + shift
+        if shift is not None:
+            return pavg + shift, pk
+        fa = np.asarray(self.session.freqs, float)
+        ref = (fa >= 200.0) & (fa <= 2000.0)
+        if not ref.any():
+            return None, None
+        aligned = pavg - float(np.asarray(pavg)[ref].mean()) \
+            + float(np.asarray(mean)[ref].mean())
+        return aligned, "%s · shape only" % pk
 
     def _make_summary_draw(self, freqs, mean, spread, lo, hi,
-                           ghost=None):
+                           ghost=None, ghost_label=None):
         flo, fhi = self.fit_lo, self.fit_hi
 
         def draw(_area, cr, w, h, *_):
@@ -876,6 +892,12 @@ class MeasureWindow(Adw.Window):
                     cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
                 cr.stroke()
                 cr.restore()
+                if ghost_label:
+                    cr.set_source_rgba(0.45, 0.45, 0.45, 0.9)
+                    cr.set_font_size(10)
+                    ext = cr.text_extents(ghost_label)
+                    cr.move_to(w - ext.width - 6, 12)
+                    cr.show_text(ghost_label)
             bw = max(1.0, (w - 4) / max(1, len(freqs)))
             for j in range(len(freqs)):
                 x = _log_x(freqs[j], 2, w - 4)
