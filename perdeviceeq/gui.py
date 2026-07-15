@@ -2089,6 +2089,8 @@ class EqWindow(Adw.ApplicationWindow):
         the profiles themselves."""
         dlg = Adw.PreferencesDialog()
         dlg.set_title("Settings")
+        dlg.set_content_width(640)      # clamps to the window when
+        dlg.set_content_height(600)     # it is narrower
         page = Adw.PreferencesPage()
         page.set_title("Preference EQ")
         page.set_icon_name("audio-x-generic-symbolic")
@@ -2183,7 +2185,7 @@ class EqWindow(Adw.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                       spacing=4)
         for side in ("top", "bottom", "start", "end"):
-            getattr(box, "set_margin_" + side)(8)
+            getattr(box, "set_margin_" + side)(4)
         types = ["PK", "LSC", "HSC"]
 
         def bands():
@@ -2221,7 +2223,7 @@ class EqWindow(Adw.ApplicationWindow):
             return cb
 
         def band_line(i, b):
-            h = Gtk.Box(spacing=6)
+            h = Gtk.Box(spacing=4)
             dd = Gtk.DropDown.new_from_strings(types)
             dd.set_selected(types.index(b.get("type"))
                             if b.get("type") in types else 0)
@@ -2237,6 +2239,8 @@ class EqWindow(Adw.ApplicationWindow):
                     ("q", 0.1, 10.0, 0.05, 2, "Q")):
                 sp = Gtk.SpinButton.new_with_range(lo, hi, step)
                 sp.set_digits(dig)
+                sp.set_width_chars(5)   # the dialog is narrower
+                sp.set_max_width_chars(5)
                 sp.set_tooltip_text(tip)
                 sp.set_value(float(b.get(key, 0.0)))
                 sp.connect("value-changed",
