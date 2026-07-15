@@ -97,6 +97,14 @@ class PreferenceLayers:
     def active(self):
         return self.get(self.active_id) if self.active_id else None
 
+    def active_has_content(self):
+        """True when the active layer actually changes the sound:
+        some enabled band. Drives the apply path for the Clean +
+        layer case (a flat profile with taste on must still build a
+        graph)."""
+        return any(b.get("enabled", True)
+                   for b in self.active_bands())
+
     def active_bands(self):
         """The bands to compose into every graph, or []. Disabled
         bands ride along; the graph builder skips them like any

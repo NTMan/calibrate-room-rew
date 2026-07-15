@@ -41,6 +41,7 @@ from gi.repository import Gtk, Gio, GLib, Gdk, Adw
 from . import config, eq, pipewire, integration
 from .config import (APP_ID, TYPE_NAMES, CLEAN_ID, FAVORITES_FILE,
                      UI_FILE_CANDIDATES)
+from .preferences import PreferenceLayers
 from .profiles import ProfileStore, editor_body
 
 DB_MAX = 24.0
@@ -220,6 +221,12 @@ class EqWindow(Adw.ApplicationWindow):
         # pack_end fills right-to-left: redo first (rightmost), then undo to its left
         self.header_bar.pack_end(self.redo_btn)
         self.header_bar.pack_end(self.undo_btn)
+        self.pref_layers = PreferenceLayers()
+        gear = Gtk.Button.new_from_icon_name("emblem-system-symbolic")
+        gear.add_css_class("flat")
+        gear.set_tooltip_text("Settings: preference EQ layers")
+        gear.connect("clicked", lambda *_: self._open_settings())
+        self.header_bar.pack_start(gear)
 
     def _build_graph(self):
         """Create the response plot (DrawingArea) with drag + right-click gestures."""
@@ -1048,11 +1055,15 @@ class EqWindow(Adw.ApplicationWindow):
             return
         node = self.node
         body = self._working_body()
-        if self.bypass_row.get_active() or not eq.profile_has_content(body):
+        extra = self.pref_layers.active_bands()
+        silent = (not eq.profile_has_content(body)
+                  and not self.pref_layers.active_has_content())
+        if self.bypass_row.get_active() or silent:
             pipewire._in_thread(lambda: pipewire.metadata_clear(node))
         else:
-            graph = eq.profile_graph(body)
-            pipewire._in_thread(lambda: pipewire.metadata_set(node, graph))
+            graph = eq.profile_graph(body, extra=extra)
+            pipewire._in_thread(lambda: pipewire.metadata_set(node,
+                                                              graph))
 
     # ---- undo / redo -------------------------------------------------------
     def _snapshot(self):
@@ -1287,10 +1298,13 @@ class EqWindow(Adw.ApplicationWindow):
         the WORST channel's curve, so one shared value clears every slot.
         Rounded UP to the 0.1 dB step the spin can express, so the result
         lands at or below 0 dBFS."""
+        tail = [eq.Band.from_dict(b)
+                for b in self.pref_layers.active_bands()]
         if self.apply_all:
-            peak = eq.curve_max_db(0.0, self.bands)
+            peak = eq.curve_max_db(0.0, self.bands + tail)
         else:
-            peak = max(eq.curve_max_db(0.0, self._slot(k)["bands"])
+            peak = max(eq.curve_max_db(0.0,
+                                       self._slot(k)["bands"] + tail)
                        for k in self.ch_keys)
         return max(0.0, math.ceil(peak * 10.0 - 1e-9) / 10.0)
 
@@ -2066,6 +2080,204 @@ class EqWindow(Adw.ApplicationWindow):
             else:
                 cr.set_source_rgba(r, g, bl, 0.7)
                 cr.set_line_width(1.5); cr.stroke()
+
+
+    # ---- settings: preference EQ layers ---------------------------------
+    def _open_settings(self):
+        """The gear: taste layers live here -- device-independent,
+        composed after whatever profile is active, never touching
+        the profiles themselves."""
+        dlg = Adw.PreferencesDialog()
+        dlg.set_title("Settings")
+        page = Adw.PreferencesPage()
+        page.set_title("Preference EQ")
+        page.set_icon_name("audio-x-generic-symbolic")
+        self._layers_group = Adw.PreferencesGroup()
+        self._layers_group.set_title("Preference EQ layers")
+        self._layers_group.set_description(
+            "Taste, not correction: a hand-dialed EQ composed after "
+            "the active profile on every device. Profiles stay "
+            "untouched.")
+        add = Gtk.Button.new_from_icon_name("list-add-symbolic")
+        add.add_css_class("flat")
+        add.set_tooltip_text("Add a layer")
+        add.connect("clicked", self._on_layer_add)
+        self._layers_group.set_header_suffix(add)
+        page.add(self._layers_group)
+        dlg.add(page)
+        self._layer_rows = []
+        self._rebuild_layer_rows()
+        dlg.present(self)
+
+    def _rebuild_layer_rows(self):
+        for row in self._layer_rows:
+            self._layers_group.remove(row)
+        self._layer_rows = []
+        anchor = Gtk.CheckButton()          # radio group anchor
+        anchor.set_valign(Gtk.Align.CENTER)
+        anchor.set_active(self.pref_layers.active_id is None)
+        anchor.connect("toggled", self._make_layer_active_cb(None))
+        none_row = Adw.ActionRow(title="No layer")
+        none_row.set_subtitle("Correction only")
+        none_row.add_prefix(anchor)
+        none_row.set_activatable_widget(anchor)
+        self._layers_group.add(none_row)
+        self._layer_rows.append(none_row)
+        for lay in self.pref_layers.layers:
+            row = self._layer_row(lay, anchor)
+            self._layers_group.add(row)
+            self._layer_rows.append(row)
+
+    def _make_layer_active_cb(self, lid):
+        def cb(btn):
+            if btn.get_active():
+                self.pref_layers.set_active(lid)
+                self._apply_now()
+        return cb
+
+    def _layer_row(self, lay, group):
+        lid = lay["id"]
+        row = Adw.ExpanderRow(title=lay["name"] or "Preference")
+        radio = Gtk.CheckButton()
+        radio.set_group(group)
+        radio.set_valign(Gtk.Align.CENTER)
+        radio.set_active(self.pref_layers.active_id == lid)
+        radio.connect("toggled", self._make_layer_active_cb(lid))
+        row.add_prefix(radio)
+        rm = Gtk.Button.new_from_icon_name("user-trash-symbolic")
+        rm.add_css_class("flat")
+        rm.set_valign(Gtk.Align.CENTER)
+        rm.set_tooltip_text("Delete this layer")
+        rm.connect("clicked", lambda *_: self._on_layer_delete(lid))
+        row.add_suffix(rm)
+        name = Adw.EntryRow(title="Name")
+        name.set_text(lay["name"])
+
+        def renamed(entry):
+            text = entry.get_text().strip()
+            cur = self.pref_layers.get(lid)
+            if cur and text and cur["name"] != text:
+                self.pref_layers.upsert(dict(cur, name=text))
+                row.set_title(text)
+        name.connect("changed", renamed)
+        row.add_row(name)
+        row.add_row(self._layer_band_editor(lid))
+        return row
+
+    def _on_layer_add(self, *_):
+        self.pref_layers.upsert({"name": "New layer", "bands": []})
+        self._rebuild_layer_rows()
+
+    def _on_layer_delete(self, lid):
+        was = self.pref_layers.active_id == lid
+        self.pref_layers.delete(lid)
+        self._rebuild_layer_rows()
+        if was:
+            self._apply_now()
+
+    def _layer_band_editor(self, lid):
+        """A compact write-through band table for one layer: edits
+        land in the store on every change and re-apply live when the
+        layer is the active one. Only add/delete rebuild the box, so
+        spins keep focus while typed into."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                      spacing=4)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + side)(8)
+        types = ["PK", "LSC", "HSC"]
+
+        def bands():
+            cur = self.pref_layers.get(lid)
+            return list(cur["bands"]) if cur else []
+
+        def store(bs):
+            cur = self.pref_layers.get(lid)
+            if cur is None:
+                return
+            self.pref_layers.upsert(dict(cur, bands=bs))
+            if self.pref_layers.active_id == lid:
+                self._apply_now()
+
+        def write(i, key, val):
+            bs = bands()
+            if i < len(bs):
+                bs[i] = dict(bs[i], **{key: val})
+                store(bs)
+
+        def on_add(*_):
+            bs = bands()
+            bs.append({"type": "PK", "freq": 1000.0, "gain": 0.0,
+                       "q": 1.0, "enabled": True})
+            store(bs)
+            rebuild()
+
+        def make_del(i):
+            def cb(*_):
+                bs = bands()
+                if i < len(bs):
+                    del bs[i]
+                    store(bs)
+                    rebuild()
+            return cb
+
+        def band_line(i, b):
+            h = Gtk.Box(spacing=6)
+            dd = Gtk.DropDown.new_from_strings(types)
+            dd.set_selected(types.index(b.get("type"))
+                            if b.get("type") in types else 0)
+            dd.connect("notify::selected",
+                       lambda d, *_a, i=i:
+                       write(i, "type", types[d.get_selected()]))
+            self._tame_scroll(dd)
+            h.append(dd)
+            for key, lo, hi, step, dig, tip in (
+                    ("freq", 10.0, 20000.0, 1.0, 0,
+                     "Frequency, Hz"),
+                    ("gain", -24.0, 24.0, 0.1, 1, "Gain, dB"),
+                    ("q", 0.1, 10.0, 0.05, 2, "Q")):
+                sp = Gtk.SpinButton.new_with_range(lo, hi, step)
+                sp.set_digits(dig)
+                sp.set_tooltip_text(tip)
+                sp.set_value(float(b.get(key, 0.0)))
+                sp.connect("value-changed",
+                           lambda spb, key=key, i=i:
+                           write(i, key, spb.get_value()))
+                self._tame_scroll(sp)
+                h.append(sp)
+            sw = Gtk.Switch()
+            sw.set_valign(Gtk.Align.CENTER)
+            sw.set_active(bool(b.get("enabled", True)))
+            sw.set_tooltip_text("Band on/off")
+            sw.connect("notify::active",
+                       lambda swb, *_a, i=i:
+                       write(i, "enabled", swb.get_active()))
+            h.append(sw)
+            tr = Gtk.Button.new_from_icon_name("user-trash-symbolic")
+            tr.add_css_class("flat")
+            tr.set_tooltip_text("Delete this band")
+            tr.connect("clicked", make_del(i))
+            h.append(tr)
+            return h
+
+        def rebuild():
+            child = box.get_first_child()
+            while child is not None:
+                nxt = child.get_next_sibling()
+                box.remove(child)
+                child = nxt
+            for i, b in enumerate(bands()):
+                box.append(band_line(i, b))
+            addb = Gtk.Button(label="Add band")
+            addb.add_css_class("flat")
+            addb.set_halign(Gtk.Align.START)
+            addb.connect("clicked", on_add)
+            box.append(addb)
+
+        rebuild()
+        row = Gtk.ListBoxRow()
+        row.set_activatable(False)
+        row.set_child(box)
+        return row
 
 
 class EqApplication(Adw.Application):
