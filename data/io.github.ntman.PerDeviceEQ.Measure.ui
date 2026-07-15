@@ -58,12 +58,6 @@
                       </object>
                     </child>
                     <child>
-                      <object class="AdwActionRow" id="capsules_row">
-                        <property name="title" translatable="yes">Capsules</property>
-                        <property name="subtitle" translatable="yes">Mono, or stereo like a UMIK rig</property>
-                      </object>
-                    </child>
-                    <child>
                       <object class="AdwActionRow" id="cal_row">
                         <property name="title" translatable="yes">Calibration</property>
                         <property name="subtitle" translatable="yes">Mic calibration file per capsule</property>

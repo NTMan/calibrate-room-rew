@@ -198,7 +198,6 @@ class MeasureWindow(Adw.Window):
             (self.edit_prof or {}).get("name") or self.sink_desc)
 
         self._build_mic_controls(b.get_object("mic_row"),
-                                 b.get_object("capsules_row"),
                                  b.get_object("cal_row"))
 
         self.map_left_slot = Gtk.Box()
@@ -226,11 +225,12 @@ class MeasureWindow(Adw.Window):
         b.get_object("channel_host").append(self._build_page())
         b.get_object("fit_host").append(self._build_fit_area())
 
-    def _build_mic_controls(self, mic_row, capsules_row, cal_row):
+    def _build_mic_controls(self, mic_row, cal_row):
         names = [s["desc"] for s in self.sources] or ["(no sources found)"]
         self.source_dd = Gtk.DropDown.new_from_strings(names)
         self.source_dd.set_valign(Gtk.Align.CENTER)
         self.source_dd.connect("notify::selected", self._on_source_changed)
+        self._tame_scroll(self.source_dd)
         mic_row.add_suffix(self.source_dd)
         self.chan_dd = Gtk.DropDown.new_from_strings(["Mono", "Stereo"])
         self.chan_dd.set_valign(Gtk.Align.CENTER)
@@ -238,7 +238,8 @@ class MeasureWindow(Adw.Window):
                                       "mono even if it enumerates as "
                                       "stereo")
         self.chan_dd.connect("notify::selected", self._on_chan_changed)
-        capsules_row.add_suffix(self.chan_dd)
+        self._tame_scroll(self.chan_dd)
+        mic_row.add_suffix(self.chan_dd)   # one row: mic + capsules
         self.cal_row = cal_row
         self._recompute_mic()
         self._rebuild_cal_row()
@@ -295,6 +296,7 @@ class MeasureWindow(Adw.Window):
             "Sweep playback level (%). Auto-level sets it; edit to override "
             "if it misses.")
         self.vol_spin.connect("value-changed", self._on_vol_edited)
+        self._tame_scroll(self.vol_spin)
         center_box.append(self.vol_spin)
         self.vol_gone = Gtk.Label()
         self.vol_gone.set_halign(Gtk.Align.CENTER)
@@ -342,6 +344,7 @@ class MeasureWindow(Adw.Window):
         lb.add_css_class("boxed-list")
         lb.set_selection_mode(Gtk.SelectionMode.NONE)
         exp = Adw.ExpanderRow(title="Takes")
+        exp.set_expanded(True)      # takes visible next to play
         lb.append(exp)
         col.append(lb)
         self._page = {"header": header, "summary": summary,
@@ -478,6 +481,7 @@ class MeasureWindow(Adw.Window):
         row.append(self.range_label)
         row.append(Gtk.Label(label="Bands"))
         self.bands_spin = Gtk.SpinButton.new_with_range(1, 20, 1)
+        self._tame_scroll(self.bands_spin)
         self.bands_spin.set_value(FIT_BANDS)
         self.bands_spin.set_tooltip_text("Max biquads per channel; the fit "
                                          "stops early once the worst "
@@ -1602,6 +1606,34 @@ class MeasureWindow(Adw.Window):
 
     def _profile_name(self):
         return (self.name_row.get_text().strip() or self.sink_desc)
+
+    # ---- scroll taming (wheel must not change spin/dropdown values) ----
+    def _tame_scroll(self, widget):
+        """Keep the wheel from editing a value; scroll the page."""
+        ctrl = Gtk.EventControllerScroll.new(
+            Gtk.EventControllerScrollFlags.VERTICAL)
+        ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        ctrl.connect("scroll", self._on_widget_scroll)
+        widget.add_controller(ctrl)
+
+    def _on_widget_scroll(self, ctrl, dx, dy):
+        """CAPTURE-phase handler backing _tame_scroll: forward the
+        wheel to the enclosing scrolled page and swallow it here, so
+        the hovered value is left untouched."""
+        w = ctrl.get_widget()
+        sw = w.get_ancestor(Gtk.ScrolledWindow) if w else None
+        if sw is not None:
+            adj = sw.get_vadjustment()
+            if adj is not None:
+                step = adj.get_step_increment()
+                if step <= 0:
+                    step = 30.0
+                new = adj.get_value() + dy * step
+                new = max(adj.get_lower(),
+                          min(new,
+                              adj.get_upper() - adj.get_page_size()))
+                adj.set_value(new)
+        return True
 
     # ---- dialogs / teardown -----------------------------------------------
     def _confirm_loud(self, on_ok):
