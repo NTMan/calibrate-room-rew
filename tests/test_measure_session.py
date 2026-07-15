@@ -727,3 +727,35 @@ def test_ephemeral_outdir_wiped_and_takes_stamped(shim_state, tmp_path):
         assert r0.created_utc and "T" in r0.created_utc
     assert not os.path.exists(out)       # wiped with the session
     assert ses.outdir is None and ses.wav is None
+
+
+def test_adopt_take_joins_the_statistics(shim_state, tmp_path):
+    """A canvas take adopted into a fresh session behaves like one
+    of its own -- listed, counted, spread-judged, discardable -- but
+    finalize() refuses the channel: adopted takes carry magnitudes,
+    not samples."""
+    cfg = ms.SessionConfig(sink="test_sink", source="test_source",
+                           channels=2, samples=131072,
+                           save_dir=str(tmp_path / "takes"))
+    ses = ms.MeasureSession(cfg)
+    with ses:
+        ses.take(0)
+        live = ses.takes_of(0)[-1]
+        ghost = ms.TakeRecord(
+            "abc123def456", 0, live.freq_hz,
+            [float(v) for v in live.mag_db],
+            5.0, 45.0, -6.0, 0, 0, None,
+            chan_vol=live.chan_vol, soft_vol=live.soft_vol,
+            noise_dbfs=-80.0, capture_channel=0,
+            created_utc="2026-07-10T00:00:00+00:00")
+        ses.adopt_take(0, ghost)
+        recs = ses.takes_of(0)
+        assert len(recs) == 2 and recs[-1].id == "abc123def456"
+        assert ms.take_quality(ghost) == ms.TAKE_CLEAN
+        mean, spread = ses.average_and_spread(0)
+        assert mean is not None and spread is not None
+        with pytest.raises(ms.MeasureError, match="adopted"):
+            ses.finalize(0)
+        ses.discard(0, "abc123def456")
+        assert len(ses.takes_of(0)) == 1
+        ses.finalize(0)                  # pure live takes: fine again

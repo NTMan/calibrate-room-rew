@@ -1474,6 +1474,18 @@ class MeasureSession:
         """The channel's accepted TakeRecords, oldest first."""
         return [rec for rec, _ in self._takes.get(channel, [])]
 
+    def adopt_take(self, channel, rec):
+        """Seed the accumulation with a take from a previous session
+        (the profile's canvas): the take list, the counts, the
+        spread statistics and the quality gates treat it as one of
+        their own. Adopted takes carry no samples and no wav -- only
+        magnitudes, exactly what the mag-domain machinery consumes;
+        finalize() therefore refuses a channel holding them (the
+        canvas re-fit path never needs raw samples)."""
+        rec.freq_hz = np.asarray(rec.freq_hz, float)
+        rec.mag_db = np.asarray(rec.mag_db, float)
+        self._takes.setdefault(channel, []).append((rec, None))
+
     def _comp_factors(self, entries):
         """gain_comp_factors over the entries' recorded soft gains;
         None disables compensation (an unknown gain, or no takes)."""
@@ -1685,6 +1697,11 @@ class MeasureSession:
         entries = self._takes.get(channel, [])
         if not entries:
             raise MeasureError("no accepted takes on channel %d" % channel)
+        if any(samples is None for _, samples in entries):
+            raise MeasureError(
+                "channel %r holds adopted canvas takes; finalize "
+                "needs raw samples -- re-fit from the canvas "
+                "instead" % channel)
         factors = self._comp_factors(entries)
         recordings = [samples for _, samples in entries]
         comp_db = None

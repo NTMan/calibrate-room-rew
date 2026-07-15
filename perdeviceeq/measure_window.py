@@ -27,6 +27,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Gdk, Adw       # noqa: E402
 
 from . import config, pipewire, measure_build       # noqa: E402
+from . import measure_core as mc                    # noqa: E402
 from . import measure_session as ms                 # noqa: E402
 from . import measure_prefs                         # noqa: E402
 
@@ -147,7 +148,11 @@ class MeasureWindow(Adw.Window):
         self._entered = False
         self._busy = False
         self._loud_ack = False
-        self._edited_ack = False    # user ok with discarding edits
+        self._canvas_ids = {}       # (ch, live rec.id) -> canvas id
+        self._canvas_session = None  # one session entry per sitting
+        self._rig_blocked = False   # profile belongs to another rig
+        self._closing_fit = False   # close-time fit in flight
+        self._fit_finished = False  # settled: next close just closes
         self._relevel_pending = False
         self._sink_gone = False
         self._pinned = False        # user chose "stay": ignore the default
@@ -189,10 +194,6 @@ class MeasureWindow(Adw.Window):
         b.get_object("window_title").set_subtitle(self.sink_desc)
         self.center = b.get_object("status")
         self.warning = b.get_object("warning")
-        self.create_btn = b.get_object("create_btn")
-        self.create_btn.connect("clicked", self._on_create)
-        if self.edit_pid:
-            self.create_btn.set_label("Save")
         self.name_row = b.get_object("name_row")
         self.name_row.set_text(
             (self.edit_prof or {}).get("name")
@@ -209,7 +210,18 @@ class MeasureWindow(Adw.Window):
         ring_host = b.get_object("ring_host")
         ring_host.set_spacing(8)
         ring_host.append(self.map_left_slot)
-        ring_host.append(self._build_ring())
+        ring_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                           spacing=6)
+        ring_col.append(self._build_ring())
+        self.ready_hint = Gtk.Label(xalign=0.5)
+        self.ready_hint.add_css_class("success")
+        self.ready_hint.set_wrap(True)
+        self.ready_hint.set_text(
+            "Ready to fit -- close this window to hear your "
+            "best version.")
+        self.ready_hint.set_visible(False)
+        ring_col.append(self.ready_hint)
+        ring_host.append(ring_col)
         ring_host.append(self.map_right_slot)
         self._rebuild_map_slots()
 
@@ -405,6 +417,9 @@ class MeasureWindow(Adw.Window):
             info = "%s  %.1f dBFS" % (snr, rec.peak_dbfs)
             if rec.noise_dbfs is not None:
                 info += "  noise %.0f" % rec.noise_dbfs
+        if rec.wav_path is None and rec.created_utc:
+            info = "%s  \u00b7  %s" % (str(rec.created_utc)[:10],
+                                       info)
         drives = driver is not None and driver[0] == rec.id
         if drives:
             info += "  ·  spread driver"
@@ -471,13 +486,10 @@ class MeasureWindow(Adw.Window):
                                          "residual is under ~0.5 dB")
         row.append(self.bands_spin)
         box.append(row)
-        self.replace_check = Gtk.CheckButton(
-            label="Replace stored takes of re-measured channels")
-        self.replace_check.set_tooltip_text(
-            "Channels you measure now drop their previous takes "
-            "from the profile instead of adding to them")
-        self.replace_check.set_visible(bool(self.edit_pid))
-        box.append(self.replace_check)
+        self.fit_bar = Gtk.ProgressBar()
+        self.fit_bar.set_show_text(True)
+        self.fit_bar.set_visible(False)
+        box.append(self.fit_bar)
         self._range_plot = None
         self._drag_handle = None
         self._update_range_label()
@@ -748,9 +760,7 @@ class MeasureWindow(Adw.Window):
                                if self.session else None)
         self._rebuild_page()
         self._update_pult()
-        if self.edit_pid:           # editing: rename alone saves
-            ready = True
-        self.create_btn.set_sensitive(ready and not self._busy)
+        self.ready_hint.set_visible(bool(ready) and not self._busy)
         self._refresh_volume()
         self._auto_fit_range()
         if getattr(self, "range_area", None) is not None:
@@ -1198,12 +1208,21 @@ class MeasureWindow(Adw.Window):
 
     def _make_discard_cb(self, ch, take_id):
         def cb(_btn):
-            if self.session is not None and not self._busy:
+            if self.session is None or self._busy:
+                return
+            try:
+                self.session.discard(ch, take_id)
+            except ms.MeasureError:
+                return
+            cid = self._canvas_ids.pop((ch, take_id), None)
+            if cid is not None and self.edit_pid:
                 try:
-                    self.session.discard(ch, take_id)
-                except ms.MeasureError:
-                    return
-                self._refresh_all()
+                    measure_build.remove_takes(
+                        self.parent.store, self.edit_pid, [cid])
+                except Exception as e:
+                    self._error("Could not delete the stored take: "
+                                "%s" % e)
+            self._refresh_all()
         return cb
 
     # ---- measurement ------------------------------------------------------
@@ -1263,6 +1282,7 @@ class MeasureWindow(Adw.Window):
             self.session = None
             self._error("Could not start: %s" % e)
             return False
+        self._adopt_canvas()
         return True
 
     def _start_measure(self, ch, level_only=False):
@@ -1274,10 +1294,14 @@ class MeasureWindow(Adw.Window):
             return
         if not self._ensure_session():
             return
+        if self._rig_blocked:
+            self._error("This profile was measured with a different "
+                        "rig; measuring here is blocked. Create a "
+                        "new profile for this rig.")
+            return
         self._level_only = level_only
         self._busy = True
         self._set_ring_sensitive(False)
-        self.create_btn.set_sensitive(False)
         self._update_pult()
         self.center.set_text(
             "Measuring the level on %s\u2026" % self.ch_keys[ch]
@@ -1354,6 +1378,11 @@ class MeasureWindow(Adw.Window):
             self._error("Measurement failed: %s" % err)
             self._refresh_all()
             return False
+        out = result.get("outcome")
+        if (out is not None and getattr(out, "kind", "") == "take"
+                and out.take is not None
+                and not getattr(self, "_level_only", False)):
+            self._commit_live_take(ch, out.take)
         v = getattr(self.session, "_v_cur", self.session.volume_start)
         src = self._source_name()
         if v is not None and src:
@@ -1365,88 +1394,181 @@ class MeasureWindow(Adw.Window):
         for spk in self._speakers.values():
             spk.set_sensitive(on)
 
-    # ---- create profile ---------------------------------------------------
-    def _on_create(self, _btn):
-        if self._busy or (self.session is None
-                          and not self.edit_pid):
-            return
+    # ---- the incremental contract ------------------------------------
+    def _ensure_pid(self):
+        """The profile this window edits. A fresh window creates it
+        on first need -- the first committed take, or the plain close
+        that still leaves an empty profile behind (New's contract) --
+        and binds it to the sink."""
+        if self.edit_pid:
+            return self.edit_pid
+        store = self.parent.store
+        pid = store.save_user({
+            "name": self._profile_name(),
+            "apply_all": True, "preamp": 0.0, "ch_keys": [],
+            "all": {"bands": []}, "channels": {}})
+        store.set_binding(self.sink_node, pid)
+        self.edit_pid = pid
+        return pid
+
+    def _apply_name(self, pid):
         name = self._profile_name()
-        ses = self.session
-        channels = ({i: self.ch_keys[i] for i in range(self.n_ch)
-                     if ses.takes_of(i)} if ses else {})
-        cal = {}
-        for i in channels:
-            path = self.cal.get(self.mic_of.get(i, 0))
-            if path:
-                cal[i] = path
+        store = self.parent.store
+        prof = store.get(pid)
+        if prof and prof.get("name") != name:
+            store.save_user(dict(prof, name=name))
+
+    def _commit_live_take(self, ch, rec):
+        """An accepted take is a fact of the profile the moment it
+        exists: kill the app, pull the plug -- the take survives.
+        Creates the profile on a fresh window's first take, threads
+        one canvas session entry through the sitting, and remembers
+        the canvas id so this row's trash can deletes from the
+        profile too."""
+        try:
+            pid = self._ensure_pid()
+            col = rec.capture_channel
+            cal = None
+            if col is not None:
+                cal = self.cal.get(col, self.cal.get(str(col)))
+            ids = measure_build.commit_take(
+                self.parent.store, pid, self.session, ch,
+                self.ch_keys[ch], rec.id, cal=cal,
+                source=self._source_info(),
+                canvas_session=self._canvas_session)
+            self._canvas_session = ids["session"]
+            self._canvas_ids[(ch, rec.id)] = ids["take"]
+        except Exception as e:
+            self._error("Could not store the take: %s" % e)
+
+    def _adopt_canvas(self):
+        """Seed the fresh session with the profile's stored takes so
+        the counts, the spread statistics and the take list span the
+        whole history instead of one sitting. Only under a matching
+        rig; adopted takes come back as records without samples (the
+        canvas magnitudes on the canvas grid) and their trash cans
+        delete from the profile."""
+        if not self.edit_pid or self.session is None:
+            return
+        prof = self.parent.store.get(self.edit_pid) or {}
+        m = prof.get("measurement") or {}
+        takes = m.get("takes") or []
+        if not takes:
+            return
+        src = self._source_info() or {}
+        node = self.session.source_ident.get("name")
+        stored_src = m.get("source")
+        if stored_src and not measure_build.rig_matches(
+                stored_src, src.get("serial"), node):
+            self.warning.set_text(
+                "This profile was measured with %s; its stored "
+                "takes stay hidden and measuring here is blocked."
+                % (stored_src.get("name")
+                   or stored_src.get("node_match")
+                   or "another rig"))
+            self._rig_blocked = True
+            return
+        self._rig_blocked = False
+        g = m.get("grid") or {}
+        freqs = mc.log_grid(float(g.get("f_lo", mc.GRID_F_LO)),
+                            float(g.get("f_hi", mc.GRID_F_HI)),
+                            int(g.get("ppo", mc.GRID_PPO)))
+        key_to_ch = {k: i for i, k in
+                     enumerate(self.ch_keys[:self.n_ch])}
+        for t in takes:
+            ch = key_to_ch.get(t.get("channel"))
+            if ch is None:
+                continue
+            rec = ms.TakeRecord(
+                t.get("id"), ch, freqs,
+                t.get("mag_db_uncal") or [],
+                t.get("delay_ms"), t.get("snr_db"),
+                t.get("peak_dbfs"), int(t.get("clipped") or 0),
+                int(t.get("repaired") or 0), None,
+                chan_vol=t.get("chan_vol"),
+                soft_vol=t.get("soft_vol"),
+                noise_dbfs=t.get("noise_dbfs"),
+                capture_channel=t.get("capture_channel"),
+                created_utc=t.get("created_utc"))
+            self.session.adopt_take(ch, rec)
+            self._canvas_ids[(ch, rec.id)] = rec.id
+        self._refresh_all()
+
+    def _should_autofit(self, pid):
+        """Full house and an unsettled fit: three clean takes on
+        every channel (the session adopted the history, so the
+        counts span it) and a fit that is absent, stale or does not
+        cover the canvas. Hand-edited fits are never discarded
+        silently -- the editor's Re-fit asks."""
+        if self.session is None or self._rig_blocked:
+            return False
+        if any(self._clean_count(i) < CLEAN_TARGET
+               for i in range(self.n_ch)):
+            return False
+        prof = self.parent.store.get(pid) or {}
+        m = prof.get("measurement") or {}
+        if not m.get("takes"):
+            return False
+        fit = prof.get("fit")
+        if not fit:
+            return True
+        if fit.get("edited"):
+            return False
+        from . import refit
+        ids = {t.get("id") for t in m["takes"]}
+        return (refit.fit_is_stale(prof)
+                or bool(ids - set(fit.get("takes") or [])))
+
+    def _start_close_fit(self, pid):
+        """The close-time fit: full house met, so the window holds
+        the door, fits with a real per-channel progress bar and lets
+        go when the profile is settled. Errors keep the takes (they
+        are long persisted) and close anyway."""
+        self._closing_fit = True
+        self.set_sensitive(False)
+        self.fit_bar.set_visible(True)
+        self.fit_bar.set_fraction(0.0)
+        self.fit_bar.set_text("Fitting\u2026")
+        self.center.set_text("Fitting the EQ from your takes\u2026")
         bands = self.bands_spin.get_value_as_int()
-        f_lo = float(self.fit_lo)
-        f_hi = float(self.fit_hi)
-        source = self._source_info()
-        replace = (tuple(channels.values())
-                   if (self.edit_pid and channels
-                       and self.replace_check.get_active())
-                   else ())
-        if self.edit_pid and channels:
-            prof = self.parent.store.get(self.edit_pid) or {}
-            stored = ((prof.get("measurement") or {})
-                      .get("source"))
-            node = ses.source_ident.get("name") if ses else None
-            if stored and not measure_build.rig_matches(
-                    stored, (source or {}).get("serial"), node):
-                self._error(
-                    "This profile was measured with %s; measuring "
-                    "with a different rig needs a new profile."
-                    % (stored.get("name")
-                       or stored.get("node_match")
-                       or "another rig"))
-                return
-            if ((prof.get("fit") or {}).get("edited")
-                    and not self._edited_ack):
-                self._confirm_edited(
-                    lambda: self._on_create(None))
-                return
-        self._busy = True
-        self.create_btn.set_sensitive(False)
-        self._set_ring_sensitive(False)
-        self.center.set_text("Building profile…")
-        res = {"pid": None, "error": None}
+        f_lo, f_hi = float(self.fit_lo), float(self.fit_hi)
+        store = self.parent.store
+        res = {}
+
+        def tick(done, total, key):
+            def ui():
+                self.fit_bar.set_fraction(done / max(1, total))
+                self.fit_bar.set_text(
+                    "Fitting %s\u2026" % key if key else "Done")
+                return False
+            GLib.idle_add(ui)
+
+        def done_ui():
+            self._closing_fit = False
+            self._fit_finished = True
+            self.set_sensitive(True)
+            self.fit_bar.set_visible(False)
+            if res.get("err") is not None:
+                self._error("Could not fit: %s" % res["err"])
+            self.close()
+            return False
 
         def work():
             try:
-                if self.edit_pid:
-                    res["pid"] = measure_build.append_and_bind(
-                        self.session, channels, self.parent.store,
-                        self.sink_node, self.edit_pid, cal=cal,
-                        source=source, name=name, replace=replace,
-                        bands=bands, f_lo=f_lo, f_hi=f_hi,
-                        allow_edited=True)
-                else:
-                    res["pid"] = measure_build.build_and_bind(
-                        self.session, channels, self.parent.store,
-                        self.sink_node, name, cal=cal, bands=bands,
-                        f_lo=f_lo, f_hi=f_hi, source=source)
+                measure_build.refit_and_save(
+                    store, pid, bands=bands, f_lo=f_lo, f_hi=f_hi,
+                    progress=tick)
             except Exception as e:
-                res["error"] = e
-            GLib.idle_add(self._create_done, res)
+                res["err"] = e
+            GLib.idle_add(done_ui)
         threading.Thread(target=work, daemon=True).start()
 
-    def _create_done(self, res):
-        self._busy = False
-        self._set_ring_sensitive(True)
-        self.center.set_text("Click a speaker to measure")
-        if res["error"] is not None:
-            self._error("Could not build the profile: %s" % res["error"])
-            self._refresh_all()
-            return False
-        self._persist_mic()
-        pid = res["pid"]
+    def _parent_reload(self, pid):
         try:
             self.parent._select_device(self.sink_node, load=False)
             self.parent._load_profile(pid)
         except Exception:
             pass
-        self.close()
         return False
 
     def _persist_mic(self):
@@ -1485,29 +1607,6 @@ class MeasureWindow(Adw.Window):
                 or "Measured %s" % self.sink_desc)
 
     # ---- dialogs / teardown -----------------------------------------------
-    def _confirm_edited(self, on_ok):
-        """The profile's bands were edited by hand after the fit;
-        saving re-fits the whole canvas and discards that work, so
-        ask once per window."""
-        dlg = Adw.AlertDialog(
-            heading="Discard hand edits?",
-            body="This profile's bands were edited by hand after "
-                 "the fit. Saving re-fits from the whole canvas "
-                 "and discards those edits.")
-        dlg.add_response("cancel", "Cancel")
-        dlg.add_response("refit", "Save and re-fit")
-        dlg.set_response_appearance(
-            "refit", Adw.ResponseAppearance.DESTRUCTIVE)
-        dlg.set_default_response("cancel")
-        dlg.set_close_response("cancel")
-
-        def on_resp(_d, resp):
-            if resp == "refit":
-                self._edited_ack = True
-                on_ok()
-        dlg.connect("response", on_resp)
-        dlg.present(self)
-
     def _confirm_loud(self, on_ok):
         dlg = Adw.AlertDialog(
             heading="This will play loudly",
@@ -1534,6 +1633,24 @@ class MeasureWindow(Adw.Window):
         dlg.present(self)
 
     def _on_close(self, *_):
+        if self._closing_fit:
+            return True                  # the fit holds the door
+        if self._busy:
+            return True                  # a sweep is in the air
+        pid = self._ensure_pid()         # New: even empty stays
+        self._apply_name(pid)
+        try:
+            self._persist_mic()
+        except Exception:
+            pass
+        if not self._fit_finished and self._should_autofit(pid):
+            self._start_close_fit(pid)
+            return True
+        self._teardown()
+        GLib.idle_add(self._parent_reload, pid)
+        return False
+
+    def _teardown(self):
         if getattr(self, "_pw_unsub", None) is not None:
             self._pw_unsub()
             self._pw_unsub = None
@@ -1543,4 +1660,3 @@ class MeasureWindow(Adw.Window):
             except Exception:
                 pass
             self._entered = False
-        return False

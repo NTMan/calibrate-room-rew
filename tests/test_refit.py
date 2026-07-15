@@ -222,16 +222,27 @@ def test_reconstruction_matches_live_pipeline(shim_state, store,
     cfg = ms.SessionConfig(sink="test_sink", source="test_source",
                            channels=2, samples=131072,
                            save_dir=str(tmp_path / "takes"))
+    pid = store.save_user({"id": "e2e", "name": "e2e", "version": 3,
+                           "apply_all": True, "preamp": 0.0,
+                           "ch_keys": [], "all": {"bands": []},
+                           "channels": {}})
     ses = ms.MeasureSession(cfg)
     with ses:
         ses.take(0)
+        ids = measure_build.commit_take(
+            store, pid, ses, 0, "FL", ses.takes_of(0)[-1].id,
+            cal=str(flat))
         ses.take(1)
+        measure_build.commit_take(
+            store, pid, ses, 1, "FR", ses.takes_of(1)[-1].id,
+            cal=str(tilt), canvas_session=ids["session"])
         ses.take(1)          # two takes on FR: exercise averaging
-    pid = measure_build.build_and_bind(
-        ses, {0: "FL", 1: "FR"}, store, "test_sink", name="e2e",
-        cal={0: str(flat), 1: str(tilt)})
+        measure_build.commit_take(
+            store, pid, ses, 1, "FR", ses.takes_of(1)[-1].id,
+            cal=str(tilt), canvas_session=ids["session"])
+    measure_build.refit_and_save(store, pid)
     prof = store.get(pid)
-    assert not refit.fit_is_stale(prof)     # fresh build is coherent
+    assert not refit.fit_is_stale(prof)     # settled and coherent
     ref = {"FL": ses.finalize(0, cal=str(flat)),
            "FR": ses.finalize(1, cal=str(tilt))}
     res, used = refit.channel_results(prof["measurement"],
@@ -241,7 +252,5 @@ def test_reconstruction_matches_live_pipeline(shim_state, store,
         got = np.asarray(res[key]["data"]["mag_db_smoothed"])
         want = np.asarray(ref[key]["data"]["mag_db_smoothed"])
         assert np.max(np.abs(got - want)) < 0.05
-    out = refit.refit_profile(prof)
-    assert not refit.fit_is_stale(out)
     for key in ("FL", "FR"):
-        assert out["channels"][key]["bands"]
+        assert prof["channels"][key]["bands"]
