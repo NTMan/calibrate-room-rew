@@ -158,6 +158,13 @@ class EqWindow(Adw.ApplicationWindow):
         self.header_bar = b.get_object("header_bar")
         self.window_title = b.get_object("window_title")
         self.profile_button = b.get_object("profile_button")
+        exp = Gtk.Button()
+        exp.set_valign(Gtk.Align.CENTER)
+        exp.set_icon_name("document-save-symbolic")
+        exp.add_css_class("flat")
+        exp.set_tooltip_text("Export this profile to a file to share")
+        exp.connect("clicked", lambda *_: self._export_current())
+        b.get_object("profile_row").add_suffix(exp)
         self.profile_popover = b.get_object("profile_popover")
         self.search_entry = b.get_object("search_entry")
         self.profile_list = b.get_object("profile_list")
@@ -658,30 +665,21 @@ class EqWindow(Adw.ApplicationWindow):
 
     def _build_picker_footer(self):
         """Create the picker footer actions (new / import / export profile)."""
-        new_btn = Gtk.Button(label="Create new…")
+        new_btn = Gtk.Button(label="New…")
         new_btn.add_css_class("flat")
         new_btn.set_halign(Gtk.Align.START)
+        new_btn.set_tooltip_text(
+            "Open the measurement window on a fresh profile: "
+            "measure into it, or just name it and close")
         new_btn.connect("clicked", self._on_create_new)
         imp_btn = Gtk.Button(label="Import profile…")
         imp_btn.add_css_class("flat")
         imp_btn.set_halign(Gtk.Align.START)
-        imp_btn.set_tooltip_text("Import a per-device-eq profile shared by someone else")
+        imp_btn.set_tooltip_text(
+            "Import a per-device-eq profile shared by someone else")
         imp_btn.connect("clicked", lambda *_: self._import_profile())
-        exp_btn = Gtk.Button(label="Export this profile…")
-        exp_btn.add_css_class("flat")
-        exp_btn.set_halign(Gtk.Align.START)
-        exp_btn.set_tooltip_text("Save the current profile to a file to share")
-        exp_btn.connect("clicked", lambda *_: self._export_current())
-        meas_btn = Gtk.Button(label="Measure…")
-        meas_btn.add_css_class("flat")
-        meas_btn.set_halign(Gtk.Align.START)
-        meas_btn.set_tooltip_text(
-            "Measure this output with a mic and build a profile from it")
-        meas_btn.connect("clicked", lambda *_: self._on_measure())
         self.popover_footer.append(new_btn)
         self.popover_footer.append(imp_btn)
-        self.popover_footer.append(exp_btn)
-        self.popover_footer.append(meas_btn)
         self.profile_list.connect("row-activated", self._on_pick_row)
 
     def _install_shortcuts(self, app):
@@ -1756,9 +1754,10 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- create / import ---------------------------------------------------
     def _on_measure(self):
-        """Open the measurement wizard for the current sink. The wizard and
-        its measurement math (numpy/scipy/soundfile) are optional weak
-        deps, so a missing one degrades to a clear message, not a crash."""
+        """Open the measurement window for the current sink -- the
+        New entry lands here. The window and its measurement math
+        (numpy/scipy/soundfile) are optional weak deps, so a missing
+        one degrades to a clear message, not a crash."""
         if not self.live or not self.node:
             return
         self.profile_popover.popdown()
@@ -1813,15 +1812,10 @@ class EqWindow(Adw.ApplicationWindow):
             old.close()
 
     def _on_create_new(self, _btn):
-        """Create and load a fresh empty user profile."""
-        self.profile_popover.popdown()
-        body = {"name": self._unique_name("New profile"), "apply_all": True,
-                "preamp": 0.0, "ch_keys": [], "channels": {},
-                "all": {"bands": []}}
-        pid = self.store.save_user(body)
-        self.favorites.add(pid)
-        _save_favorites(self.favorites)
-        self._load_profile(pid)
+        """New: the measurement window on a fresh profile. Measure
+        into it and close for a fitted profile; close empty for an
+        empty one -- the window creates it either way."""
+        self._on_measure()
 
     def _import_rew(self):
         """Import a mono REW/AutoEQ text file into the CURRENT slot."""

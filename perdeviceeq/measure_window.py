@@ -197,8 +197,7 @@ class MeasureWindow(Adw.Window):
         self.warning = b.get_object("warning")
         self.name_row = b.get_object("name_row")
         self.name_row.set_text(
-            (self.edit_prof or {}).get("name")
-            or "Measured %s" % self.sink_desc)
+            (self.edit_prof or {}).get("name") or self.sink_desc)
 
         self._build_mic_controls(b.get_object("mic_row"),
                                  b.get_object("capsules_row"),
@@ -1652,8 +1651,7 @@ class MeasureWindow(Adw.Window):
                                self.cal.values()))}
 
     def _profile_name(self):
-        return (self.name_row.get_text().strip()
-                or "Measured %s" % self.sink_desc)
+        return (self.name_row.get_text().strip() or self.sink_desc)
 
     # ---- dialogs / teardown -----------------------------------------------
     def _confirm_loud(self, on_ok):
