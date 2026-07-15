@@ -120,3 +120,18 @@ def test_mic_profile_channels_defaults_none(paths):
     pid2 = s.save({"name": "Bad", "node_match": "bad.0",
                    "cal": {}, "channels": 5})   # invalid -> None
     assert s.get(pid2)["channels"] is None
+
+
+def test_serial_from_cal_reads_the_unit_identity():
+    f = mp.serial_from_cal
+    assert f(["/x/L_RAW_8603052.txt",
+              "/x/R_RAW_8603052.txt"]) == "8603052"
+    assert f(["UMIK-1_700123.txt"]) == "700123"
+    # disagreeing files guess nothing; a wrong serial is worse
+    assert f(["L_RAW_8603052.txt", "R_RAW_9999999.txt"]) == ""
+    # short digit runs are gain labels and dates, not serials
+    assert f(["L_0dB.txt"]) == ""
+    # ambiguity inside one name resolves via the common candidate
+    assert f(["L_RAW_8603052_20260714.txt",
+              "R_RAW_8603052.txt"]) == "8603052"
+    assert f([]) == "" and f([None, ""]) == ""

@@ -18,6 +18,7 @@ only, so this imports cleanly anywhere (CLI, tests, GUI) without GTK.
 """
 import json
 import os
+import re
 import uuid
 
 from .config import MIC_PROFILES_FILE, MEASURE_STATE_FILE
@@ -34,6 +35,27 @@ def _atomic_write(path, obj):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, ensure_ascii=False)
     os.replace(tmp, path)
+
+
+
+def serial_from_cal(paths):
+    """The rig serial, read from the cal filenames. miniDSP ships
+    per-unit cal as {L,R}_{RAW,HEQ,IDF,HPN}_<serial>.txt and UMIKs
+    as <model>_<serial>.txt, so the unit's identity is usually
+    sitting right in the file name. Every provided file must agree
+    on exactly one candidate (a digit run of 5+), otherwise nothing
+    is guessed -- a wrong serial is worse than an empty one."""
+    sets = []
+    for p in paths or ():
+        if not p:
+            continue
+        runs = set(re.findall(r"[0-9]{5,}", os.path.basename(p)))
+        if runs:
+            sets.append(runs)
+    if not sets:
+        return ""
+    common = set.intersection(*sets)
+    return common.pop() if len(common) == 1 else ""
 
 
 class MicProfileStore:

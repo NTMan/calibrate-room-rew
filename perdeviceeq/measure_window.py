@@ -1629,7 +1629,8 @@ class MeasureWindow(Adw.Window):
         if not cal and existing is None:
             return
         body = {"name": src["desc"], "node_match": src["name"],
-                "serial": (existing or {}).get("serial", ""),
+                "serial": ((existing or {}).get("serial", "")
+                           or measure_prefs.serial_from_cal(cal.values())),
                 "cal": cal, "channels": self.mic_ch}
         if existing:
             body["id"] = existing["id"]
@@ -1646,7 +1647,9 @@ class MeasureWindow(Adw.Window):
             return None
         existing = self.mic_store.match(src["name"])
         return {"name": src["desc"],
-                "serial": (existing or {}).get("serial", "")}
+                "serial": ((existing or {}).get("serial", "")
+                           or measure_prefs.serial_from_cal(
+                               self.cal.values()))}
 
     def _profile_name(self):
         return (self.name_row.get_text().strip()
