@@ -73,6 +73,7 @@ MEASURE_UI_FILE_CANDIDATES = [
     "/usr/share/per-device-eq/data/" + MEASURE_UI_FILE_NAME]
 # user's curated "favorites" set of profile ids (Weather-style quick list)
 FAVORITES_FILE = os.path.join(CONFIG_DIR, "favorites.json")
+PREF_LAYERS_FILE  = os.path.join(CONFIG_DIR, "preference-layers.json")
 
 # measurement wizard persistence (see perdeviceeq/measure_prefs.py):
 # reusable measurement-mic profiles, and per-sink recall of the last mic

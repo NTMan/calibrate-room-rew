@@ -64,21 +64,29 @@ def build_graph_channels(channel_sets):
             "config = { %s } } ] }" % cfg)
 
 
-def profile_graph(p):
+def profile_graph(p, extra=None):
     """Inline graph string for a schema-v2 profile dict: ONE shared preamp,
-    slots carry bands only (apply_all or per-channel)."""
+    slots carry bands only (apply_all or per-channel). `extra` is a list
+    of preference-layer band dicts appended after EVERY chain -- taste
+    composed over correction, whatever the profile's channel layout; the
+    shared preamp stays the profile's own, and headroom over the
+    composition is the caller's job (curve_max_db on the concatenation).
+    """
     g = float(p.get("preamp", 0.0))
+    tail = [Band.from_dict(b) for b in (extra or [])]
     if p.get("apply_all", True):
         a = p.get("all") or {"bands": []}
-        return build_graph(g, [Band.from_dict(b) for b in a.get("bands", [])])
+        return build_graph(g, [Band.from_dict(b)
+                               for b in a.get("bands", [])] + tail)
     chans = p.get("channels") or {}
     keys = p.get("ch_keys") or list(chans.keys())
     sets = [(g, [Band.from_dict(b)
-                 for b in (chans.get(k) or {}).get("bands", [])])
+                 for b in (chans.get(k) or {}).get("bands", [])] + tail)
             for k in keys]
     if not sets:
         a = p.get("all") or {"bands": []}
-        return build_graph(g, [Band.from_dict(b) for b in a.get("bands", [])])
+        return build_graph(g, [Band.from_dict(b)
+                               for b in a.get("bands", [])] + tail)
     return build_graph_channels(sets)
 
 
