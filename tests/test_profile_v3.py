@@ -115,16 +115,22 @@ def test_editor_body_carries_blocks_and_marks_edited():
     for key in profiles.V3_BLOCKS:
         assert same[key] == _blocks()[key]
     assert same["fit"] == _blocks()["fit"]      # untouched sound
-    out = profiles.editor_body(dict(body, preamp=-6.0), stored)
+    # preamp is gain staging, never an edit
+    calm = profiles.editor_body(dict(body, preamp=-6.0), stored)
+    assert "edited" not in calm["fit"]
+    bands = {"FL": {"bands": [{"type": "PK", "freq": 400,
+                               "gain": 1.0, "q": 1.0}]}}
+    out = profiles.editor_body(dict(body, channels=bands), stored)
     assert out["fit"]["edited"] is True
     assert "edited" not in stored["fit"]        # input not mutated
-    again = profiles.editor_body(dict(body, preamp=-7.0), out)
+    again = profiles.editor_body(dict(body, preamp=-7.0,
+                                      channels=bands), out)
     assert again["fit"]["edited"] is True
     # nothing stored / no fit: nothing invented
     assert "measurement" not in profiles.editor_body(dict(body), None)
     nofit = {k: v for k, v in stored.items() if k != "fit"}
-    assert "fit" not in profiles.editor_body(dict(body, preamp=-6.0),
-                                             nofit)
+    assert "fit" not in profiles.editor_body(
+        dict(body, channels=bands), nofit)
 
 
 def test_edited_mark_is_derived_from_the_fit_output():
@@ -134,7 +140,14 @@ def test_edited_mark_is_derived_from_the_fit_output():
         output_sha256=profiles.playback_sha256(stored))
     body = {k: stored[k] for k in
             ("id", "name") + profiles.PLAYBACK_KEYS}
-    hot = profiles.editor_body(dict(body, preamp=-6.0), stored)
+    calm = profiles.editor_body(dict(body, preamp=-6.0), stored)
+    assert calm["fit"].get("edited") is not True   # gain staging
+    bands = {"FL": {"bands": [{"type": "PK", "freq": 400,
+                               "gain": 1.0, "q": 1.0}]}}
+    hot = profiles.editor_body(dict(body, channels=bands), stored)
     assert hot["fit"]["edited"] is True
     cold = profiles.editor_body(dict(body), hot)   # undo landed
     assert cold["fit"]["edited"] is False
+    # and riding the preamp on a fitted profile stays clean
+    quiet = profiles.editor_body(dict(body, preamp=-6.2), cold)
+    assert quiet["fit"]["edited"] is False

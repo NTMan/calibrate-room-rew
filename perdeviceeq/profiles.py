@@ -35,14 +35,21 @@ def _clean_profile():
 
 
 PLAYBACK_KEYS = ("apply_all", "preamp", "ch_keys", "all", "channels")
+SHAPE_KEYS = ("apply_all", "ch_keys", "all", "channels")
 
 
 def playback_sha256(p):
-    """sha256 over the canonical playback body -- the five keys that
-    make the sound. The fit stamps its output with this, so `edited`
-    can be derived instead of sticky: diverge and it appears, undo
-    back to the exact fitted sound and it clears."""
+    """sha256 over the canonical playback body, with the preamp
+    PINNED to 0.0 in the hash: preamp is gain staging -- the
+    Safe/Session headroom the app derives and the user rides -- not
+    the shape the fit produced, so riding it must never read as
+    editing the fit. Every fit ever stamped had preamp exactly 0.0,
+    which keeps all stored output_sha256 values valid. The fit
+    stamps its output with this, so `edited` is derived instead of
+    sticky: change a band and it appears, undo back to the fitted
+    shape and it clears."""
     body = {k: p.get(k) for k in PLAYBACK_KEYS}
+    body["preamp"] = 0.0
     blob = json.dumps(body, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
@@ -71,7 +78,7 @@ def editor_body(body, stored):
                 out["fit"] = dict(fit, edited=ed)
         elif (isinstance(stored, dict) and not fit.get("edited")
                 and any(out.get(k) != stored.get(k)
-                        for k in PLAYBACK_KEYS)):
+                        for k in SHAPE_KEYS)):
             out["fit"] = dict(fit, edited=True)   # pre-hash fits
     return out
 
