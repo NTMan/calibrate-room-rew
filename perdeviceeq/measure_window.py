@@ -182,6 +182,7 @@ class MeasureWindow(Adw.Window):
         self._select_channel(0)
         self.connect("close-request", self._on_close)
         self._prefill_from_memory()
+        self._ensure_session(arm=False, quiet=True)
         self._refresh_all()
         self._pw_unsub = self._pw.subscribe(self._on_pw_state)
         self._pw.start()
@@ -760,7 +761,10 @@ class MeasureWindow(Adw.Window):
                                if self.session else None)
         self._rebuild_page()
         self._update_pult()
-        self.ready_hint.set_visible(bool(ready) and not self._busy)
+        show = (bool(ready) and not self._busy
+                and self.edit_pid is not None
+                and self._should_autofit(self.edit_pid))
+        self.ready_hint.set_visible(show)
         self._refresh_volume()
         self._auto_fit_range()
         if getattr(self, "range_area", None) is not None:
@@ -1090,6 +1094,23 @@ class MeasureWindow(Adw.Window):
         self._rebuild_map_slots()
         self._sync_cal_labels()
         self._persist_mic()
+        self._reset_unarmed_session()
+
+    def _reset_unarmed_session(self):
+        """The mic or its capsule count changed before anything was
+        measured: the session's cfg is baked at construction, so
+        rebuild it (and re-adopt the stored takes) instead of
+        measuring with a stale source. An armed session is locked --
+        exactly the old behavior."""
+        if self.session is None or self._entered:
+            return
+        self.session = None
+        self._canvas_ids = {}
+        self._canvas_session = None
+        self._rig_blocked = False
+        self.warning.set_text("")
+        self._ensure_session(arm=False, quiet=True)
+        self._refresh_all()
 
     def _recompute_mic(self):
         self.mic_ch = self._mic_channels()
@@ -1111,6 +1132,7 @@ class MeasureWindow(Adw.Window):
         self._rebuild_map_slots()
         self._sync_cal_labels()
         self._persist_mic()
+        self._reset_unarmed_session()
 
     def _mic_channels(self):
         src = self._selected_source()
@@ -1250,39 +1272,63 @@ class MeasureWindow(Adw.Window):
         self.play_btn.set_sensitive(not self._busy and live)
         self.stop_btn.set_sensitive(self._busy)
 
-    def _ensure_session(self):
-        if self.session is not None:
-            return True
-        if not self._sink_present():
-            self._error(
-                "This output no longer exists -- the device's channel "
-                "configuration changed and renamed its sink. Close and "
-                "reopen the measurement for the current device.")
-            return False
-        src = self._selected_source()
-        if not src:
-            self._error("Pick a measurement mic first.")
-            return False
-        remembered = self.memory.volume_for(self.sink_node, src["name"])
-        use_auto = remembered is None or self._relevel_pending
-        cfg = ms.SessionConfig(
-            sink=self.sink_node, source=src["name"], channels=self.mic_ch,
-            auto_level=use_auto, mute_others=True, device=self.sink_desc,
-            start_volume=(None if use_auto else remembered))
-        self._relevel_pending = False
-        try:
-            self.session = ms.MeasureSession(cfg)
-            self.session.__enter__()
-            self._entered = True
-        except ms.RefusalError as e:
-            self.session = None
-            self._error(str(e))
-            return False
-        except Exception as e:                       # missing tools, etc.
-            self.session = None
-            self._error("Could not start: %s" % e)
-            return False
-        self._adopt_canvas()
+    def _ensure_session(self, arm=True, quiet=False):
+        """Construct the session separately from ARMING it.
+        Construction is read-only (node identities, layout, sweep
+        synthesis) and happens at window open, so the profile's
+        stored takes are adopted and visible before a single sweep;
+        __enter__ (the tempdir, foreign-stream muting, the profile
+        bypass, the start volume) waits for the first sweep. quiet
+        suppresses the dialogs for the opportunistic open-time
+        attempt -- no mic picked yet is not an error there."""
+        if self.session is None:
+            if not self._sink_present():
+                if not quiet:
+                    self._error(
+                        "This output no longer exists -- the "
+                        "device's channel configuration changed and "
+                        "renamed its sink. Close and reopen the "
+                        "measurement for the current device.")
+                return False
+            src = self._selected_source()
+            if not src:
+                if not quiet:
+                    self._error("Pick a measurement mic first.")
+                return False
+            remembered = self.memory.volume_for(self.sink_node,
+                                                src["name"])
+            use_auto = remembered is None or self._relevel_pending
+            cfg = ms.SessionConfig(
+                sink=self.sink_node, source=src["name"],
+                channels=self.mic_ch, auto_level=use_auto,
+                mute_others=True, device=self.sink_desc,
+                start_volume=(None if use_auto else remembered))
+            self._relevel_pending = False
+            try:
+                self.session = ms.MeasureSession(cfg)
+            except ms.RefusalError as e:
+                self.session = None
+                if not quiet:
+                    self._error(str(e))
+                return False
+            except Exception as e:               # missing tools, etc.
+                self.session = None
+                if not quiet:
+                    self._error("Could not start: %s" % e)
+                return False
+            self._adopt_canvas()
+        if arm and not self._entered:
+            try:
+                self.session.__enter__()
+                self._entered = True
+            except ms.RefusalError as e:
+                if not quiet:
+                    self._error(str(e))
+                return False
+            except Exception as e:
+                if not quiet:
+                    self._error("Could not start: %s" % e)
+                return False
         return True
 
     def _start_measure(self, ch, level_only=False):
