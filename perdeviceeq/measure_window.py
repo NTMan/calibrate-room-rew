@@ -190,6 +190,43 @@ class MeasureWindow(Adw.Window):
         _ensure_css()
         b = Gtk.Builder.new_from_file(_ui_path())
         self.set_content(b.get_object("content"))
+        # ---- two-column reflow: takes next to play on wide windows.
+        # The narrow (default) layout is byte-identical to the old
+        # single column; past 880sp the column splits -- mic, ring,
+        # status and transport on the left, the channel's summary,
+        # takes and the fit range on the right -- and the clamp
+        # widens to make room.
+        outer = b.get_object("mic_group").get_parent()
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                       spacing=outer.get_spacing())
+        left.set_valign(Gtk.Align.START)
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                        spacing=outer.get_spacing())
+        right.set_valign(Gtk.Align.START)
+        right.set_hexpand(True)
+        for wid in (b.get_object("mic_group"),
+                    b.get_object("ring_host"),
+                    b.get_object("status"),
+                    b.get_object("warning"),
+                    b.get_object("controls")):
+            outer.remove(wid)
+            left.append(wid)
+        for wid in (b.get_object("channel_host"),
+                    b.get_object("fit_host")):
+            outer.remove(wid)
+            right.append(wid)
+        outer.append(left)
+        outer.append(right)
+        clamp = outer.get_parent()
+        bp = Adw.Breakpoint.new(
+            Adw.BreakpointCondition.parse("min-width: 880sp"))
+        bp.add_setter(outer, "orientation",
+                      Gtk.Orientation.HORIZONTAL)
+        bp.add_setter(outer, "spacing", 24)
+        bp.add_setter(clamp, "maximum-size", 1240)
+        bp.add_setter(clamp, "tightening-threshold", 1240)
+        self.add_breakpoint(bp)
+
         b.get_object("window_title").set_subtitle(self.sink_desc)
         self.center = b.get_object("status")
         self.warning = b.get_object("warning")
