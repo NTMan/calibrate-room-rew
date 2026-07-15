@@ -151,8 +151,6 @@ class MeasureWindow(Adw.Window):
         self._canvas_ids = {}       # (ch, live rec.id) -> canvas id
         self._canvas_session = None  # one session entry per sitting
         self._rig_blocked = False   # profile belongs to another rig
-        self._closing_fit = False   # close-time fit in flight
-        self._fit_finished = False  # settled: next close just closes
         self._relevel_pending = False
         self._sink_gone = False
         self._pinned = False        # user chose "stay": ignore the default
@@ -486,10 +484,6 @@ class MeasureWindow(Adw.Window):
                                          "residual is under ~0.5 dB")
         row.append(self.bands_spin)
         box.append(row)
-        self.fit_bar = Gtk.ProgressBar()
-        self.fit_bar.set_show_text(True)
-        self.fit_bar.set_visible(False)
-        box.append(self.fit_bar)
         self._range_plot = None
         self._drag_handle = None
         self._update_range_label()
@@ -1564,50 +1558,6 @@ class MeasureWindow(Adw.Window):
         return (refit.fit_is_stale(prof)
                 or bool(ids - set(fit.get("takes") or [])))
 
-    def _start_close_fit(self, pid):
-        """The close-time fit: full house met, so the window holds
-        the door, fits with a real per-channel progress bar and lets
-        go when the profile is settled. Errors keep the takes (they
-        are long persisted) and close anyway."""
-        self._closing_fit = True
-        self.set_sensitive(False)
-        self.fit_bar.set_visible(True)
-        self.fit_bar.set_fraction(0.0)
-        self.fit_bar.set_text("Fitting\u2026")
-        self.center.set_text("Fitting the EQ from your takes\u2026")
-        bands = self.bands_spin.get_value_as_int()
-        f_lo, f_hi = float(self.fit_lo), float(self.fit_hi)
-        store = self.parent.store
-        res = {}
-
-        def tick(done, total, key):
-            def ui():
-                self.fit_bar.set_fraction(done / max(1, total))
-                self.fit_bar.set_text(
-                    "Fitting %s\u2026" % key if key else "Done")
-                return False
-            GLib.idle_add(ui)
-
-        def done_ui():
-            self._closing_fit = False
-            self._fit_finished = True
-            self.set_sensitive(True)
-            self.fit_bar.set_visible(False)
-            if res.get("err") is not None:
-                self._error("Could not fit: %s" % res["err"])
-            self.close()
-            return False
-
-        def work():
-            try:
-                measure_build.refit_and_save(
-                    store, pid, bands=bands, f_lo=f_lo, f_hi=f_hi,
-                    progress=tick)
-            except Exception as e:
-                res["err"] = e
-            GLib.idle_add(done_ui)
-        threading.Thread(target=work, daemon=True).start()
-
     def _parent_reload(self, pid):
         try:
             self.parent._select_device(self.sink_node, load=False)
@@ -1680,8 +1630,6 @@ class MeasureWindow(Adw.Window):
         dlg.present(self)
 
     def _on_close(self, *_):
-        if self._closing_fit:
-            return True                  # the fit holds the door
         if self._busy:
             return True                  # a sweep is in the air
         pid = self._ensure_pid()         # New: even empty stays
@@ -1690,11 +1638,14 @@ class MeasureWindow(Adw.Window):
             self._persist_mic()
         except Exception:
             pass
-        if not self._fit_finished and self._should_autofit(pid):
-            self._start_close_fit(pid)
-            return True
+        fit = self._should_autofit(pid)
+        bands = self.bands_spin.get_value_as_int()
+        f_lo, f_hi = float(self.fit_lo), float(self.fit_hi)
         self._teardown()
         GLib.idle_add(self._parent_reload, pid)
+        if fit:                # the parent shows the progress OSD
+            GLib.idle_add(self.parent._start_profile_fit, pid,
+                          bands, f_lo, f_hi)
         return False
 
     def _teardown(self):

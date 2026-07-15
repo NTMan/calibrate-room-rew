@@ -272,9 +272,27 @@ class EqWindow(Adw.ApplicationWindow):
         self.trust_bar.set_margin_end(6)
         self.trust_bar.set_margin_bottom(4)
         self.trust_bar.set_visible(False)
+        self.fit_bar = Gtk.ProgressBar()
+        self.fit_bar.set_show_text(True)
+        fit_lbl = Gtk.Label(label="Calculating new fit")
+        fit_lbl.add_css_class("title-4")
+        self.fit_overlay = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.fit_overlay.add_css_class("osd")
+        self.fit_overlay.set_halign(Gtk.Align.CENTER)
+        self.fit_overlay.set_valign(Gtk.Align.CENTER)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(self.fit_overlay, "set_margin_" + side)(12)
+        self.fit_overlay.append(fit_lbl)
+        self.fit_overlay.append(self.fit_bar)
+        self.fit_overlay.set_visible(False)
+        over = Gtk.Overlay()
+        over.set_child(self.graph_area)
+        over.add_overlay(self.fit_overlay)
+        self._fitting = False
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                        spacing=4)
-        wrap.append(self.graph_area)
+        wrap.append(over)
         wrap.append(self.trust_bar)
         self.graph_frame.set_child(wrap)
 
@@ -407,33 +425,59 @@ class EqWindow(Adw.ApplicationWindow):
         self._refit_now()
 
     def _refit_now(self):
-        pid = self.current_pid
-        p = self.store.get(pid)
-        if p is None:
+        self._start_profile_fit(self.current_pid, allow_edited=True)
+
+    def _start_profile_fit(self, pid, bands=None, f_lo=None,
+                           f_hi=None, allow_edited=False):
+        """The one fit runner: the plaque's Re-fit and the closing
+        measurement window both land here. Runs refit_and_save on a
+        worker while an OSD overlay with a real per-channel progress
+        bar sits over the response plot; the graph is insensitive
+        for the duration so a drag cannot race the reload."""
+        if self._fitting or self.store.get(pid) is None:
             return
+        self._fitting = True
+        self.fit_bar.set_fraction(0.0)
+        self.fit_bar.set_text("Fitting\u2026")
+        self.fit_overlay.set_visible(True)
+        self.graph_area.set_sensitive(False)
         self.refit_btn.set_sensitive(False)
         res = {}
 
+        def tick(done_n, total, key):
+            def ui():
+                self.fit_bar.set_fraction(done_n / max(1, total))
+                self.fit_bar.set_text(
+                    "Fitting %s\u2026" % key if key else "Done")
+                return False
+            GLib.idle_add(ui)
+
         def done():
+            self._fitting = False
+            self.fit_overlay.set_visible(False)
+            self.graph_area.set_sensitive(True)
             self.refit_btn.set_sensitive(True)
             if res.get("err") is not None:
                 dlg = Adw.AlertDialog(
-                    heading="Could not re-fit",
+                    heading="Could not fit",
                     body=str(res["err"]))
                 dlg.add_response("ok", "OK")
                 dlg.set_default_response("ok")
                 dlg.set_close_response("ok")
                 dlg.present(self)
             elif self.current_pid == pid:
-                self.store.save_user(res["prof"])
                 self._load_profile(pid)
+            else:
+                self._populate_picker()
             return False
 
         def work():
-            from . import refit
+            from . import measure_build
             try:
-                res["prof"] = refit.refit_profile(
-                    p, allow_edited=True)
+                measure_build.refit_and_save(
+                    self.store, pid, bands=bands, f_lo=f_lo,
+                    f_hi=f_hi, allow_edited=allow_edited,
+                    progress=tick)
             except Exception as e:
                 res["err"] = e
             GLib.idle_add(done)
