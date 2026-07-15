@@ -2261,14 +2261,14 @@ class EqWindow(Adw.ApplicationWindow):
         self._sync_taste_row()
 
     def _layer_band_editor(self, lid):
-        """A compact write-through band table for one layer: edits
-        land in the store on every change and re-apply live when the
-        layer is the active one. Only add/delete rebuild the box, so
-        spins keep focus while typed into."""
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
-                      spacing=4)
+        """A compact write-through band table for one layer: a grid
+        with labeled columns, so nobody has to guess which spin is
+        Q. Edits land in the store on every change and re-apply live
+        when the layer is the active one; only add/delete rebuild
+        the grid, so spins keep focus while typed into."""
+        grid = Gtk.Grid(column_spacing=6, row_spacing=4)
         for side in ("top", "bottom", "start", "end"):
-            getattr(box, "set_margin_" + side)(4)
+            getattr(grid, "set_margin_" + side)(4)
         types = ["PK", "LSC", "HSC"]
 
         def bands():
@@ -2306,8 +2306,8 @@ class EqWindow(Adw.ApplicationWindow):
                     rebuild()
             return cb
 
-        def band_line(i, b):
-            h = Gtk.Box(spacing=4)
+        def attach_band(i, b):
+            row = i + 1
             dd = Gtk.DropDown.new_from_strings(types)
             dd.set_selected(types.index(b.get("type"))
                             if b.get("type") in types else 0)
@@ -2315,7 +2315,8 @@ class EqWindow(Adw.ApplicationWindow):
                        lambda d, *_a, i=i:
                        write(i, "type", types[d.get_selected()]))
             self._tame_scroll(dd)
-            h.append(dd)
+            grid.attach(dd, 0, row, 1, 1)
+            col = 1
             for key, lo, hi, step, dig, tip in (
                     ("freq", 10.0, 20000.0, 1.0, 0,
                      "Frequency, Hz"),
@@ -2331,40 +2332,48 @@ class EqWindow(Adw.ApplicationWindow):
                            lambda spb, key=key, i=i:
                            write(i, key, spb.get_value()))
                 self._tame_scroll(sp)
-                h.append(sp)
+                grid.attach(sp, col, row, 1, 1)
+                col += 1
             sw = Gtk.Switch()
             sw.set_valign(Gtk.Align.CENTER)
+            sw.set_halign(Gtk.Align.START)
             sw.set_active(bool(b.get("enabled", True)))
             sw.set_tooltip_text("Band on/off")
             sw.connect("notify::active",
                        lambda swb, *_a, i=i:
                        write(i, "enabled", swb.get_active()))
-            h.append(sw)
+            grid.attach(sw, 4, row, 1, 1)
             tr = Gtk.Button.new_from_icon_name("user-trash-symbolic")
             tr.add_css_class("flat")
             tr.set_tooltip_text("Delete this band")
             tr.connect("clicked", make_del(i))
-            h.append(tr)
-            return h
+            grid.attach(tr, 5, row, 1, 1)
 
         def rebuild():
-            child = box.get_first_child()
+            child = grid.get_first_child()
             while child is not None:
                 nxt = child.get_next_sibling()
-                box.remove(child)
+                grid.remove(child)
                 child = nxt
-            for i, b in enumerate(bands()):
-                box.append(band_line(i, b))
+            heads = ("Type", "Freq (Hz)", "Gain (dB)", "Q", "On", "")
+            for c, t in enumerate(heads):
+                lbl = Gtk.Label(label=t, xalign=0.0)
+                lbl.add_css_class("dim-label")
+                lbl.add_css_class("caption")
+                grid.attach(lbl, c, 0, 1, 1)
+            bs = bands()
+            for i, b in enumerate(bs):
+                attach_band(i, b)
             addb = Gtk.Button(label="Add band")
             addb.add_css_class("flat")
             addb.set_halign(Gtk.Align.START)
             addb.connect("clicked", on_add)
-            box.append(addb)
+            grid.attach(addb, 0, len(bs) + 1, 2, 1)
 
         rebuild()
         row = Gtk.ListBoxRow()
         row.set_activatable(False)
-        row.set_child(box)
+        row.set_child(grid)
         return row
 
 

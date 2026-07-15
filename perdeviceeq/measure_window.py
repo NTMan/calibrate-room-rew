@@ -128,7 +128,7 @@ class MeasureWindow(Adw.Window):
                           if edit_pid else None)
         self.set_title("Edit profile" if edit_pid
                        else "Measure speakers")
-        self.set_default_size(620, 760)
+        self.set_default_size(1100, 760)  # opens two-column
         self.set_modal(True)
         self.set_transient_for(parent)
 
@@ -234,8 +234,8 @@ class MeasureWindow(Adw.Window):
         self.name_row.set_text(
             (self.edit_prof or {}).get("name") or self.sink_desc)
 
-        self._build_mic_controls(b.get_object("mic_row"),
-                                 b.get_object("cal_row"))
+        self._build_mic_controls(b.get_object("mic_controls"),
+                                 b.get_object("cal_controls"))
 
         self.map_left_slot = Gtk.Box()
         self.map_left_slot.set_valign(Gtk.Align.CENTER)
@@ -262,13 +262,14 @@ class MeasureWindow(Adw.Window):
         b.get_object("channel_host").append(self._build_page())
         b.get_object("fit_host").append(self._build_fit_area())
 
-    def _build_mic_controls(self, mic_row, cal_row):
+    def _build_mic_controls(self, mic_controls, cal_controls):
         names = [s["desc"] for s in self.sources] or ["(no sources found)"]
         self.source_dd = Gtk.DropDown.new_from_strings(names)
         self.source_dd.set_valign(Gtk.Align.CENTER)
         self.source_dd.connect("notify::selected", self._on_source_changed)
         self._tame_scroll(self.source_dd)
-        mic_row.add_suffix(self.source_dd)
+        self.source_dd.set_hexpand(True)
+        mic_controls.append(self.source_dd)
         self.chan_dd = Gtk.DropDown.new_from_strings(["Mono", "Stereo"])
         self.chan_dd.set_valign(Gtk.Align.CENTER)
         self.chan_dd.set_tooltip_text("Capsules on the rig; a UMIK-1 is "
@@ -276,8 +277,8 @@ class MeasureWindow(Adw.Window):
                                       "stereo")
         self.chan_dd.connect("notify::selected", self._on_chan_changed)
         self._tame_scroll(self.chan_dd)
-        mic_row.add_suffix(self.chan_dd)   # one row: mic + capsules
-        self.cal_row = cal_row
+        mic_controls.append(self.chan_dd)  # one row: mic + capsules
+        self.cal_controls = cal_controls
         self._recompute_mic()
         self._rebuild_cal_row()
 
@@ -1193,17 +1194,18 @@ class MeasureWindow(Adw.Window):
 
     def _rebuild_cal_row(self):
         for btn in getattr(self, "cal_btns", {}).values():
-            self.cal_row.remove(btn)
+            self.cal_controls.remove(btn)
         self.cal_btns = {}
         labels = self._mic_labels()
         for i in range(self.mic_ch):
             btn = Gtk.Button(label="%s cal…" % labels[i])
             btn.set_valign(Gtk.Align.CENTER)
+            btn.set_hexpand(True)
             btn.set_tooltip_text("Calibration for the rig's %s capture "
                                  "channel; its RAW/HEQ/IDF/HPN domain is "
                                  "the compensation" % labels[i])
             btn.connect("clicked", self._make_cal_cb(i))
-            self.cal_row.add_suffix(btn)
+            self.cal_controls.append(btn)
             self.cal_btns[i] = btn
 
     def _rebuild_map_slots(self):

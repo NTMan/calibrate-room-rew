@@ -52,15 +52,77 @@
                       </object>
                     </child>
                     <child>
-                      <object class="AdwActionRow" id="mic_row">
-                        <property name="title" translatable="yes">Measurement mic</property>
-                        <property name="subtitle" translatable="yes">Input the sweep is captured on</property>
+                      <object class="GtkListBoxRow" id="mic_row">
+                        <property name="activatable">false</property>
+                        <child>
+                          <object class="GtkBox">
+                            <property name="orientation">vertical</property>
+                            <property name="spacing">2</property>
+                            <property name="margin-top">8</property>
+                            <property name="margin-bottom">8</property>
+                            <property name="margin-start">12</property>
+                            <property name="margin-end">12</property>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label" translatable="yes">Measurement mic</property>
+                                <property name="xalign">0</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label" translatable="yes">Input the sweep is captured on</property>
+                                <property name="xalign">0</property>
+                                <style>
+                                  <class name="dim-label"/>
+                                  <class name="caption"/>
+                                </style>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox" id="mic_controls">
+                                <property name="spacing">6</property>
+                                <property name="margin-top">4</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <child>
-                      <object class="AdwActionRow" id="cal_row">
-                        <property name="title" translatable="yes">Calibration</property>
-                        <property name="subtitle" translatable="yes">Mic calibration file per capsule</property>
+                      <object class="GtkListBoxRow" id="cal_row">
+                        <property name="activatable">false</property>
+                        <child>
+                          <object class="GtkBox">
+                            <property name="orientation">vertical</property>
+                            <property name="spacing">2</property>
+                            <property name="margin-top">8</property>
+                            <property name="margin-bottom">8</property>
+                            <property name="margin-start">12</property>
+                            <property name="margin-end">12</property>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label" translatable="yes">Calibration</property>
+                                <property name="xalign">0</property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label" translatable="yes">Mic calibration file per capsule</property>
+                                <property name="xalign">0</property>
+                                <style>
+                                  <class name="dim-label"/>
+                                  <class name="caption"/>
+                                </style>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkBox" id="cal_controls">
+                                <property name="spacing">6</property>
+                                <property name="margin-top">4</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
                       </object>
                     </child>
                   </object>
