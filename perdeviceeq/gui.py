@@ -167,9 +167,9 @@ class EqWindow(Adw.ApplicationWindow):
         exp.connect("clicked", lambda *_: self._export_current())
         b.get_object("profile_row").add_suffix(exp)
         self.profile_popover = b.get_object("profile_popover")
+        self.taste_row = b.get_object("taste_row")
         self.search_entry = b.get_object("search_entry")
         self.profile_list = b.get_object("profile_list")
-        self.popover_footer = b.get_object("popover_footer")
         self.device_dd = b.get_object("device_dd")
         self.follow_btn = b.get_object("follow_btn")
         self.sep_switch = b.get_object("sep_switch")
@@ -185,7 +185,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._build_graph()
         self._build_preamp()
         self._build_bands_area()
-        self._build_picker_footer()
+        self._wire_picker_actions(b)
         self._install_shortcuts(app)
 
         self.search_entry.connect("search-changed", lambda *_: self._populate_picker())
@@ -218,15 +218,18 @@ class EqWindow(Adw.ApplicationWindow):
         self.redo_btn = Gtk.Button.new_from_icon_name("edit-redo-symbolic")
         self.redo_btn.set_tooltip_text("Redo (Ctrl+Shift+Z)")
         self.redo_btn.connect("clicked", lambda *_: self._redo())
-        # pack_end fills right-to-left: redo first (rightmost), then undo to its left
-        self.header_bar.pack_end(self.redo_btn)
-        self.header_bar.pack_end(self.undo_btn)
+        self.header_bar.pack_start(self.undo_btn)
+        self.header_bar.pack_start(self.redo_btn)
         self.pref_layers = PreferenceLayers()
         gear = Gtk.Button.new_from_icon_name("emblem-system-symbolic")
         gear.add_css_class("flat")
         gear.set_tooltip_text("Settings: preference EQ layers")
         gear.connect("clicked", lambda *_: self._open_settings())
-        self.header_bar.pack_start(gear)
+        self.header_bar.pack_end(gear)
+        self.taste_row.connect("notify::selected",
+                               self._on_taste_selected)
+        self._tame_scroll(self.taste_row)
+        self._sync_taste_row()
 
     def _build_graph(self):
         """Create the response plot (DrawingArea) with drag + right-click gestures."""
@@ -714,23 +717,17 @@ class EqWindow(Adw.ApplicationWindow):
         self.bands_grid.set_margin_bottom(6)
         self.bands_group.add(self.bands_grid)
 
-    def _build_picker_footer(self):
-        """Create the picker footer actions (new / import / export profile)."""
-        new_btn = Gtk.Button(label="New…")
+    def _wire_picker_actions(self, b):
+        """The picker's actions live beside the search entry now --
+        New and Import as flat icon buttons, Text-Editor style --
+        and the list itself is a navigation sidebar: compact rows,
+        no separators."""
+        new_btn = b.get_object("picker_new_btn")
         new_btn.add_css_class("flat")
-        new_btn.set_halign(Gtk.Align.START)
-        new_btn.set_tooltip_text(
-            "Open the measurement window on a fresh profile: "
-            "measure into it, or just name it and close")
         new_btn.connect("clicked", self._on_create_new)
-        imp_btn = Gtk.Button(label="Import profile…")
+        imp_btn = b.get_object("picker_import_btn")
         imp_btn.add_css_class("flat")
-        imp_btn.set_halign(Gtk.Align.START)
-        imp_btn.set_tooltip_text(
-            "Import a per-device-eq profile shared by someone else")
         imp_btn.connect("clicked", lambda *_: self._import_profile())
-        self.popover_footer.append(new_btn)
-        self.popover_footer.append(imp_btn)
         self.profile_list.connect("row-activated", self._on_pick_row)
 
     def _install_shortcuts(self, app):
@@ -1403,7 +1400,10 @@ class EqWindow(Adw.ApplicationWindow):
             self.preamp_row.set_subtitle(self._preamp_subtitle)
             self.preamp_row.set_tooltip_text(None)
             return
-        bounds = {k: eq.headroom_bound_db(self.preamp, s["bands"])
+        tail = [eq.Band.from_dict(b)
+                for b in self.pref_layers.active_bands()]
+        bounds = {k: eq.headroom_bound_db(self.preamp,
+                                          s["bands"] + tail)
                   for k, s in self._applied_chains()}
         bound, key = max(((v, k) for k, v in bounds.items()),
                          key=lambda t: t[0])
@@ -1471,10 +1471,13 @@ class EqWindow(Adw.ApplicationWindow):
         input, closing the hot-master-in-bypass blind spot."""
         if self.bypass_row.get_active():
             return 0.0, [[] for _ in self.ch_keys]
+        tail = [eq.Band.from_dict(b)
+                for b in self.pref_layers.active_bands()]
         if self.apply_all:
-            b = self._slot("all")["bands"]
+            b = self._slot("all")["bands"] + tail
             return self.preamp, [b for _ in self.ch_keys]
-        return self.preamp, [self._slot(k)["bands"] for k in self.ch_keys]
+        return self.preamp, [self._slot(k)["bands"] + tail
+                             for k in self.ch_keys]
 
     def _update_meter(self):
         """Single choke point (first line of _apply_now): keep the engine's
@@ -1659,8 +1662,8 @@ class EqWindow(Adw.ApplicationWindow):
         row = Gtk.ListBoxRow()
         row.pid = pid
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_top(8); box.set_margin_bottom(8)
-        box.set_margin_start(10); box.set_margin_end(8)
+        box.set_margin_top(4); box.set_margin_bottom(4)
+        box.set_margin_start(6); box.set_margin_end(6)
 
         check = Gtk.Image.new_from_icon_name("object-select-symbolic")
         check.set_opacity(1.0 if pid == self.current_pid else 0.0)
@@ -2127,6 +2130,38 @@ class EqWindow(Adw.ApplicationWindow):
 
 
     # ---- settings: preference EQ layers ---------------------------------
+    def _sync_taste_row(self):
+        """The Taste combo above Profile mirrors the layer store:
+        who is listening right now, one click to switch."""
+        names = ["No layer"] + [l["name"]
+                                for l in self.pref_layers.layers]
+        self._taste_ids = [None] + [l["id"]
+                                    for l in self.pref_layers.layers]
+        self._taste_syncing = True
+        self.taste_row.set_model(Gtk.StringList.new(names))
+        act = self.pref_layers.active_id
+        idx = self._taste_ids.index(act) if act in self._taste_ids \
+            else 0
+        self.taste_row.set_selected(idx)
+        self._taste_syncing = False
+
+    def _on_taste_selected(self, *_):
+        if getattr(self, "_taste_syncing", False):
+            return
+        idx = self.taste_row.get_selected()
+        ids = getattr(self, "_taste_ids", [None])
+        if 0 <= idx < len(ids):
+            self.pref_layers.set_active(ids[idx])
+            self._apply_now()
+            self._update_headroom()
+
+    def _taste_refresh(self):
+        """After any layer change: re-apply, recompute the headroom
+        hints and keep the Taste row in step with the store."""
+        self._apply_now()
+        self._update_headroom()
+        self._sync_taste_row()
+
     def _open_settings(self):
         """The gear: taste layers live here -- device-independent,
         composed after whatever profile is active, never touching
@@ -2178,7 +2213,7 @@ class EqWindow(Adw.ApplicationWindow):
         def cb(btn):
             if btn.get_active():
                 self.pref_layers.set_active(lid)
-                self._apply_now()
+                self._taste_refresh()
         return cb
 
     def _layer_row(self, lay, group):
@@ -2205,6 +2240,7 @@ class EqWindow(Adw.ApplicationWindow):
             if cur and text and cur["name"] != text:
                 self.pref_layers.upsert(dict(cur, name=text))
                 row.set_title(text)
+                self._sync_taste_row()
         name.connect("changed", renamed)
         row.add_row(name)
         row.add_row(self._layer_band_editor(lid))
@@ -2213,6 +2249,7 @@ class EqWindow(Adw.ApplicationWindow):
     def _on_layer_add(self, *_):
         self.pref_layers.upsert({"name": "New layer", "bands": []})
         self._rebuild_layer_rows()
+        self._sync_taste_row()
 
     def _on_layer_delete(self, lid):
         was = self.pref_layers.active_id == lid
@@ -2220,6 +2257,8 @@ class EqWindow(Adw.ApplicationWindow):
         self._rebuild_layer_rows()
         if was:
             self._apply_now()
+            self._update_headroom()
+        self._sync_taste_row()
 
     def _layer_band_editor(self, lid):
         """A compact write-through band table for one layer: edits
@@ -2243,6 +2282,7 @@ class EqWindow(Adw.ApplicationWindow):
             self.pref_layers.upsert(dict(cur, bands=bs))
             if self.pref_layers.active_id == lid:
                 self._apply_now()
+                self._update_headroom()
 
         def write(i, key, val):
             bs = bands()

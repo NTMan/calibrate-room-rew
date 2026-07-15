@@ -24,8 +24,26 @@
         <property name="margin-start">6</property>
         <property name="margin-end">6</property>
         <child>
-          <object class="GtkSearchEntry" id="search_entry">
-            <property name="placeholder-text" translatable="yes">Search profiles…</property>
+          <object class="GtkBox">
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkSearchEntry" id="search_entry">
+                <property name="placeholder-text" translatable="yes">Search profiles…</property>
+                <property name="hexpand">true</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="picker_new_btn">
+                <property name="icon-name">list-add-symbolic</property>
+                <property name="tooltip-text" translatable="yes">New: measure into a fresh profile, or just name it</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="picker_import_btn">
+                <property name="icon-name">document-open-symbolic</property>
+                <property name="tooltip-text" translatable="yes">Import a profile shared by someone else</property>
+              </object>
+            </child>
           </object>
         </child>
         <child>
@@ -38,19 +56,10 @@
               <object class="GtkListBox" id="profile_list">
                 <property name="selection-mode">none</property>
                 <style>
-                  <class name="boxed-list"/>
+                  <class name="navigation-sidebar"/>
                 </style>
               </object>
             </child>
-          </object>
-        </child>
-        <child>
-          <object class="GtkSeparator"/>
-        </child>
-        <child>
-          <object class="GtkBox" id="popover_footer">
-            <property name="orientation">vertical</property>
-            <property name="spacing">4</property>
           </object>
         </child>
       </object>
@@ -106,6 +115,12 @@
                 <!-- profile (subordinate to the device) -->
                 <child>
                   <object class="AdwPreferencesGroup">
+                    <child>
+                      <object class="AdwComboRow" id="taste_row">
+                        <property name="title" translatable="yes">Taste</property>
+                        <property name="subtitle" translatable="yes">Preference EQ on top of any profile</property>
+                      </object>
+                    </child>
                     <child>
                       <object class="AdwActionRow" id="profile_row">
                         <property name="title" translatable="yes">Profile</property>

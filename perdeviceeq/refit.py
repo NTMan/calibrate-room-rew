@@ -25,6 +25,7 @@ import numpy as np
 from . import fit_peq
 from . import measure_core as mc
 from .measure_build import FIT_ALGO, fit_fingerprint
+from .eq import Band, curve_max_db
 from .measure_session import gain_comp_factors
 from .profiles import playback_sha256
 
@@ -191,6 +192,21 @@ def refit_profile(prof, bands=None, f_lo=None, f_hi=None,
     out = dict(prof)
     for k in ("apply_all", "preamp", "ch_keys", "all", "channels"):
         out[k] = fitted[k]
+
+    # The fit's own gain staging: Safe over the fresh bands, so the
+    # profile is playable the moment it lands. Zero would clip every
+    # boost and the old value guarded bands that no longer exist; the
+    # preamp is pinned out of the output hash, so riding it later
+    # still reads as gain staging, not editing.
+    def _peak(bands):
+        return curve_max_db(0.0, [Band.from_dict(b) for b in bands])
+    if out.get("apply_all", True):
+        pk = _peak((out.get("all") or {}).get("bands") or [])
+    else:
+        pk = max((_peak(((out.get("channels") or {}).get(k) or {})
+                        .get("bands") or [])
+                  for k in out.get("ch_keys") or []), default=0.0)
+    out["preamp"] = -max(0.0, math.ceil(pk * 10.0 - 1e-9) / 10.0)
     out["fit"] = {"at": _utc_now(), "algo": FIT_ALGO,
                   "params": params, "target": {"kind": "flat"},
                   "takes": list(used),
