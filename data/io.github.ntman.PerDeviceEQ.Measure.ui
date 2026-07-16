@@ -1,20 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  per-device-eq measurement wizard skeleton (GtkBuilder), mirroring the main
-  window's .ui conventions. The DEVICE is fixed (the wizard measures one
-  sink), so the header just names it. First the measurement MIC and its
-  calibration as a boxed list with the controls on the right (like the main
-  window's Profile row). Then the RING as the spatial channel selector (the
-  wizard's analogue of the main window's channel tabs), the status line, the
-  centre pult (measure, stop, auto-level), the selected channel's page, and
-  the Create button. Everything dynamic is built in code and dropped into the
-  *_host containers: the ring buttons and their status bubbles, the pult
-  buttons, the mic/capsules/calibration controls (added as row suffixes), and
-  the selected channel's page (perdeviceeq/measure_window.py).
+  per-device-eq measurement window skeleton (GtkBuilder).
+
+  The DEVICE is fixed (the window measures one sink), so the header just
+  names it. The content is an AdwMultiLayoutView with two declarative
+  arrangements of the same seven blocks, the upstream-blessed way to
+  do adaptive layouts instead of reparenting by hand:
+
+    narrow  one clamped column inside one page scroller: profile name +
+            mic + calibration, the ring (the spatial channel selector),
+            the status line, warnings, the pult, the selected channel's
+            takes, the EQ-range strip. Everything scrolls as one.
+
+    wide    two columns: the left (mic, ring, status, warnings, pult)
+            is pinned with no scroll of its own; the right (takes +
+            EQ range) carries the single scroller, its bar at the
+            window edge.
+
+  The breakpoint in code only flips layout-name. Everything dynamic is
+  built in code and dropped into the *_host containers and *_controls
+  boxes (perdeviceeq/measure_window.py).
 -->
 <interface>
   <requires lib="gtk" version="4.0"/>
-  <requires lib="libadwaita" version="1.0"/>
+  <requires lib="libadwaita" version="1.6"/>
 
   <object class="AdwToolbarView" id="content">
     <child type="top">
@@ -27,164 +36,265 @@
       </object>
     </child>
     <child>
-      <object class="GtkScrolledWindow" id="page_scroll">
-        <property name="vexpand">true</property>
-        <property name="hscrollbar-policy">never</property>
+      <object class="AdwMultiLayoutView" id="mlv">
+        <property name="layout-name">narrow</property>
+
         <child>
-          <object class="AdwClamp">
-            <property name="maximum-size">760</property>
-            <property name="margin-top">12</property>
-            <property name="margin-bottom">12</property>
-            <property name="margin-start">12</property>
-            <property name="margin-end">12</property>
-            <child>
+          <object class="AdwLayout">
+            <property name="name">narrow</property>
+            <property name="content">
+              <object class="GtkScrolledWindow">
+                <property name="vexpand">true</property>
+                <property name="hscrollbar-policy">never</property>
+                <child>
+                  <object class="AdwClamp">
+                    <property name="maximum-size">760</property>
+                    <property name="margin-top">12</property>
+                    <property name="margin-bottom">12</property>
+                    <property name="margin-start">12</property>
+                    <property name="margin-end">12</property>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="orientation">vertical</property>
+                        <property name="spacing">18</property>
+                        <child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">mic</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">ring</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">status</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">warning</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">controls</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">channel</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">fit</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </property>
+          </object>
+        </child>
+
+        <child>
+          <object class="AdwLayout">
+            <property name="name">wide</property>
+            <property name="content">
               <object class="GtkBox">
-                <property name="orientation">vertical</property>
-                <property name="spacing">18</property>
-
-                <!-- 1. measurement mic + calibration (controls on the right,
-                     added in code as row suffixes) -->
+                <property name="spacing">24</property>
+                <property name="margin-top">12</property>
+                <property name="margin-bottom">12</property>
+                <property name="margin-start">12</property>
                 <child>
-                  <object class="AdwPreferencesGroup" id="mic_group">
+                  <object class="GtkBox">
+                    <property name="orientation">vertical</property>
+                    <property name="spacing">18</property>
+                    <property name="valign">start</property>
                     <child>
-                      <object class="AdwEntryRow" id="name_row">
-                        <property name="title" translatable="yes">Profile name</property>
+                      <object class="AdwLayoutSlot">
+                        <property name="id">mic</property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkListBoxRow" id="mic_row">
-                        <property name="activatable">false</property>
+                      <object class="AdwLayoutSlot">
+                        <property name="id">ring</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="AdwLayoutSlot">
+                        <property name="id">status</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="AdwLayoutSlot">
+                        <property name="id">warning</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="AdwLayoutSlot">
+                        <property name="id">controls</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkScrolledWindow">
+                    <property name="hexpand">true</property>
+                    <property name="vexpand">true</property>
+                    <property name="hscrollbar-policy">never</property>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="orientation">vertical</property>
+                        <property name="spacing">18</property>
+                        <property name="margin-end">12</property>
                         <child>
-                          <object class="GtkBox">
-                            <property name="orientation">vertical</property>
-                            <property name="spacing">2</property>
-                            <property name="margin-top">8</property>
-                            <property name="margin-bottom">8</property>
-                            <property name="margin-start">12</property>
-                            <property name="margin-end">12</property>
-                            <child>
-                              <object class="GtkLabel">
-                                <property name="label" translatable="yes">Measurement mic</property>
-                                <property name="xalign">0</property>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkLabel">
-                                <property name="label" translatable="yes">Input the sweep is captured on</property>
-                                <property name="xalign">0</property>
-                                <style>
-                                  <class name="dim-label"/>
-                                  <class name="caption"/>
-                                </style>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkBox" id="mic_controls">
-                                <property name="spacing">6</property>
-                                <property name="margin-top">4</property>
-                              </object>
-                            </child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">channel</property>
                           </object>
                         </child>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkListBoxRow" id="cal_row">
-                        <property name="activatable">false</property>
                         <child>
-                          <object class="GtkBox">
-                            <property name="orientation">vertical</property>
-                            <property name="spacing">2</property>
-                            <property name="margin-top">8</property>
-                            <property name="margin-bottom">8</property>
-                            <property name="margin-start">12</property>
-                            <property name="margin-end">12</property>
-                            <child>
-                              <object class="GtkLabel">
-                                <property name="label" translatable="yes">Calibration</property>
-                                <property name="xalign">0</property>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkLabel">
-                                <property name="label" translatable="yes">Mic calibration file per capsule</property>
-                                <property name="xalign">0</property>
-                                <style>
-                                  <class name="dim-label"/>
-                                  <class name="caption"/>
-                                </style>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkBox" id="cal_controls">
-                                <property name="spacing">6</property>
-                                <property name="margin-top">4</property>
-                              </object>
-                            </child>
+                          <object class="AdwLayoutSlot">
+                            <property name="id">fit</property>
                           </object>
                         </child>
                       </object>
                     </child>
                   </object>
                 </child>
+              </object>
+            </property>
+          </object>
+        </child>
 
-                <!-- 2. the ring: spatial channel selector, built in code and
-                     dropped in here (with any rig-channel map slots) -->
-                <child>
-                  <object class="GtkBox" id="ring_host">
-                    <property name="halign">center</property>
-                  </object>
-                </child>
-
-                <!-- 3. status under the ring -->
-                <child>
-                  <object class="GtkLabel" id="status">
-                    <property name="label" translatable="yes">Click a speaker to measure</property>
-                    <property name="wrap">true</property>
-                    <property name="justify">center</property>
-                    <property name="halign">center</property>
-                    <style>
-                      <class name="dim-label"/>
-                    </style>
-                  </object>
-                </child>
-
-                <!-- warnings (sink gone, clipped, level, built in code) -->
-                <child>
-                  <object class="GtkLabel" id="warning">
-                    <property name="xalign">0</property>
-                    <property name="wrap">true</property>
-                    <style>
-                      <class name="dim-label"/>
-                    </style>
-                  </object>
-                </child>
-
-                <!-- 4. the pult: measure / stop / auto-level, built in code -->
-                <child>
-                  <object class="GtkBox" id="controls">
-                    <property name="halign">center</property>
-                    <property name="spacing">12</property>
-                  </object>
-                </child>
-
-                <!-- 5. the selected channel's page: its takes + summary -->
-                <child>
-                  <object class="GtkBox" id="channel_host">
-                    <property name="orientation">vertical</property>
-                    <property name="spacing">12</property>
-                  </object>
-                </child>
-
-                <!-- the EQ-range strip (global for now; built in code) -->
-                <child>
-                  <object class="GtkBox" id="fit_host">
-                    <property name="orientation">vertical</property>
-                  </object>
-                </child>
-
+        <!-- the seven blocks, slotted into whichever layout is active -->
+        <child type="mic">
+          <object class="AdwPreferencesGroup" id="mic_group">
+            <child>
+              <object class="AdwEntryRow" id="name_row">
+                <property name="title" translatable="yes">Profile name</property>
               </object>
             </child>
+            <child>
+              <object class="GtkListBoxRow" id="mic_row">
+                <property name="activatable">false</property>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">vertical</property>
+                    <property name="spacing">2</property>
+                    <property name="margin-top">8</property>
+                    <property name="margin-bottom">8</property>
+                    <property name="margin-start">12</property>
+                    <property name="margin-end">12</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label" translatable="yes">Measurement mic</property>
+                        <property name="xalign">0</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label" translatable="yes">Input the sweep is captured on</property>
+                        <property name="xalign">0</property>
+                        <style>
+                          <class name="dim-label"/>
+                          <class name="caption"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox" id="mic_controls">
+                        <property name="spacing">6</property>
+                        <property name="margin-top">4</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+            <child>
+              <object class="GtkListBoxRow" id="cal_row">
+                <property name="activatable">false</property>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">vertical</property>
+                    <property name="spacing">2</property>
+                    <property name="margin-top">8</property>
+                    <property name="margin-bottom">8</property>
+                    <property name="margin-start">12</property>
+                    <property name="margin-end">12</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label" translatable="yes">Calibration</property>
+                        <property name="xalign">0</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label" translatable="yes">Mic calibration file per capsule</property>
+                        <property name="xalign">0</property>
+                        <style>
+                          <class name="dim-label"/>
+                          <class name="caption"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox" id="cal_controls">
+                        <property name="spacing">6</property>
+                        <property name="margin-top">4</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child type="ring">
+          <object class="GtkBox" id="ring_host">
+            <property name="halign">center</property>
+          </object>
+        </child>
+        <child type="status">
+          <object class="GtkLabel" id="status">
+            <property name="label" translatable="yes">Click a speaker to measure</property>
+            <property name="wrap">true</property>
+            <property name="justify">center</property>
+            <property name="halign">center</property>
+            <style>
+              <class name="dim-label"/>
+            </style>
+          </object>
+        </child>
+        <child type="warning">
+          <object class="GtkLabel" id="warning">
+            <property name="xalign">0</property>
+            <property name="wrap">true</property>
+            <style>
+              <class name="dim-label"/>
+            </style>
+          </object>
+        </child>
+        <child type="controls">
+          <object class="GtkBox" id="controls">
+            <property name="halign">center</property>
+            <property name="spacing">12</property>
+          </object>
+        </child>
+        <child type="channel">
+          <object class="GtkBox" id="channel_host">
+            <property name="orientation">vertical</property>
+            <property name="spacing">12</property>
+          </object>
+        </child>
+        <child type="fit">
+          <object class="GtkBox" id="fit_host">
+            <property name="orientation">vertical</property>
           </object>
         </child>
       </object>
