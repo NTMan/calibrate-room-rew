@@ -255,6 +255,7 @@ class MeasureWindow(Adw.Window):
         self.ready_hint = Gtk.Label(xalign=0.5)
         self.ready_hint.add_css_class("success")
         self.ready_hint.set_wrap(True)
+        self.ready_hint.set_max_width_chars(46)
         self.ready_hint.set_text(
             "Ready to fit -- close this window to hear your "
             "best version.")

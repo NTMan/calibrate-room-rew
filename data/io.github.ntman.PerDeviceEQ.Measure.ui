@@ -275,6 +275,7 @@
           <object class="GtkLabel" id="status">
             <property name="label" translatable="yes">Click a speaker to measure</property>
             <property name="wrap">true</property>
+            <property name="max-width-chars">46</property>
             <property name="justify">center</property>
             <property name="halign">center</property>
             <style>
@@ -286,6 +287,7 @@
           <object class="GtkLabel" id="warning">
             <property name="xalign">0</property>
             <property name="wrap">true</property>
+            <property name="max-width-chars">46</property>
             <style>
               <class name="dim-label"/>
             </style>
