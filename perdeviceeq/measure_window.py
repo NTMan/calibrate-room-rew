@@ -144,8 +144,20 @@ class MeasureWindow(Adw.Window):
                        else "Measure speakers")
         self.set_default_size(1100, 760)  # opens two-column
         self.set_size_request(480, 600)   # the narrow floor
-        self.set_modal(True)
+        # NOT modal: GNOME attaches modal transients to the parent
+        # and re-centers them on every frame of an interactive
+        # resize, so the window fights the pointer. The incremental
+        # model needs no modality anyway -- the profile is live and
+        # every take is persisted the moment it lands. transient_for
+        # stays for stacking.
         self.set_transient_for(parent)
+        # The one hazard modality used to mask: closing the MAIN
+        # window mid-session would kill this one without teardown,
+        # leaving foreign streams muted and the bypass engaged.
+        # Close ourselves first (cancelling a sweep if one is in the
+        # air), then let the parent go.
+        self._parent_close_id = parent.connect(
+            "close-request", self._on_parent_close)
 
         self.mic_store = measure_prefs.MicProfileStore()
         self.memory = measure_prefs.MeasureMemory()
@@ -1704,6 +1716,16 @@ class MeasureWindow(Adw.Window):
         dlg.set_default_response("ok")
         dlg.present(self)
 
+    def _on_parent_close(self, *_):
+        if self._busy and self.session is not None:
+            try:
+                self.session.cancel()
+            except Exception:
+                pass
+            self._busy = False
+        self.close()
+        return False                     # the parent proceeds
+
     def _on_close(self, *_):
         if self._busy:
             return True                  # a sweep is in the air
@@ -1716,6 +1738,12 @@ class MeasureWindow(Adw.Window):
         fit = self._should_autofit(pid)
         bands = self.bands_spin.get_value_as_int()
         f_lo, f_hi = float(self.fit_lo), float(self.fit_hi)
+        if getattr(self, "_parent_close_id", None) is not None:
+            try:
+                self.parent.disconnect(self._parent_close_id)
+            except Exception:
+                pass
+            self._parent_close_id = None
         self._teardown()
         GLib.idle_add(self._parent_reload, pid)
         if fit:                # the parent shows the progress OSD
