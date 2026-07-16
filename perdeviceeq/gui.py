@@ -691,7 +691,7 @@ class EqWindow(Adw.ApplicationWindow):
                 disp, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def _build_bands_area(self):
-        """Build the Bands header actions (Clear/Import REW/add) and the band grid."""
+        """Build the Bands header actions (Clear/Import/add) and the band grid."""
         suffix = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         clear_btn = Gtk.Button.new_from_icon_name("edit-clear-all-symbolic")
         clear_btn.add_css_class("flat")
@@ -702,9 +702,9 @@ class EqWindow(Adw.ApplicationWindow):
         add_btn.set_tooltip_text("Add band")
         add_btn.connect("clicked", self._on_add_band)
         imp_content = Adw.ButtonContent(icon_name="document-open-symbolic",
-                                        label="Import REW")
+                                        label="Import EQ text")
         imp_btn = Gtk.Button(child=imp_content)
-        imp_btn.set_tooltip_text("Replace the bands shown here from a REW/AutoEQ file")
+        imp_btn.set_tooltip_text("Replace the bands shown here from a parametric-EQ text file")
         imp_btn.connect("clicked", lambda *_: self._import_rew())
         suffix.append(clear_btn)
         suffix.append(imp_btn)
@@ -1893,7 +1893,7 @@ class EqWindow(Adw.ApplicationWindow):
     def _import_rew(self):
         """Import a mono REW/AutoEQ text file into the CURRENT slot."""
         dialog = Gtk.FileDialog()
-        dialog.set_title("Import REW / AutoEQ")
+        dialog.set_title("Import EQ text")
 
         def done(d, res):
             try:
