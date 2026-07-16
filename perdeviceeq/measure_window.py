@@ -158,6 +158,12 @@ class MeasureWindow(Adw.Window):
         # air), then let the parent go.
         self._parent_close_id = parent.connect(
             "close-request", self._on_parent_close)
+        # Client-side modality, the same trick Adw.Dialog plays
+        # inside a window: the parent goes insensitive for the
+        # session -- input blocked, header buttons included -- while
+        # the compositor sees a plain window and leaves the resize
+        # alone. Restored on any close.
+        parent.set_sensitive(False)
 
         self.mic_store = measure_prefs.MicProfileStore()
         self.memory = measure_prefs.MeasureMemory()
@@ -1744,6 +1750,7 @@ class MeasureWindow(Adw.Window):
             except Exception:
                 pass
             self._parent_close_id = None
+        self.parent.set_sensitive(True)
         self._teardown()
         GLib.idle_add(self._parent_reload, pid)
         if fit:                # the parent shows the progress OSD
