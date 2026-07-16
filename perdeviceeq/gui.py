@@ -2266,7 +2266,7 @@ class EqWindow(Adw.ApplicationWindow):
         Q. Edits land in the store on every change and re-apply live
         when the layer is the active one; only add/delete rebuild
         the grid, so spins keep focus while typed into."""
-        grid = Gtk.Grid(column_spacing=6, row_spacing=4)
+        grid = Gtk.Grid(column_spacing=4, row_spacing=4)
         for side in ("top", "bottom", "start", "end"):
             getattr(grid, "set_margin_" + side)(4)
         types = ["PK", "LSC", "HSC"]

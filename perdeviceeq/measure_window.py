@@ -129,6 +129,7 @@ class MeasureWindow(Adw.Window):
         self.set_title("Edit profile" if edit_pid
                        else "Measure speakers")
         self.set_default_size(1100, 760)  # opens two-column
+        self.set_size_request(480, 600)   # the narrow floor
         self.set_modal(True)
         self.set_transient_for(parent)
 
@@ -263,7 +264,12 @@ class MeasureWindow(Adw.Window):
         b.get_object("fit_host").append(self._build_fit_area())
 
     def _build_mic_controls(self, mic_controls, cal_controls):
-        names = [s["desc"] for s in self.sources] or ["(no sources found)"]
+        # the dropdown's widest label IS the window's minimum width;
+        # long ALSA descriptions get an ellipsis, the full name lives
+        # in the mic memory and the tooltips
+        names = [(n if len(n) <= 34 else n[:33] + "\u2026")
+                 for n in ([s["desc"] for s in self.sources]
+                           or ["(no sources found)"])]
         self.source_dd = Gtk.DropDown.new_from_strings(names)
         self.source_dd.set_valign(Gtk.Align.CENTER)
         self.source_dd.connect("notify::selected", self._on_source_changed)
