@@ -1756,15 +1756,43 @@ class EqWindow(Adw.ApplicationWindow):
 
     def _edit_profile(self, p):
         """The profile's Edit: the measurement window carries the
-        name field, take appends and channel re-measures. Works
-        against the current sink; the rig gate lives in the
-        window."""
+        name field, take appends and channel re-measures. It aims
+        at the profile's OWN sink -- the current output is picked
+        up only when creating a NEW profile. If the profile's sink
+        is bound but not connected, a dialog offers the current
+        output or cancels: the computer may be playing one device
+        while another is being measured, and stealing is rude."""
         if not self.live or not self.node:
             return
         self.profile_popover.popdown()
         if self._measure_win is not None:
             self._measure_win.present()
             return
+        homes = [n for n, x in self.store.bindings.items()
+                 if x == p["id"]]
+        here = {s["name"] for s in self.sinks}
+        node = next((n for n in homes if n in here), None)
+        if node is None and homes:
+            dlg = Adw.AlertDialog(
+                heading="Device not connected",
+                body="\u201c%s\u201d belongs to %s, which is not "
+                     "connected.\nMeasure on the current output "
+                     "instead?" % (p.get("name") or "This profile",
+                                   ", ".join(homes)))
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("current", "Use current output")
+            dlg.set_default_response("current")
+            dlg.set_close_response("cancel")
+
+            def done(_d, resp, pid=p["id"]):
+                if resp == "current":
+                    self._open_measure_for(self.node, pid)
+            dlg.connect("response", done)
+            dlg.present(self)
+            return
+        self._open_measure_for(node or self.node, p["id"])
+
+    def _open_measure_for(self, node, pid):
         try:
             from .measure_window import MeasureWindow
         except Exception as e:
@@ -1776,9 +1804,9 @@ class EqWindow(Adw.ApplicationWindow):
             dlg.present(self)
             return
         desc = next((s["desc"] for s in self.sinks
-                     if s["name"] == self.node), self.node)
-        self._measure_win = MeasureWindow(self, self.node, desc,
-                                          edit_pid=p["id"])
+                     if s["name"] == node), node)
+        self._measure_win = MeasureWindow(self, node, desc,
+                                          edit_pid=pid)
         self._measure_win.connect("close-request",
                                   self._on_measure_closed)
         self._measure_win.present()

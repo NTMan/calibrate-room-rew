@@ -186,7 +186,9 @@ class MeasureWindow(Adw.Window):
         self._rig_blocked = False   # profile belongs to another rig
         self._relevel_pending = False
         self._sink_gone = False
-        self._pinned = False        # user chose "stay": ignore the default
+        # "stay" pin: ignore default-output changes. Edit sessions
+        # are born pinned -- only a fresh New chases the default.
+        self._pinned = bool(edit_pid)
         self._popup_open = False    # a stay/go dialog is on screen
         self._retargeting = False   # a retarget is scheduled/in flight
         self.fit_lo, self.fit_hi = FIT_FLO, FMAX_PLOT
@@ -1665,9 +1667,18 @@ class MeasureWindow(Adw.Window):
                 or bool(ids - set(fit.get("takes") or [])))
 
     def _parent_reload(self, pid):
+        """Freshen the parent after a session. Only steal its
+        selection when we measured ITS current device; a foreign
+        profile's session refreshes the picker and leaves the
+        playing profile alone -- the computer may be playing one
+        device while another was being measured."""
         try:
-            self.parent._select_device(self.sink_node, load=False)
-            self.parent._load_profile(pid)
+            if self.parent.node == self.sink_node:
+                self.parent._select_device(self.sink_node,
+                                           load=False)
+                self.parent._load_profile(pid)
+            else:
+                self.parent._populate_picker()
         except Exception:
             pass
         return False
