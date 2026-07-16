@@ -360,19 +360,21 @@ class MeasureWindow(Adw.Window):
         center_box.append(pult)
         self.ring.put(center_box, SPEAKER, int(RING / 2 - 56))
         self._center_box = center_box
+        # The gone note lives in the disc's EMPTY top arc, so its
+        # appearance moves nothing (Gtk.Fixed never reflows) and the
+        # controls stay put, merely insensitive.
         self.ring_gone = Gtk.Label()
         self.ring_gone.set_markup(
             "<span size='large'>Unavailable</span>")
+        self.ring_gone.add_css_class("error")
         self.ring_gone.set_halign(Gtk.Align.CENTER)
-        self.ring_gone.set_valign(Gtk.Align.CENTER)
         self.ring_gone.set_hexpand(True)
-        self.ring_gone.set_vexpand(True)
         gone_holder = Gtk.Box()
-        gone_holder.set_size_request(RING, RING)
+        gone_holder.set_size_request(RING, -1)
         gone_holder.append(self.ring_gone)
         gone_holder.set_visible(False)
         self._gone_holder = gone_holder
-        self.ring.put(gone_holder, 0, 0)
+        self.ring.put(gone_holder, 0, 26)
 
         # The volume is a fader now, on the ring's left; auto-level
         # sits under it -- the two speak the same language, and the
@@ -1122,9 +1124,9 @@ class MeasureWindow(Adw.Window):
         if gone == self._sink_gone:
             return
         self._sink_gone = gone
-        self._center_box.set_visible(not gone)
+        self._center_box.set_sensitive(not gone)
         self._gone_holder.set_visible(gone)
-        self.vol_spin.set_visible(not gone)
+        self.vol_spin.set_sensitive(not gone)
         self.relevel_btn.set_sensitive(not gone)
         self._set_ring_sensitive(not gone)
         self._disc.queue_draw()          # the red edge follows
