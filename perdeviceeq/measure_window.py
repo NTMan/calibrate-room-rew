@@ -252,6 +252,12 @@ class MeasureWindow(Adw.Window):
         bp.add_setter(outer, "spacing", 24)
         bp.add_setter(clamp, "maximum-size", 1240)
         bp.add_setter(clamp, "tightening-threshold", 1240)
+        # The clamp's trailing margin would inset the right column's
+        # scrollbar from the window edge; in the wide layout the bar
+        # should sit where the page bar sits in the narrow one, so
+        # the margin moves INSIDE the column, past the bar.
+        bp.add_setter(clamp, "margin-end", 0)
+        bp.add_setter(right, "margin-end", 12)
         # Past the breakpoint the page stops scrolling and the
         # right column's scroller takes over alone: the transport
         # never runs away while the takes are browsed.
