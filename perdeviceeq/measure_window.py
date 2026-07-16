@@ -250,8 +250,7 @@ class MeasureWindow(Adw.Window):
         self.map_right_slot = Gtk.Box()
         self.map_right_slot.set_valign(Gtk.Align.CENTER)
         ring_host = b.get_object("ring_host")
-        ring_host.set_spacing(8)
-        ring_host.append(self.map_left_slot)
+        ring_host.set_spacing(12)
         ring_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                            spacing=6)
         ring_col.append(self._build_ring())
@@ -263,8 +262,8 @@ class MeasureWindow(Adw.Window):
             "best version.")
         self.ready_hint.set_visible(False)
         ring_col.append(self.ready_hint)
+        ring_host.append(self._vol_col)  # slider, auto-level, state
         ring_host.append(ring_col)
-        ring_host.append(self.map_right_slot)
         self._rebuild_map_slots()
 
         b.get_object("channel_host").append(self._build_page())
@@ -335,24 +334,19 @@ class MeasureWindow(Adw.Window):
             self._speakers[i] = spk
             self._speaker_counts[i] = count
 
-        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                             spacing=6)
         center_box.set_size_request(RING - 2 * SPEAKER, -1)
         center_box.set_halign(Gtk.Align.CENTER)
-        adj = Gtk.Adjustment(lower=0, upper=100, step_increment=1,
-                             page_increment=5)
-        self.vol_spin = Gtk.SpinButton(adjustment=adj, climb_rate=1.0,
-                                       digits=0)
-        self.vol_spin.set_halign(Gtk.Align.CENTER)
-        self.vol_spin.set_tooltip_text(
-            "Sweep playback level (%). Auto-level sets it; edit to override "
-            "if it misses.")
-        self.vol_spin.connect("value-changed", self._on_vol_edited)
-        self._tame_scroll(self.vol_spin)
-        center_box.append(self.vol_spin)
-        self.vol_gone = Gtk.Label()
-        self.vol_gone.set_halign(Gtk.Align.CENTER)
-        self.vol_gone.set_visible(False)
-        center_box.append(self.vol_gone)
+        # The mics live INSIDE the ring now, where the volume used
+        # to sit: capsule-to-speaker mapping is spatial information,
+        # so it belongs in the spatial widget.
+        map_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                          spacing=10)
+        map_row.set_halign(Gtk.Align.CENTER)
+        map_row.append(self.map_left_slot)
+        map_row.append(self.map_right_slot)
+        center_box.append(map_row)
 
         pult = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         pult.set_halign(Gtk.Align.CENTER)
@@ -362,15 +356,42 @@ class MeasureWindow(Adw.Window):
         self.stop_btn = self._pult_btn(
             "media-playback-stop-symbolic", "Stop the sweep", self._on_stop)
         self.stop_btn.set_sensitive(False)
+        pult.append(self.play_btn)
+        pult.append(self.stop_btn)
+        center_box.append(pult)
+        self.ring.put(center_box, SPEAKER, int(RING / 2 - 34))
+
+        # The volume is a fader now, on the ring's left; auto-level
+        # sits under it -- the two speak the same language, and the
+        # ring keeps only play and stop.
+        adj = Gtk.Adjustment(lower=0, upper=100, step_increment=1,
+                             page_increment=5)
+        self.vol_spin = Gtk.Scale(
+            orientation=Gtk.Orientation.VERTICAL, adjustment=adj)
+        self.vol_spin.set_inverted(True)      # up is louder
+        self.vol_spin.set_draw_value(True)
+        self.vol_spin.set_value_pos(Gtk.PositionType.BOTTOM)
+        self.vol_spin.set_digits(0)
+        self.vol_spin.set_size_request(-1, RING - 72)
+        self.vol_spin.set_tooltip_text(
+            "Sweep playback level (%). Auto-level sets it; drag to "
+            "override if it misses.")
+        self.vol_spin.connect("value-changed", self._on_vol_edited)
+        self._tame_scroll(self.vol_spin)
         self.relevel_btn = self._pult_btn(
             "pde-level-symbolic",
             "Measure the playback level now (probe sweeps only)",
             self._on_relevel)
-        pult.append(self.play_btn)
-        pult.append(self.stop_btn)
-        pult.append(self.relevel_btn)
-        center_box.append(pult)
-        self.ring.put(center_box, SPEAKER, int(RING / 2 - 24))
+        self.relevel_btn.set_halign(Gtk.Align.CENTER)
+        self.vol_gone = Gtk.Label()
+        self.vol_gone.set_halign(Gtk.Align.CENTER)
+        self.vol_gone.set_visible(False)
+        self._vol_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                                spacing=6)
+        self._vol_col.set_valign(Gtk.Align.CENTER)
+        self._vol_col.append(self.vol_spin)
+        self._vol_col.append(self.relevel_btn)
+        self._vol_col.append(self.vol_gone)
         return self.ring
 
     def _pult_btn(self, icon, tip, cb):
@@ -390,16 +411,22 @@ class MeasureWindow(Adw.Window):
         summary = Gtk.DrawingArea()
         summary.set_content_height(120)
         summary.set_visible(False)
-        col.append(summary)
+        summary.set_hexpand(True)
+        # The summary IS the accordion's face: collapsed shows the
+        # channel's result where a "Takes (3)" title used to say
+        # nothing the header line didn't.
+        exp = Gtk.Expander()
+        exp.set_label_widget(summary)
+        exp.set_expanded(True)      # takes visible next to play
         lb = Gtk.ListBox()
         lb.add_css_class("boxed-list")
         lb.set_selection_mode(Gtk.SelectionMode.NONE)
-        exp = Adw.ExpanderRow(title="Takes")
-        exp.set_expanded(True)      # takes visible next to play
-        lb.append(exp)
-        col.append(lb)
+        lb.set_margin_top(6)
+        exp.set_child(lb)
+        col.append(exp)
         self._page = {"header": header, "summary": summary,
-                      "expander": exp, "take_rows": []}
+                      "expander": exp, "takes_list": lb,
+                      "take_rows": []}
         return col
 
     def _make_curve_draw(self, rec, lo, hi, mean=None, shift=0.0):
@@ -854,9 +881,9 @@ class MeasureWindow(Adw.Window):
         self._page["header"].set_markup(
             "<b>%s</b>  <span size='small'>%d/%d clean%s</span>%s"
             % (self.ch_keys[ch], n, CLEAN_TARGET, mark, warn))
-        exp = self._page["expander"]
+        lb = self._page["takes_list"]
         for row in self._page["take_rows"]:
-            exp.remove(row)
+            lb.remove(row)
         self._page["take_rows"].clear()
         takes = self.session.takes_of(ch) if self.session else []
         if takes:
@@ -875,9 +902,9 @@ class MeasureWindow(Adw.Window):
                                       driver=self._spread_driver,
                                       mean=mean,
                                       shift=shifts.get(rec.id, 0.0))
-            exp.add_row(row)
+            lb.append(row)
             self._page["take_rows"].append(row)
-        exp.set_title("Takes (%d)" % len(takes) if takes else "Takes")
+        lb.set_visible(bool(takes))
         self._refresh_summary(ch, takes)
 
     def _refresh_summary(self, ch, takes):

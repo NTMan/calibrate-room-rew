@@ -110,10 +110,13 @@
                 <property name="margin-bottom">12</property>
                 <property name="margin-start">12</property>
                 <child>
-                  <object class="GtkBox">
-                    <property name="orientation">vertical</property>
-                    <property name="spacing">18</property>
-                    <property name="valign">start</property>
+                  <object class="GtkScrolledWindow">
+                    <property name="hscrollbar-policy">never</property>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="orientation">vertical</property>
+                        <property name="spacing">18</property>
+                        <property name="valign">start</property>
                     <child>
                       <object class="AdwLayoutSlot">
                         <property name="id">mic</property>
@@ -137,6 +140,8 @@
                     <child>
                       <object class="AdwLayoutSlot">
                         <property name="id">controls</property>
+                      </object>
+                    </child>
                       </object>
                     </child>
                   </object>
