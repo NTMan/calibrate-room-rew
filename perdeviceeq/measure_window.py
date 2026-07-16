@@ -368,11 +368,13 @@ class MeasureWindow(Adw.Window):
         self.ring_gone.set_markup(
             "<span size='large'>Unavailable</span>")
         self.ring_gone.add_css_class("error")
-        self.ring_gone.set_halign(Gtk.Align.CENTER)
-        self.ring_gone.set_hexpand(True)
-        gone_holder = Gtk.Box()
+        # CenterBox centers by construction: hexpand on the label
+        # would PROPAGATE up through the Fixed into the column and
+        # make the left side split width with the right one -- the
+        # exact lurch this note exists to avoid.
+        gone_holder = Gtk.CenterBox()
         gone_holder.set_size_request(RING, -1)
-        gone_holder.append(self.ring_gone)
+        gone_holder.set_center_widget(self.ring_gone)
         gone_holder.set_visible(False)
         self._gone_holder = gone_holder
         self.ring.put(gone_holder, 0, 26)
