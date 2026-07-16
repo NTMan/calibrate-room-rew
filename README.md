@@ -119,8 +119,12 @@ measurement mic for speakers, plus its per-capsule calibration files.
    (mono, or stereo like an EARS), and a **Calibration** file per capsule.
    The app remembers the rig per device and pre-fills all of it next time.
 4. Click a speaker on the ring to select the channel and press **play**.
-   The first sweep auto-levels to a target SNR; the fader on the left shows
-   the playback level, and the ruler button re-measures it on demand.
+   On a device + mic pair the app has never seen, the first press hunts
+   the playback level by itself with probe sweeps -- hot enough for a
+   clean take, safely short of clipping -- and refuses honestly if no
+   level can be both. After that the level is remembered per pair; the
+   fader on the left shows it, and the ruler button forgets the memory
+   and re-measures here and now.
 5. Land about three clean takes per channel (a green dot marks clean;
    re-seat the device between takes — the take-to-take spread is what tells
    the fit which frequencies to trust). Every take is saved the moment it
@@ -132,6 +136,18 @@ measurement mic for speakers, plus its per-capsule calibration files.
    per-channel progress bar, lands gain-staged (Safe preamp), and the
    profile is playing. The trust plaque under the graph offers **Re-fit**
    after you add or remove takes later.
+
+### Speakers with a UMIK-1
+
+Measure at the listening position with the mic at ear height. miniDSP
+ships two calibration files per unit and they are not interchangeable:
+for correcting the sound at the seat -- which is what this flow does --
+point the mic **at the ceiling** and load the **90°** file; with sound
+arriving from several directions and off the walls, the vertical
+orientation responds most evenly to horizontal arrivals. "Reseat between
+takes" then means moving the mic a hand's width around the seat. Aim the
+mic **at a speaker** with the **0°** file only to diagnose one driver
+on-axis, not to correct the seat.
 
 ### Taste: your EQ over every device
 
@@ -150,7 +166,10 @@ cannot clip behind the meter's back.
 - **Bypass** to A/B against the uncorrected sound (runtime only).
 - **Tune by hand:** drag a point on the graph to move a band, click empty
   space to add one, right-click to remove; or edit the table. Hand edits
-  mark the fit `edited`; Re-fit offers to discard them.
+  mark the fit `edited`; Re-fit offers to discard them. Prefer making
+  taste adjustments in the **Taste** layer, not in the device correction:
+  corrections stay measured, and every device keeps sounding equally
+  right.
 - **Per-channel EQ:** untick *Separate channels* to edit FL/FR together.
 
 ---
