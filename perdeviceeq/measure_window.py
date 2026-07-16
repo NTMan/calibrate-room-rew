@@ -203,7 +203,6 @@ class MeasureWindow(Adw.Window):
         left.set_valign(Gtk.Align.START)
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                         spacing=outer.get_spacing())
-        right.set_valign(Gtk.Align.START)
         right.set_hexpand(True)
         for wid in (b.get_object("mic_group"),
                     b.get_object("ring_host"),
@@ -216,9 +215,36 @@ class MeasureWindow(Adw.Window):
                     b.get_object("fit_host")):
             outer.remove(wid)
             right.append(wid)
+        # ONE scroll, ever -- and no scroller games in the narrow
+        # layout: the page viewport allocates children by MINIMUM
+        # height, and a ScrolledWindow's minimum is tiny by design,
+        # so a "transparent" scroller would collapse the takes to a
+        # sliver. Narrow keeps the right column as a plain child of
+        # the page (scrolls as one, exactly the old behavior); past
+        # the breakpoint the column physically moves inside the
+        # scroller and moves back out below it.
+        right_scroll = Gtk.ScrolledWindow()
+        right_scroll.set_policy(Gtk.PolicyType.NEVER,
+                                Gtk.PolicyType.AUTOMATIC)
+        right_scroll.set_hexpand(True)
+        right_scroll.set_vexpand(True)
+        right_scroll.set_visible(False)
         outer.append(left)
         outer.append(right)
+        outer.append(right_scroll)
+
+        def _wide_on(*_):
+            outer.remove(right)
+            right_scroll.set_child(right)
+            right_scroll.set_visible(True)
+
+        def _wide_off(*_):
+            right_scroll.set_child(None)
+            right_scroll.set_visible(False)
+            outer.append(right)
+
         clamp = outer.get_parent()
+        page_scroll = b.get_object("page_scroll")
         bp = Adw.Breakpoint.new(
             Adw.BreakpointCondition.parse("min-width: 880sp"))
         bp.add_setter(outer, "orientation",
@@ -226,6 +252,13 @@ class MeasureWindow(Adw.Window):
         bp.add_setter(outer, "spacing", 24)
         bp.add_setter(clamp, "maximum-size", 1240)
         bp.add_setter(clamp, "tightening-threshold", 1240)
+        # Past the breakpoint the page stops scrolling and the
+        # right column's scroller takes over alone: the transport
+        # never runs away while the takes are browsed.
+        bp.add_setter(page_scroll, "vscrollbar-policy",
+                      Gtk.PolicyType.NEVER)
+        bp.connect("apply", _wide_on)
+        bp.connect("unapply", _wide_off)
         self.add_breakpoint(bp)
 
         b.get_object("window_title").set_subtitle(self.sink_desc)

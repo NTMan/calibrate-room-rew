@@ -27,7 +27,7 @@
       </object>
     </child>
     <child>
-      <object class="GtkScrolledWindow">
+      <object class="GtkScrolledWindow" id="page_scroll">
         <property name="vexpand">true</property>
         <property name="hscrollbar-policy">never</property>
         <child>

@@ -112,6 +112,7 @@ class EqWindow(Adw.ApplicationWindow):
         super().__init__(application=app)
         self.set_title("Per-Device EQ")
         self.set_default_size(640, 820)
+        self.set_size_request(620, 560)  # floor: the taste table
 
         self.store = ProfileStore()
         self.favorites = set(_load_favorites())
@@ -2334,13 +2335,12 @@ class EqWindow(Adw.ApplicationWindow):
                 self._tame_scroll(sp)
                 grid.attach(sp, col, row, 1, 1)
                 col += 1
-            sw = Gtk.Switch()
-            sw.set_valign(Gtk.Align.CENTER)
-            sw.set_halign(Gtk.Align.START)
+            sw = Gtk.CheckButton()          # a switch is 25 px
+            sw.set_valign(Gtk.Align.CENTER)  # wider than needed
             sw.set_active(bool(b.get("enabled", True)))
             sw.set_tooltip_text("Band on/off")
-            sw.connect("notify::active",
-                       lambda swb, *_a, i=i:
+            sw.connect("toggled",
+                       lambda swb, i=i:
                        write(i, "enabled", swb.get_active()))
             grid.attach(sw, 4, row, 1, 1)
             tr = Gtk.Button.new_from_icon_name("user-trash-symbolic")
