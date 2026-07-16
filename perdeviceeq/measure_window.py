@@ -61,6 +61,20 @@ def _speaker_name(key):
     return SPEAKER_NAMES.get(key, key)
 
 
+def _stride_idx(n, cap=240):
+    """Indices for drawing at most ~cap points of an n-point curve.
+    Resize-time redraws are Python-loop-bound, every DrawingArea in
+    the window repaints on every frame of a drag, and a thumbnail
+    cannot show 958 points anyway. The last point always rides."""
+    if n <= cap:
+        return range(n)
+    step = max(1, n // cap)
+    idx = list(range(0, n, step))
+    if idx[-1] != n - 1:
+        idx.append(n - 1)
+    return idx
+
+
 def _log_x(freq, x0, w):
     """x pixel for a frequency on a log axis spanning FMIN..FMAX_PLOT."""
     lo, hi = math.log10(FMIN_PLOT), math.log10(FMAX_PLOT)
@@ -390,18 +404,21 @@ class MeasureWindow(Adw.Window):
                 y = h - 3 - (float(mag[j]) - lo) / span * (h - 6)
                 return x, max(1, min(h - 1, y))
 
+            idx = _stride_idx(len(freqs))
             cr.set_source_rgb(0.22, 0.52, 0.90)
             cr.set_line_width(1.4)
-            for j in range(len(freqs)):
+            first = True
+            for j in idx:
                 x, y = xy(j)
-                cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
+                cr.move_to(x, y) if first else cr.line_to(x, y)
+                first = False
             cr.stroke()
             if mean is None:
                 return
             cr.set_source_rgb(0.87, 0.23, 0.23)
             cr.set_line_width(1.8)
             pen = False
-            for j in range(len(freqs)):
+            for j in idx:
                 bad = abs(float(mag[j]) + shift
                           - float(mean[j])) > ms.SPREAD_MAX_DB
                 if bad:
@@ -552,8 +569,9 @@ class MeasureWindow(Adw.Window):
         spread, freqs = self._max_spread()
         if spread and freqs:
             top = max(ms.SPREAD_MAX_DB, max(spread))
-            bw = max(1.0, pw_ / len(freqs))
-            for j in range(len(freqs)):
+            idx = _stride_idx(len(freqs))
+            bw = max(1.0, pw_ / max(1, len(idx)))
+            for j in idx:
                 gx = self._freq_to_x(freqs[j])
                 if spread[j] >= ms.SPREAD_MAX_DB:
                     cr.set_source_rgba(0.87, 0.19, 0.19, 0.85)
@@ -936,10 +954,12 @@ class MeasureWindow(Adw.Window):
                 cr.set_source_rgba(0.45, 0.45, 0.45, 0.9)
                 cr.set_line_width(1.2)
                 cr.set_dash([4.0, 3.0])
-                for j in range(len(freqs)):
+                first = True
+                for j in _stride_idx(len(freqs)):
                     x = _log_x(freqs[j], 2, w - 4)
                     y = yof(ghost[j])
-                    cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
+                    cr.move_to(x, y) if first else cr.line_to(x, y)
+                    first = False
                 cr.stroke()
                 cr.restore()
                 if ghost_label:
@@ -948,8 +968,9 @@ class MeasureWindow(Adw.Window):
                     ext = cr.text_extents(ghost_label)
                     cr.move_to(w - ext.width - 6, 12)
                     cr.show_text(ghost_label)
-            bw = max(1.0, (w - 4) / max(1, len(freqs)))
-            for j in range(len(freqs)):
+            idx = _stride_idx(len(freqs))
+            bw = max(1.0, (w - 4) / max(1, len(idx)))
+            for j in idx:
                 x = _log_x(freqs[j], 2, w - 4)
                 sv = float(spread[j]) if j < len(spread) else 0.0
                 yt, yb = yof(mean[j] + sv / 2.0), yof(mean[j] - sv / 2.0)
@@ -961,10 +982,12 @@ class MeasureWindow(Adw.Window):
                 cr.fill()
             cr.set_source_rgb(0.22, 0.52, 0.90)
             cr.set_line_width(1.6)
-            for j in range(len(freqs)):
+            first = True
+            for j in idx:
                 x = _log_x(freqs[j], 2, w - 4)
                 y = yof(mean[j])
-                cr.move_to(x, y) if j == 0 else cr.line_to(x, y)
+                cr.move_to(x, y) if first else cr.line_to(x, y)
+                first = False
             cr.stroke()
             cr.set_source_rgba(0.5, 0.5, 0.5, 0.38)
             xlo, xhi = _log_x(flo, 2, w - 4), _log_x(fhi, 2, w - 4)
