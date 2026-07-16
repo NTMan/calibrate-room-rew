@@ -116,6 +116,7 @@ def _ensure_css():
     .measure-count.bad  { background-color: @error_bg_color;
                           color: @error_fg_color; }
     button.measure-error { box-shadow: inset 0 0 0 2px @error_color; }
+    button.speaker-on { box-shadow: 0 0 0 2px @window_fg_color; }
     """
     css = Gtk.CssProvider()
     if hasattr(css, "load_from_string"):
@@ -186,11 +187,6 @@ class MeasureWindow(Adw.Window):
         self._rig_blocked = False   # profile belongs to another rig
         self._relevel_pending = False
         self._sink_gone = False
-        # "stay" pin: ignore default-output changes. Edit sessions
-        # are born pinned -- only a fresh New chases the default.
-        self._pinned = bool(edit_pid)
-        self._popup_open = False    # a stay/go dialog is on screen
-        self._retargeting = False   # a retarget is scheduled/in flight
         self.fit_lo, self.fit_hi = FIT_FLO, FMAX_PLOT
         # each handle follows the statistics until dragged
         self._hi_auto = True
@@ -304,6 +300,7 @@ class MeasureWindow(Adw.Window):
         disc.set_content_width(RING)
         disc.set_content_height(RING)
         disc.set_draw_func(self._draw_disc)
+        self._disc = disc
         self.ring.put(disc, 0, 0)
 
         cx = cy = RING / 2.0
@@ -362,6 +359,20 @@ class MeasureWindow(Adw.Window):
         pult.append(self.stop_btn)
         center_box.append(pult)
         self.ring.put(center_box, SPEAKER, int(RING / 2 - 56))
+        self._center_box = center_box
+        self.ring_gone = Gtk.Label()
+        self.ring_gone.set_markup(
+            "<span size='large'>Unavailable</span>")
+        self.ring_gone.set_halign(Gtk.Align.CENTER)
+        self.ring_gone.set_valign(Gtk.Align.CENTER)
+        self.ring_gone.set_hexpand(True)
+        self.ring_gone.set_vexpand(True)
+        gone_holder = Gtk.Box()
+        gone_holder.set_size_request(RING, RING)
+        gone_holder.append(self.ring_gone)
+        gone_holder.set_visible(False)
+        self._gone_holder = gone_holder
+        self.ring.put(gone_holder, 0, 0)
 
         # The volume is a fader now, on the ring's left; auto-level
         # sits under it -- the two speak the same language, and the
@@ -385,15 +396,11 @@ class MeasureWindow(Adw.Window):
             "Measure the playback level now (probe sweeps only)",
             self._on_relevel)
         self.relevel_btn.set_halign(Gtk.Align.CENTER)
-        self.vol_gone = Gtk.Label()
-        self.vol_gone.set_halign(Gtk.Align.CENTER)
-        self.vol_gone.set_visible(False)
         self._vol_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                                 spacing=6)
         self._vol_col.set_valign(Gtk.Align.CENTER)
         self._vol_col.append(self.vol_spin)
         self._vol_col.append(self.relevel_btn)
-        self._vol_col.append(self.vol_gone)
         return self.ring
 
     def _pult_btn(self, icon, tip, cb):
@@ -444,7 +451,7 @@ class MeasureWindow(Adw.Window):
         if row is not self._page["face_row"]:
             return
         self._takes_open = not self._takes_open
-        self._page["chevron"].set_icon_name(
+        self._page["chevron"].set_from_icon_name(
             "pan-up-symbolic" if self._takes_open
             else "pan-down-symbolic")
         for r in self._page["take_rows"]:
@@ -727,6 +734,12 @@ class MeasureWindow(Adw.Window):
         cr.set_source_rgba(0.5, 0.5, 0.5, 0.16)
         cr.arc(w / 2.0, h / 2.0, min(w, h) / 2.0 - 1, 0, 2 * math.pi)
         cr.fill()
+        if self._sink_gone:              # attention: the device left
+            cr.set_source_rgb(0.87, 0.19, 0.19)
+            cr.set_line_width(3)
+            cr.arc(w / 2.0, h / 2.0, min(w, h) / 2.0 - 2,
+                   0, 2 * math.pi)
+            cr.stroke()
 
     # ---- prefill / refresh ------------------------------------------------
     def _prefill_from_memory(self):
@@ -1075,71 +1088,14 @@ class MeasureWindow(Adw.Window):
         self._reconcile_sink(st)
         return False
 
-    def _auto(self):
-        """True when the window should chase the default: following is on
-        in the main window and the user has not pinned this sink via
-        'stay'. Following off behaves as a pinned sink."""
-        try:
-            return self.parent.follow_btn.get_active() and not self._pinned
-        except Exception:
-            return False
-
     def _reconcile_sink(self, st):
+        """The session belongs to its sink: alive or Unavailable,
+        nothing else. Chasing the default and asking stay-or-go made
+        sense when the wizard owned unsaved takes; with takes
+        persisted per profile a retarget mid-session is a category
+        error, so the machinery is gone."""
         alive = any(s["name"] == self.sink_node for s in st.sinks)
-        dflt = st.default_sink
-        if not alive:
-            if self._auto() and dflt and dflt != self.sink_node:
-                self._retarget(dflt)         # follow to the new device
-            else:
-                self._set_sink_gone(True)    # Unavailable; Create stays
-            return
-        self._set_sink_gone(False)
-        if (self._auto() and dflt and dflt != self.sink_node
-                and not self._popup_open and not self._busy):
-            self._ask_stay_or_go(dflt)
-
-    def _ask_stay_or_go(self, new_sink):
-        self._popup_open = True
-        new_desc = next((s["desc"] for s in self._pw.sinks
-                         if s["name"] == new_sink), new_sink)
-        dlg = Adw.AlertDialog(
-            heading="The default output changed",
-            body='The system default is now "%s". Switch the measurement '
-                 'to it and discard the current takes, or keep measuring '
-                 '"%s"?' % (new_desc, self.sink_desc))
-        dlg.add_response("stay", "Keep measuring")
-        dlg.add_response("go", "Switch")
-        dlg.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
-        dlg.set_default_response("stay")
-        dlg.set_close_response("stay")
-
-        def on_resp(_d, resp):
-            self._popup_open = False
-            st = self._pw
-            if resp == "go":
-                tgt = st.default_sink
-                if tgt and any(s["name"] == tgt for s in st.sinks):
-                    self._retarget(tgt)
-                elif not any(s["name"] == self.sink_node
-                             for s in st.sinks):
-                    self._set_sink_gone(True)   # nowhere to go, old dead
-            else:
-                self._pinned = True             # stop asking
-                self._reconcile_sink(st)        # reflect reality now
-        dlg.connect("response", on_resp)
-        dlg.present(self)
-
-    def _retarget(self, new_sink):
-        """Abandon this measurement and reopen the wizard for new_sink -- a
-        different channel layout means a fresh measurement. The main window
-        moves too, and the new window is shown before this one closes so
-        there is no blank flash. Deferred and guarded: this runs from a
-        PWState callback, so hop off it via idle, and retarget only once --
-        a flapping Bluetooth sink must not open a stack of windows."""
-        if self._retargeting:
-            return
-        self._retargeting = True
-        GLib.idle_add(self.parent._retarget_measure, new_sink)
+        self._set_sink_gone(not alive)
 
     def _refresh_sources_from(self, sources):
         prev = [s["name"] for s in self.sources]
@@ -1166,22 +1122,20 @@ class MeasureWindow(Adw.Window):
         if gone == self._sink_gone:
             return
         self._sink_gone = gone
+        self._center_box.set_visible(not gone)
+        self._gone_holder.set_visible(gone)
+        self.vol_spin.set_visible(not gone)
+        self.relevel_btn.set_sensitive(not gone)
+        self._set_ring_sensitive(not gone)
+        self._disc.queue_draw()          # the red edge follows
         if gone:
-            self.vol_spin.set_visible(False)
-            self.vol_gone.set_markup("<span size='large'>Unavailable</span>")
-            self.vol_gone.set_visible(True)
             self.warning.set_text(
-                "The output device is gone -- its channel configuration "
-                "changed, or it was unplugged. Bring it back to keep "
-                "measuring; you can still save what you have measured.")
-            self._set_ring_sensitive(False)
-            self.relevel_btn.set_sensitive(False)
+                "The output device is gone -- its channel "
+                "configuration changed, or it was unplugged. Bring "
+                "it back to keep measuring; you can still save what "
+                "you have measured.")
         else:
-            self.vol_gone.set_visible(False)
-            self.vol_spin.set_visible(True)
             self.warning.set_text("")
-            self.relevel_btn.set_sensitive(True)
-            self._set_ring_sensitive(True)
             self._refresh_all()
 
     def _on_source_changed(self, *_):
@@ -1357,7 +1311,11 @@ class MeasureWindow(Adw.Window):
     def _select_channel(self, ch):
         self._selected_ch = ch
         for i, spk in self._speakers.items():
-            spk.set_active(i == ch)          # built-in selected highlight
+            spk.set_active(i == ch)
+            if i == ch:                      # plus a hard outline
+                spk.add_css_class("speaker-on")
+            else:
+                spk.remove_css_class("speaker-on")
         self._rebuild_page()
         self._update_pult()
 

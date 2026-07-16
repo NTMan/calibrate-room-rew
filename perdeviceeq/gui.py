@@ -1884,23 +1884,6 @@ class EqWindow(Adw.ApplicationWindow):
                     self.store.binding_for(self.node) or CLEAN_ID)
         return False
 
-    def _retarget_measure(self, sink_name):
-        """Move the picker to sink_name and reopen the wizard for it. The
-        new window is presented before the old one closes so there is no
-        blank flash. Called when the measured sink vanishes with following
-        on, or when the user picks 'Switch' in the stay/go dialog; it moves
-        this window too."""
-        from .measure_window import MeasureWindow
-        old = self._measure_win
-        self._select_device(sink_name, load=False)
-        desc = next((s["desc"] for s in self.sinks
-                     if s["name"] == sink_name), sink_name)
-        self._measure_win = MeasureWindow(self, sink_name, desc)
-        self._measure_win.connect("close-request", self._on_measure_closed)
-        self._measure_win.present()
-        if old is not None:
-            old.close()
-
     def _on_create_new(self, _btn):
         """New: the measurement window on a fresh profile. Measure
         into it and close for a fitted profile; close empty for an
