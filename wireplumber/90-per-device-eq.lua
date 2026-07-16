@@ -1,6 +1,6 @@
 -- 90-per-device-eq.lua — per-output-device EQ for PipeWire.
 --
--- Part of per-device-eq (https://github.com/NTMan/calibrate-room-rew).
+-- Part of per-device-eq (https://github.com/NTMan/per-device-eq).
 -- This script is STATIC: it ships in the repository and is installed verbatim;
 -- per-device-eq.py never generates it. It is the single writer of the in-node
 -- EQ filter-graph on each sink, and the sole owner of the persisted state.

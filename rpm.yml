@@ -27,8 +27,8 @@ jobs:
           VERSION=$(rpmspec -q --qf '%{version}\n' per-device-eq.spec | head -1)
           # produce a tarball whose layout matches Source0 / %autosetup
           git archive --format=tar.gz \
-            --prefix="calibrate-room-rew-${VERSION}/" \
-            -o ~/rpmbuild/SOURCES/calibrate-room-rew-${VERSION}.tar.gz HEAD
+            --prefix="per-device-eq-${VERSION}/" \
+            -o ~/rpmbuild/SOURCES/per-device-eq-${VERSION}.tar.gz HEAD
           rpmbuild -ba per-device-eq.spec
           mkdir -p out
           cp ~/rpmbuild/RPMS/noarch/*.rpm ~/rpmbuild/SRPMS/*.src.rpm out/

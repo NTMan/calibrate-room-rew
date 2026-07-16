@@ -1,5 +1,5 @@
 %global appid    io.github.ntman.PerDeviceEQ
-%global reponame calibrate-room-rew
+%global reponame per-device-eq
 
 Name:           per-device-eq
 Version:        2.2.1

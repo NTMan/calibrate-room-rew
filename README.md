@@ -72,8 +72,8 @@ every reboot and reconnect.
 sudo dnf install gtk4 libadwaita python3-gobject python3-cairo \
     python3-numpy python3-scipy python3-soundfile \
     pipewire pipewire-utils wireplumber
-git clone https://github.com/NTMan/calibrate-room-rew.git
-cd calibrate-room-rew
+git clone https://github.com/NTMan/per-device-eq.git
+cd per-device-eq
 chmod +x per-device-eq.py
 ./per-device-eq.py
 ```
@@ -93,8 +93,8 @@ The repository ships a `per-device-eq.spec`. To build it locally on Fedora:
 ```
 sudo dnf install rpm-build rpmdevtools desktop-file-utils libappstream-glib
 rpmdev-setuptree
-git archive --format=tar.gz --prefix=calibrate-room-rew-1.0.0/ \
-    -o ~/rpmbuild/SOURCES/calibrate-room-rew-1.0.0.tar.gz v1.0.0
+git archive --format=tar.gz --prefix=per-device-eq-1.0.0/ \
+    -o ~/rpmbuild/SOURCES/per-device-eq-1.0.0.tar.gz v1.0.0
 rpmbuild -ba per-device-eq.spec
 ```
 
