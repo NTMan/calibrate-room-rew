@@ -193,7 +193,7 @@ class MeasureWindow(Adw.Window):
         self.set_content(b.get_object("content"))
         # ---- two-column reflow: takes next to play on wide windows.
         # The narrow (default) layout is byte-identical to the old
-        # single column; past 880sp the column splits -- mic, ring,
+        # single column; past 940sp the column splits -- mic, ring,
         # status and transport on the left, the channel's summary,
         # takes and the fit range on the right -- and the clamp
         # widens to make room.
@@ -246,7 +246,7 @@ class MeasureWindow(Adw.Window):
         clamp = outer.get_parent()
         page_scroll = b.get_object("page_scroll")
         bp = Adw.Breakpoint.new(
-            Adw.BreakpointCondition.parse("min-width: 880sp"))
+            Adw.BreakpointCondition.parse("min-width: 940sp"))
         bp.add_setter(outer, "orientation",
                       Gtk.Orientation.HORIZONTAL)
         bp.add_setter(outer, "spacing", 24)
