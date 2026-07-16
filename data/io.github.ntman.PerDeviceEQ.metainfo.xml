@@ -60,6 +60,14 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="3.0.0" date="2026-07-17">
+      <description>
+        <p>The app is the instrument now: built-in sweep measurement
+        with incremental takes and automatic fitting, a taste layer
+        composed over any profile on any device, honest headroom, and
+        an adaptive measurement window.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-06-30"/>
   </releases>
 </component>
