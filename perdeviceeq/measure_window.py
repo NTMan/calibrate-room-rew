@@ -31,7 +31,7 @@ from . import measure_core as mc                    # noqa: E402
 from . import measure_session as ms                 # noqa: E402
 from . import measure_prefs                         # noqa: E402
 
-RING = 240
+RING = 280
 SPEAKER = 56
 CLEAN_TARGET = 3            # clean takes per channel before "all clean"
 
@@ -359,7 +359,7 @@ class MeasureWindow(Adw.Window):
         pult.append(self.play_btn)
         pult.append(self.stop_btn)
         center_box.append(pult)
-        self.ring.put(center_box, SPEAKER, int(RING / 2 - 34))
+        self.ring.put(center_box, SPEAKER, int(RING / 2 - 56))
 
         # The volume is a fader now, on the ring's left; auto-level
         # sits under it -- the two speak the same language, and the
@@ -412,22 +412,41 @@ class MeasureWindow(Adw.Window):
         summary.set_content_height(120)
         summary.set_visible(False)
         summary.set_hexpand(True)
-        # The summary IS the accordion's face: collapsed shows the
-        # channel's result where a "Takes (3)" title used to say
-        # nothing the header line didn't.
-        exp = Gtk.Expander()
-        exp.set_label_widget(summary)
-        exp.set_expanded(True)      # takes visible next to play
+        # The summary IS the accordion's face: the card's first row
+        # shows the channel's result with a chevron on the right --
+        # the Adw look, not Gtk.Expander's corner triangle -- and a
+        # click on it folds the take rows underneath.
         lb = Gtk.ListBox()
         lb.add_css_class("boxed-list")
         lb.set_selection_mode(Gtk.SelectionMode.NONE)
-        lb.set_margin_top(6)
-        exp.set_child(lb)
-        col.append(exp)
+        face = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                       spacing=8)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(face, "set_margin_" + side)(8)
+        face.append(summary)
+        chev = Gtk.Image.new_from_icon_name("pan-up-symbolic")
+        chev.set_valign(Gtk.Align.CENTER)
+        face.append(chev)
+        face_row = Gtk.ListBoxRow()
+        face_row.set_child(face)
+        lb.append(face_row)
+        lb.connect("row-activated", self._on_takes_face)
+        col.append(lb)
+        self._takes_open = True
         self._page = {"header": header, "summary": summary,
-                      "expander": exp, "takes_list": lb,
-                      "take_rows": []}
+                      "takes_list": lb, "face_row": face_row,
+                      "chevron": chev, "take_rows": []}
         return col
+
+    def _on_takes_face(self, _lb, row):
+        if row is not self._page["face_row"]:
+            return
+        self._takes_open = not self._takes_open
+        self._page["chevron"].set_icon_name(
+            "pan-up-symbolic" if self._takes_open
+            else "pan-down-symbolic")
+        for r in self._page["take_rows"]:
+            r.set_visible(self._takes_open)
 
     def _make_curve_draw(self, rec, lo, hi, mean=None, shift=0.0):
         """The take's raw curve; where the (gain-compensated) take
@@ -902,6 +921,7 @@ class MeasureWindow(Adw.Window):
                                       driver=self._spread_driver,
                                       mean=mean,
                                       shift=shifts.get(rec.id, 0.0))
+            row.set_visible(self._takes_open)
             lb.append(row)
             self._page["take_rows"].append(row)
         lb.set_visible(bool(takes))
@@ -1275,17 +1295,11 @@ class MeasureWindow(Adw.Window):
                 dd.set_tooltip_text("Which mic capsule captures %s"
                                     % _speaker_name(self.ch_keys[k]))
                 dd.connect("notify::selected", self._make_map_cb(k))
-                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                              spacing=4)
                 icon = Gtk.Image.new_from_icon_name(
                     "audio-input-microphone-symbolic")
-                if k == 0:                  # mirror: icons outside
-                    row.append(icon)
-                    row.append(dd)
-                else:
-                    row.append(dd)
-                    row.append(icon)
-                col.append(row)
+                col.set_halign(Gtk.Align.CENTER)
+                col.append(icon)            # picker under the mic:
+                col.append(dd)              # a column fits the ring
                 slot.append(col)
                 self.map_dds[k] = dd
 
