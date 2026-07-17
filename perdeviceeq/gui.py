@@ -2168,6 +2168,36 @@ class EqWindow(Adw.ApplicationWindow):
             self._apply_now()
             self._update_headroom()
 
+    def _on_settings_key(self, _ctrl, keyval, _code, state):
+        if not (state & Gdk.ModifierType.CONTROL_MASK):
+            return False
+        if keyval not in (Gdk.KEY_z, Gdk.KEY_Z):
+            return False
+        if state & Gdk.ModifierType.SHIFT_MASK:
+            self._taste_step(self._taste_redo, self._taste_undo)
+        else:
+            self._taste_step(self._taste_undo, self._taste_redo)
+        return True                  # never falls to the window
+
+    def _taste_step(self, src, dst):
+        """Pop one taste snapshot from src, push the current state
+        onto dst, land the snapshot in the store, the view and the
+        pipe. Entries for since-deleted layers drop silently."""
+        while src:
+            lid, bands = src.pop()
+            cur = self.pref_layers.get(lid)
+            if cur is None:
+                continue
+            dst.append((lid, [dict(b) for b in cur["bands"]]))
+            self.pref_layers.upsert(dict(cur, bands=bands))
+            view = self._settings_views.get(lid)
+            if view is not None:
+                view.set_bands(bands)
+            if self.pref_layers.active_id == lid:
+                self._apply_now()
+                self._update_headroom()
+            return
+
     def _taste_refresh(self):
         """After any layer change: re-apply, recompute the headroom
         hints and keep the Taste row in step with the store."""
@@ -2181,6 +2211,17 @@ class EqWindow(Adw.ApplicationWindow):
         the profiles themselves."""
         dlg = Adw.PreferencesDialog()
         dlg.set_title("Settings")
+        # Taste gets its own session undo: same instrument, same
+        # safety net. BUBBLE phase, so entries keep their text undo;
+        # claimed always while the dialog is open, so the shortcut
+        # cannot fall through and silently undo the DEVICE profile
+        # behind the shade.
+        self._taste_undo, self._taste_redo = [], []
+        self._taste_pending = {}
+        self._settings_views = {}
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self._on_settings_key)
+        dlg.add_controller(keys)
         dlg.set_content_width(640)      # clamps to the window when
         dlg.set_content_height(600)     # it is narrower
         page = Adw.PreferencesPage()
@@ -2284,14 +2325,25 @@ class EqWindow(Adw.ApplicationWindow):
             cur = self.pref_layers.get(lid)
             if cur is None:
                 return
+            if self._taste_pending.get(lid) is None:
+                # snapshot BEFORE the first movement of a gesture,
+                # so undo rewinds the whole drag, not one frame
+                self._taste_pending[lid] = [dict(b)
+                                            for b in cur["bands"]]
             self.pref_layers.upsert(dict(cur, bands=bands))
             if self.pref_layers.active_id == lid:
                 self._apply_now()
-                if final:
+            if final:
+                before = self._taste_pending.pop(lid, None)
+                if before is not None and before != bands:
+                    self._taste_undo.append((lid, before))
+                    self._taste_redo.clear()
+                if self.pref_layers.active_id == lid:
                     self._update_headroom()
         view = PeqView(changed, compact=True)
         cur = self.pref_layers.get(lid)
         view.set_bands(cur["bands"] if cur else [])
+        self._settings_views[lid] = view
         row = Gtk.ListBoxRow()
         row.set_activatable(False)
         row.set_child(view)
