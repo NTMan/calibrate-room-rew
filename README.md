@@ -143,13 +143,18 @@ measurement mic for speakers, plus its per-capsule calibration files.
 
 Measure at the listening position with the mic at ear height. miniDSP
 ships two calibration files per unit and they are not interchangeable:
-for correcting the sound at the seat -- which is what this flow does --
-point the mic **at the ceiling** and load the **90°** file; with sound
-arriving from several directions and off the walls, the vertical
-orientation responds most evenly to horizontal arrivals. "Reseat between
-takes" then means moving the mic a hand's width around the seat. Aim the
-mic **at a speaker** with the **0°** file only to diagnose one driver
-on-axis, not to correct the seat.
+each corrects the capsule for ONE incidence angle, and the difference
+lives in the treble, where the capsule stops being omnidirectional.
+This flow drives one speaker per sweep, so for a stereo pair point the
+mic **at the active speaker** and load the **0°** file: the direct
+on-axis sound is what the correction acts on, and 0° is the curve
+measured individually for your unit. For a multichannel rig point the
+mic **at the ceiling** with the **90°** file: with speakers all around
+there is no on-axis to aim at, and a vertical mic meets every
+horizontal arrival at the same 90°, one geometry for every channel.
+Below the room transition (roughly 200 Hz) the files coincide, so none
+of this matters for bass. "Reseat between takes" still means moving
+the mic a hand's width around the seat.
 
 ### Taste: your EQ over every device
 
