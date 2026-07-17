@@ -1446,6 +1446,11 @@ class EqWindow(Adw.ApplicationWindow):
             return
         self._clamped_note = None
         self._set_preamp_auto(btn.get_active(), land=True)
+        # landing rides the guarded path (no _on_edit echo), so the
+        # readout -- the warning icon and the Over/Headroom line --
+        # must be refreshed HERE; without playback no meter frame
+        # would ever do it, and the stale warning outlives Safe
+        self._update_headroom()
 
     def _land_safe(self):
         """Impose the Safe value: -(max of the summed EQ curve),
