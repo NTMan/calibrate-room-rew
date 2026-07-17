@@ -41,6 +41,7 @@ from gi.repository import Gtk, Gio, GLib, Gdk, Adw
 from . import config, eq, pipewire, integration
 from .config import (APP_ID, TYPE_NAMES, CLEAN_ID, FAVORITES_FILE,
                      UI_FILE_CANDIDATES)
+from .peq_view import PeqView
 from .preferences import PreferenceLayers
 from .profiles import ProfileStore, editor_body
 
@@ -2273,118 +2274,27 @@ class EqWindow(Adw.ApplicationWindow):
         self._sync_taste_row()
 
     def _layer_band_editor(self, lid):
-        """A compact write-through band table for one layer: a grid
-        with labeled columns, so nobody has to guess which spin is
-        Q. Edits land in the store on every change and re-apply live
-        when the layer is the active one; only add/delete rebuild
-        the grid, so spins keep focus while typed into."""
-        grid = Gtk.Grid(column_spacing=4, row_spacing=4)
-        for side in ("top", "bottom", "start", "end"):
-            getattr(grid, "set_margin_" + side)(4)
-        types = ["PK", "LSC", "HSC"]
-
-        def bands():
-            cur = self.pref_layers.get(lid)
-            return list(cur["bands"]) if cur else []
-
-        def store(bs):
+        """One PeqView per layer: the taste editor is the SAME
+        instrument as the correction editor -- graph and table,
+        rendered and driven identically. Write-through: every edit
+        lands in the store and re-applies live when the layer is
+        active; the headroom refresh runs on final edits only, so a
+        drag does not spam it."""
+        def changed(bands, final):
             cur = self.pref_layers.get(lid)
             if cur is None:
                 return
-            self.pref_layers.upsert(dict(cur, bands=bs))
+            self.pref_layers.upsert(dict(cur, bands=bands))
             if self.pref_layers.active_id == lid:
                 self._apply_now()
-                self._update_headroom()
-
-        def write(i, key, val):
-            bs = bands()
-            if i < len(bs):
-                bs[i] = dict(bs[i], **{key: val})
-                store(bs)
-
-        def on_add(*_):
-            bs = bands()
-            bs.append({"type": "PK", "freq": 1000.0, "gain": 0.0,
-                       "q": 1.0, "enabled": True})
-            store(bs)
-            rebuild()
-
-        def make_del(i):
-            def cb(*_):
-                bs = bands()
-                if i < len(bs):
-                    del bs[i]
-                    store(bs)
-                    rebuild()
-            return cb
-
-        def attach_band(i, b):
-            row = i + 1
-            dd = Gtk.DropDown.new_from_strings(types)
-            dd.set_selected(types.index(b.get("type"))
-                            if b.get("type") in types else 0)
-            dd.connect("notify::selected",
-                       lambda d, *_a, i=i:
-                       write(i, "type", types[d.get_selected()]))
-            self._tame_scroll(dd)
-            grid.attach(dd, 0, row, 1, 1)
-            col = 1
-            for key, lo, hi, step, dig, tip in (
-                    ("freq", 10.0, 20000.0, 1.0, 0,
-                     "Frequency, Hz"),
-                    ("gain", -24.0, 24.0, 0.1, 1, "Gain, dB"),
-                    ("q", 0.1, 10.0, 0.05, 2, "Q")):
-                sp = Gtk.SpinButton.new_with_range(lo, hi, step)
-                sp.set_digits(dig)
-                sp.set_width_chars(5)   # the dialog is narrower
-                sp.set_max_width_chars(5)
-                sp.set_tooltip_text(tip)
-                sp.set_value(float(b.get(key, 0.0)))
-                sp.connect("value-changed",
-                           lambda spb, key=key, i=i:
-                           write(i, key, spb.get_value()))
-                self._tame_scroll(sp)
-                grid.attach(sp, col, row, 1, 1)
-                col += 1
-            sw = Gtk.CheckButton()          # a switch is 25 px
-            sw.set_valign(Gtk.Align.CENTER)  # wider than needed
-            sw.set_active(bool(b.get("enabled", True)))
-            sw.set_tooltip_text("Band on/off")
-            sw.connect("toggled",
-                       lambda swb, i=i:
-                       write(i, "enabled", swb.get_active()))
-            grid.attach(sw, 4, row, 1, 1)
-            tr = Gtk.Button.new_from_icon_name("user-trash-symbolic")
-            tr.add_css_class("flat")
-            tr.set_tooltip_text("Delete this band")
-            tr.connect("clicked", make_del(i))
-            grid.attach(tr, 5, row, 1, 1)
-
-        def rebuild():
-            child = grid.get_first_child()
-            while child is not None:
-                nxt = child.get_next_sibling()
-                grid.remove(child)
-                child = nxt
-            heads = ("Type", "Freq (Hz)", "Gain (dB)", "Q", "On", "")
-            for c, t in enumerate(heads):
-                lbl = Gtk.Label(label=t, xalign=0.0)
-                lbl.add_css_class("dim-label")
-                lbl.add_css_class("caption")
-                grid.attach(lbl, c, 0, 1, 1)
-            bs = bands()
-            for i, b in enumerate(bs):
-                attach_band(i, b)
-            addb = Gtk.Button(label="Add band")
-            addb.add_css_class("flat")
-            addb.set_halign(Gtk.Align.START)
-            addb.connect("clicked", on_add)
-            grid.attach(addb, 0, len(bs) + 1, 2, 1)
-
-        rebuild()
+                if final:
+                    self._update_headroom()
+        view = PeqView(changed, compact=True)
+        cur = self.pref_layers.get(lid)
+        view.set_bands(cur["bands"] if cur else [])
         row = Gtk.ListBoxRow()
         row.set_activatable(False)
-        row.set_child(grid)
+        row.set_child(view)
         return row
 
 
