@@ -266,7 +266,14 @@ class MeasureWindow(Adw.Window):
         self._rebuild_map_slots()
 
         b.get_object("channel_host").append(self._build_page())
-        b.get_object("fit_host").append(self._build_fit_area())
+        fa = self._build_fit_area()
+        for side in ("start", "end", "bottom"):
+            getattr(fa, "set_margin_" + side)(10)
+        fa.set_margin_top(6)
+        fit_row = Gtk.ListBoxRow()
+        fit_row.set_activatable(False)
+        fit_row.set_child(fa)
+        self._page["takes_list"].append(fit_row)
 
     def _build_mic_controls(self, mic_controls, cal_controls):
         # the dropdown's widest label IS the window's minimum width;
@@ -420,8 +427,6 @@ class MeasureWindow(Adw.Window):
 
     def _build_page(self):
         col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        header = Gtk.Label(xalign=0.0)
-        col.append(header)
         summary = Gtk.DrawingArea()
         summary.set_content_height(120)
         summary.set_visible(False)
@@ -433,23 +438,34 @@ class MeasureWindow(Adw.Window):
         lb = Gtk.ListBox()
         lb.add_css_class("boxed-list")
         lb.set_selection_mode(Gtk.SelectionMode.NONE)
-        face = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                       spacing=8)
+        face = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                       spacing=6)
         for side in ("top", "bottom", "start", "end"):
             getattr(face, "set_margin_" + side)(8)
-        face.append(summary)
+        trow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                       spacing=8)
+        title = Gtk.Label(xalign=0.0)
+        title.add_css_class("heading")
+        trow.append(title)
+        header = Gtk.Label(xalign=0.0)
+        header.add_css_class("dim-label")
+        header.set_hexpand(True)
+        trow.append(header)
         chev = Gtk.Image.new_from_icon_name("pan-up-symbolic")
         chev.set_valign(Gtk.Align.CENTER)
-        face.append(chev)
+        trow.append(chev)
+        face.append(trow)
+        face.append(summary)
         face_row = Gtk.ListBoxRow()
         face_row.set_child(face)
         lb.append(face_row)
         lb.connect("row-activated", self._on_takes_face)
         col.append(lb)
         self._takes_open = True
-        self._page = {"header": header, "summary": summary,
-                      "takes_list": lb, "face_row": face_row,
-                      "chevron": chev, "take_rows": []}
+        self._page = {"title": title, "header": header,
+                      "summary": summary, "takes_list": lb,
+                      "face_row": face_row, "chevron": chev,
+                      "take_rows": []}
         return col
 
     def _on_takes_face(self, _lb, row):
@@ -917,9 +933,10 @@ class MeasureWindow(Adw.Window):
             for r in self.session.takes_of(ch))
         mark = " \u2713" if n >= CLEAN_TARGET else ""
         warn = " \u26a0" if has_bad else ""
+        self._page["title"].set_text(
+            "Takes %s" % self.ch_keys[ch])
         self._page["header"].set_markup(
-            "<b>%s</b>  <span size='small'>%d/%d clean%s</span>%s"
-            % (self.ch_keys[ch], n, CLEAN_TARGET, mark, warn))
+            "%d/%d clean%s%s" % (n, CLEAN_TARGET, mark, warn))
         lb = self._page["takes_list"]
         for row in self._page["take_rows"]:
             lb.remove(row)
@@ -942,7 +959,7 @@ class MeasureWindow(Adw.Window):
                                       mean=mean,
                                       shift=shifts.get(rec.id, 0.0))
             row.set_visible(self._takes_open)
-            lb.append(row)
+            lb.insert(row, 1 + len(self._page["take_rows"]))
             self._page["take_rows"].append(row)
         lb.set_visible(bool(takes))
         self._refresh_summary(ch, takes)
