@@ -381,7 +381,10 @@ class PeqView(Gtk.Box):
             lbl.add_css_class("dim-label")
             lbl.add_css_class("caption")
             self.grid.attach(lbl, c, 0, 1, 1)
-        for i, b in enumerate(self._bands):
+        # rows sort by frequency, like the plot reads; storage
+        # order is untouched (the response is order-agnostic)
+        shown = sorted(self._bands, key=lambda b: b.freq)
+        for i, b in enumerate(shown):
             self._attach_band(i, b)
         addb = Gtk.Button(label="Add band")
         addb.add_css_class("flat")
@@ -412,6 +415,7 @@ class PeqView(Gtk.Box):
                 ("q", 0.1, 10.0, 0.05, 2, "Q")):
             sp = Gtk.SpinButton.new_with_range(lo, hi, step)
             sp.set_digits(dig)
+            sp.set_hexpand(True)
             sp.set_width_chars(5)
             sp.set_max_width_chars(5)
             sp.set_tooltip_text(tip)
