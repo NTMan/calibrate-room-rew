@@ -1858,7 +1858,6 @@ class EqWindow(Adw.ApplicationWindow):
         self._apply_now()
         self._update_headroom()
         self._sync_taste_card()
-        self._schedule_save()        # layer ops join the timeline
 
     def _build_taste_popover(self):
         """The layer picker, patterned on the profile one: New in
@@ -1959,6 +1958,7 @@ class EqWindow(Adw.ApplicationWindow):
                 return
             self.pref_layers.upsert(dict(cur, name=txt))
             self._sync_taste_card()
+            self._schedule_save()    # renames join the timeline
         return cb
 
     def _on_taste_card_toggled(self, expanded):
@@ -1979,6 +1979,7 @@ class EqWindow(Adw.ApplicationWindow):
                                        "bands": []})
         self.pref_layers.set_active(lid)
         self._taste_refresh()
+        self._schedule_save()        # creating a layer is an edit
 
     def _on_taste_delete(self, lay):
         self.taste_popover.popdown()    # popovers sit above dialogs
@@ -1998,6 +1999,7 @@ class EqWindow(Adw.ApplicationWindow):
                 return
             self.pref_layers.delete(lay["id"])
             self._taste_refresh()
+            self._schedule_save()    # Ctrl+Z resurrects the layer
         dlg.connect("response", on_resp)
         dlg.present(self)
 
