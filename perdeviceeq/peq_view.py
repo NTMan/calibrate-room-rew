@@ -339,6 +339,7 @@ class PeqView(Gtk.Box):
         if b is not None and b in self._bands:
             self._bands.remove(b)
             self._rebuild_table()
+            self.graph.queue_draw()   # the handle must die with it
             self._emit(True)
 
     # ---- the band table -------------------------------------------------
