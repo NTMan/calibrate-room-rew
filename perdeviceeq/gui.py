@@ -604,8 +604,16 @@ class EqWindow(Adw.ApplicationWindow):
         self.meters_grid = Gtk.Grid(column_spacing=10, row_spacing=4)
         for side in ("top", "bottom", "start", "end"):
             getattr(self.meters_grid, "set_margin_" + side)(10)
-        self.meters_grid.set_visible(False)
-        self.preamp_group.add(self.meters_grid)
+        # PreferencesGroup.add puts only PreferencesRow descendants
+        # into the card's list; anything else lands in a box BELOW
+        # it -- so the meters ride a row, or they fall out of the
+        # card
+        row = Adw.PreferencesRow()
+        row.set_activatable(False)
+        row.set_child(self.meters_grid)
+        self._meters_row = row
+        self._meters_row.set_visible(False)
+        self.preamp_group.add(row)
 
     _CSS_INSTALLED = False
 
@@ -890,7 +898,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._clear_box(self.meters_grid)
         self._meter_areas = {}
         self._meter_lamps = {}
-        self.meters_grid.set_visible(show and bool(self.ch_keys))
+        self._meters_row.set_visible(show and bool(self.ch_keys))
         for i, k in enumerate(self.ch_keys):
             lbl = Gtk.Label(label=k, xalign=0.0)
             lbl.add_css_class("dim-label")
