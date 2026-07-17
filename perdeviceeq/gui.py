@@ -1102,6 +1102,10 @@ class EqWindow(Adw.ApplicationWindow):
             self.current_pid = pid
             self.profile_button.set_label(
                 self._display_name(self.store.get(pid)))
+            if self.live and self.node:
+                # rewind the sink binding too, or a restart would
+                # resurrect the selection undo just unwound
+                self.store.set_binding(self.node, pid)
             self._populate_picker()
         view = self.cur_ch          # keep the user's current tab if still valid
         self._loading = True
@@ -1219,9 +1223,18 @@ class EqWindow(Adw.ApplicationWindow):
         self._update_undo_buttons()
 
     def _update_undo_buttons(self):
-        """Sync undo/redo button sensitivity with the history position."""
-        self.undo_btn.set_sensitive(self._hidx > 0)
-        self.redo_btn.set_sensitive(self._hidx < len(self._hist) - 1)
+        """Selections and dead entries never light the arrows: undo
+        is offered only when a real edit sits at or below the
+        current position (the seed at index 0 is a baseline, not a
+        step), redo -- when one sits ahead."""
+        def _step(rng):
+            return any(not self._hist[i].get("sel")
+                       and self._snap_alive(self._hist[i])
+                       for i in rng)
+        self.undo_btn.set_sensitive(
+            _step(range(1, self._hidx + 1)))
+        self.redo_btn.set_sensitive(
+            _step(range(self._hidx + 1, len(self._hist))))
 
     # ---- band table --------------------------------------------------------
     def _on_clear_bands(self, _btn):
