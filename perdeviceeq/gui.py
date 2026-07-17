@@ -546,6 +546,9 @@ class EqWindow(Adw.ApplicationWindow):
                 dlg.present(self)
             elif self.current_pid == pid:
                 self._load_profile(pid)
+                # in Auto the preamp lands the composed Safe NOW;
+                # in manual this just refreshes the readout
+                self._update_headroom()
             else:
                 self._populate_picker()
             return False

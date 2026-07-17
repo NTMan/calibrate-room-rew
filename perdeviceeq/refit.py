@@ -25,7 +25,6 @@ import numpy as np
 from . import fit_peq
 from . import measure_core as mc
 from .measure_build import FIT_ALGO, fit_fingerprint
-from .eq import Band, curve_max_db
 from .measure_session import gain_comp_factors
 from .profiles import playback_sha256
 
@@ -148,7 +147,9 @@ def refit_profile(prof, bands=None, f_lo=None, f_hi=None,
     Fit parameters default to the stored fit.params (falling back to
     the build defaults for a canvas that never had a fit); any of
     them can be overridden. Returns a NEW profile dict: same id, name
-    and canvas, new bands/ch_keys/apply_all, preamp reset to 0.0
+    and canvas, new bands/ch_keys/apply_all; the preamp is NOT
+    touched -- the mode governs it (Auto lands the composed Safe,
+    manual is protected by the session clamp)
     exactly like a fresh fit (the bands changed, the app re-derives
     Safe/Session), and a new `fit` block with a fresh timestamp, the
     take ids actually consumed and a recomputed inputs_sha256.
@@ -190,23 +191,14 @@ def refit_profile(prof, bands=None, f_lo=None, f_hi=None,
                                   mono=params["mono"],
                                   progress=progress)
     out = dict(prof)
-    for k in ("apply_all", "preamp", "ch_keys", "all", "channels"):
+    for k in ("apply_all", "ch_keys", "all", "channels"):
         out[k] = fitted[k]
 
-    # The fit's own gain staging: Safe over the fresh bands, so the
-    # profile is playable the moment it lands. Zero would clip every
-    # boost and the old value guarded bands that no longer exist; the
-    # preamp is pinned out of the output hash, so riding it later
-    # still reads as gain staging, not editing.
-    def _peak(bands):
-        return curve_max_db(0.0, [Band.from_dict(b) for b in bands])
-    if out.get("apply_all", True):
-        pk = _peak((out.get("all") or {}).get("bands") or [])
-    else:
-        pk = max((_peak(((out.get("channels") or {}).get(k) or {})
-                        .get("bands") or [])
-                  for k in out.get("ch_keys") or []), default=0.0)
-    out["preamp"] = -max(0.0, math.ceil(pk * 10.0 - 1e-9) / 10.0)
+    # The fit lands BANDS ONLY. Its old gain staging predated the
+    # preamp mode and knew nothing of the taste layer: in Auto the
+    # composed Safe (device + taste) lands right after the reload,
+    # and a manual compromise is the user's to keep -- the session
+    # clamp protects it either way.
     out["fit"] = {"at": _utc_now(), "algo": FIT_ALGO,
                   "params": params, "target": {"kind": "flat"},
                   "takes": list(used),

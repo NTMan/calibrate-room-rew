@@ -16,7 +16,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from perdeviceeq import eq
 from perdeviceeq import measure_build, profiles, refit
 from perdeviceeq import measure_core as mc
 from perdeviceeq import measure_session as ms
@@ -181,12 +180,9 @@ def test_refit_updates_fit_and_keeps_canvas():
     assert f["inputs_sha256"] == measure_build.fit_fingerprint(
         out["measurement"], f["takes"], f["params"])
     assert f["output_sha256"] == profiles.playback_sha256(out)
-    peak = max(eq.curve_max_db(
-        0.0, [eq.Band.from_dict(b)
-              for b in out["channels"][k]["bands"]])
-        for k in out["ch_keys"])
-    assert out["preamp"] == -max(
-        0.0, math.ceil(peak * 10.0 - 1e-9) / 10.0)
+    # the fit lands bands only: the preamp is the mode's business
+    # and must survive a refit untouched
+    assert out["preamp"] == -2.0
     assert refit.fit_is_stale(out) is False
 
 
