@@ -14,46 +14,84 @@ listener, headroom that never lies.
   auto-leveling, per-take quality gating, and a constrained biquad fit
   with an EQ range that follows the take-to-take spread. Incremental core:
   every take persists the moment it lands; sessions resume; delete + refit
-  are first-class. (Roadmap Tasks 2 and 3 of the July 2026 plan, absorbed
-  and exceeded.)
-- **Headroom.** Tier-1 worst-chain estimate with a Safe suggestion, tier-2
-  live post-EQ meter, fit lands gain-staged, and every hint composes the
-  active taste layer.
+  are first-class.
+- **Headroom.** Tier-1 worst-chain estimate composing the taste layer,
+  tier-2 live post-EQ meters in the preamp card, an Auto preamp MODE that
+  lands the composed Safe (device + taste) and a session clamp that
+  absorbs real peaks mid-playback. The fit lands bands only -- the mode
+  owns the gain.
 - **Taste layer.** Named preference EQs over any profile on any device,
-  with a settings dialog, a Taste switcher above Profile, and honest
-  interaction with headroom. This absorbed the useful half of the old
-  "two-layer profiles" Task 1; the target-provenance half is parked below.
+  a Taste card with an in-place editor, picker with rename/delete, and
+  honest interaction with headroom.
+- **One undo timeline.** Device, taste and profile switches share a
+  single history: selection is not an edit, steps are single, births and
+  deletions are revocable within the session (the graveyard), and the
+  arrows never lie about whether anything would change.
 - **Sink honesty.** Edit aims at the profile's own sink; only New picks up
   the current output; a session belongs to its sink — alive or
   Unavailable, no retargeting, no selection stealing.
 - **Adaptive UI.** Adw.MultiLayoutView two-column measurement window,
-  client-side modality, draw budgets, and a long tail of layout fixes.
+  client-side modality, draw budgets, the PeqView component shared by
+  device and taste, cards everywhere (device, taste, preamp, ring,
+  takes), and a long tail of layout fixes.
+- **Integration and CLI.** `install_full` as the one source behind both
+  `--install` and the GUI dialog; `--uninstall`; symmetric
+  `--list-sinks` / `--list-sources`; the launcher's tools gate.
 
-## Next
+## Next (the sprint)
 
-1. **EQ editor as a component.** Extract the graph + bands editor into one
-   reusable widget so device correction and Taste render and edit
-   identically everywhere.
-2. **Collapsible EQ sections.** The main window carries two equalizers
-   (device correction and Taste) without overload: collapsed shows just
-   the profile/layer choice, expanded shows the graph and bands, editable
-   in place.
-3. **Main window layout.** Device first, then Taste, then a closing block
-   with the preamp and per-channel level meters; Bypass likely moves into
-   the header bar.
-4. **Auto-preamp instead of a suggestion.** When the live meter detects
-   the composition going over 0 dBFS, apply the recommended preamp
-   immediately rather than offering a Session button — nobody should sit
-   through audible distortion to click a hint.
+1. **Merged hardware export.** Export the COMPOSED chain (device + active
+   taste, preamp included) as one parametric-EQ text for hardware and
+   apps that cannot layer: EqualizerAPO/Qudelix-style. Accept when the
+   exported file null-tests against the in-app chain within 0.1 dB across
+   the fit band, and the per-channel collapse policy is stated in the
+   header comment.
+2. **Profile package.** One-file `.pdeq` bundle: profile + measurement +
+   fit provenance + rig fingerprint + content sha. Import validates and
+   shows provenance. Accept when export→import roundtrips byte-stable.
+   This is the foundation the exchange service stands on.
+3. **GNOME HIG pass.** A written checklist in-repo (spacing scale, focus
+   order, keyboard mnemonics, symbolic icons, header-bar patterns,
+   dialog vs popover usage, About window), every deviation fixed or
+   argued in place. Accept when each line carries a check or a commit.
+4. **CI that sees the GUI.** Actions running pytest + pyflakes +
+   `gtk4-builder-tool validate` over every `.ui`, plus a headless import
+   smoke of the Gtk modules. Accept when the classes of breakage we have
+   actually shipped past the sandbox (bad `.ui`, import-time errors) turn
+   the build red.
+5. **Flathub.** Manifest, metainfo, screenshots, release notes.
+   Popularity starts with installability.
+
+## Direction
+
+- **Targets (the debate).** Fit to arbitrary magnitude curves -- Harman
+  IE/OE and friends -- as a property of the MEASUREMENT frame, not of
+  taste. Pro: on a coupler/pinna rig, flat-at-the-mic is not the
+  perceptual goal; a target bound to the rig makes profiles portable
+  truth and keeps taste layers transferable across devices measured on
+  different rigs. Contra: provenance and frame-compatibility machinery.
+  Deciding experiment: an EARS-flat profile plus a taste layer on one
+  IEM should match an EARS-to-Harman profile without taste, by ear and
+  by curve; if it does not, targets earn their complexity.
+- **Profile exchange service.** Static, sha-addressed index of `.pdeq`
+  packages first (a git repo can be the backend); accounts, ratings and
+  comments only if the static thing proves too small.
+- **Verified measurements.** Opt-in device-fingerprint sharing once the
+  service exists, a popularity list, and the maintainer verifying the
+  top of it -- by buying and measuring, or by cross-checking submitted
+  packages against published curves.
+- **Hardware PEQ, the full story.** Per-device capability tables (band
+  counts, Q ranges, shelf types, preamp granularity), bank naming and
+  multi-bank export where the hardware has them.
+- **Android.** Survey the global-PEQ hosts (Wavelet,
+  RootlessJamesDSP-class engines) for a profile handoff format; a
+  companion exporter, not a port.
+- **Advocacy.** Write-ups of the established facts below (the BT
+  loudness/limiter findings deserve their own post), short demo videos,
+  and a comparison page against static AutoEq presets.
 
 ## Parked
 
-- **Targets and measurement frames** (Harman and friends): `fit.target` as
-  a magnitude curve with a frame tag and provenance, frame-compatibility
-  gating against the takes' calibration, AutoEq CSV import, and the
-  per-unit D-bridge via a reference measurement. Revisit after the Next
-  list lands — and maybe not at all, if a well-tuned Taste layer keeps
-  covering the need.
 - **Profile state journal** (old Task 4): log band edits / bypass / preamp
   changes with timestamps; `--dump-state` for measurement notes.
 - **Hardware: 711-clone coupler** (old Task 5): buy an IEC 60318-4 clone,
@@ -78,9 +116,15 @@ listener, headroom that never lies.
   rig resonance.
 - PipeWire's param_eq shelves use plain Q (`alpha = sin(w0)/(2Q)`), not the
   RBJ slope form; `perdeviceeq.eq` and the audit match it to 1e-10.
+- Mic calibration files are per-incidence-angle: 0° aimed at the active
+  speaker for per-speaker sweeps, 90° up for speakers all around; below
+  the room transition they coincide.
 
 ## Upstream notes
 
+* **Resolved:** PipeWire filter-graph ate softVolume/softMute so channel
+  volumes applied twice and the level collapsed after enabling EQ --
+  fixed in 1.6.8 (work item 5344).
 * WirePlumber: a fresh `stream.capture.sink` stream against a settled BT
   sink with an in-node filter-graph deterministically comes up with one
   monitor port unlinked; only a node reconfigure (graph republish)
