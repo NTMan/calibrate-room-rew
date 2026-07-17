@@ -87,6 +87,15 @@ class PreferenceLayers:
             self._write()
         return len(self.layers) != before
 
+    def restore(self, layers, active_id):
+        """Replace the whole store in one write: undo/redo lands a
+        historical state back. Sanitized copies; the active id is
+        clamped to an existing layer."""
+        self.layers = [_sane_layer(dict(l)) for l in (layers or [])]
+        self.active_id = (active_id if any(
+            l["id"] == active_id for l in self.layers) else None)
+        self._write()
+
     def set_active(self, lid):
         """Turn a layer on (or off with None). Unknown ids read as
         off rather than raising: a deleted layer must not wedge the

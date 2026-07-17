@@ -164,10 +164,12 @@ class EqWindow(Adw.ApplicationWindow):
         self.connect("unmap", lambda *_: self._update_meter())
         self.connect("close-request", self._stop_meter_on_close)
 
-        # undo/redo history (serialized snapshots)
+        # undo/redo history (serialized snapshots); the timeline
+        # is GLOBAL -- device and taste edits interleave in it
         self._hist = []
         self._hidx = -1
         self._restoring = False
+        self._dev_dirty = False     # a device-side edit awaits saving
 
         b = Gtk.Builder.new_from_file(_ui_path())
         self.set_content(b.get_object("content"))
@@ -1001,6 +1003,7 @@ class EqWindow(Adw.ApplicationWindow):
         if self._loading:
             return
         self._ensure_editable()
+        self._dev_dirty = True
         self.view.graph.queue_draw()
         # any edit starts a new measurement era: peak, percentages and
         # the latch all belonged to the old chain
@@ -1018,14 +1021,21 @@ class EqWindow(Adw.ApplicationWindow):
         self._save_source = GLib.timeout_add(_SAVE_DEBOUNCE_MS, self._save_now)
 
     def _save_now(self):
-        """Persist the working profile, apply it, and record undo history."""
+        """Land the debounce: persist and apply the device profile
+        when a device-side edit is pending, and record ONE history
+        entry either way -- the timeline is global, taste edits
+        arrive here through the same timer."""
         self._save_source = 0
-        if self._editable(self.current_pid):
-            self.store.save_user(self._working_body())
-        self._apply_now()
-        if not self._restoring:
+        if self._dev_dirty:
+            self._dev_dirty = False
+            if self._editable(self.current_pid):
+                self.store.save_user(self._working_body())
+            self._apply_now()
+            if not self._restoring:
+                self._push_history()
+            self._canvas_refresh()
+        elif not self._restoring:
             self._push_history()
-        self._canvas_refresh()
         return GLib.SOURCE_REMOVE
 
     def _apply_now(self):
@@ -1054,7 +1064,14 @@ class EqWindow(Adw.ApplicationWindow):
         return {"apply_all": self.apply_all,
                 "preamp": float(self.preamp),
                 "ch_keys": list(self.ch_keys),
-                "slots": {k: self._slot_to_dict(k) for k in keys}}
+                "slots": {k: self._slot_to_dict(k) for k in keys},
+                "taste": {
+                    "active": self.pref_layers.active_id,
+                    "layers": [
+                        {"id": l["id"], "name": l["name"],
+                         "bands": [dict(x) for x in
+                                   (l.get("bands") or [])]}
+                        for l in self.pref_layers.layers]}}
 
     def _restore(self, snap):
         """Load an undo snapshot back into the editor."""
@@ -1082,9 +1099,15 @@ class EqWindow(Adw.ApplicationWindow):
             self._load_slot(self.cur_ch)
         finally:
             self._loading = False
+        t = snap.get("taste")
+        if t is not None:
+            self.pref_layers.restore(t.get("layers"),
+                                     t.get("active"))
+            self._sync_taste_card()
         if self._editable(self.current_pid):
             self.store.save_user(self._working_body())
         self._apply_now()
+        self._update_headroom()
         self._canvas_refresh()
 
     def _push_history(self):
@@ -1835,6 +1858,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._apply_now()
         self._update_headroom()
         self._sync_taste_card()
+        self._schedule_save()        # layer ops join the timeline
 
     def _build_taste_popover(self):
         """The layer picker, patterned on the profile one: New in
@@ -1986,7 +2010,8 @@ class EqWindow(Adw.ApplicationWindow):
             return
         self.pref_layers.upsert(dict(act, bands=bands))
         self._apply_now()
-        if final:
+        self._schedule_save()        # one global-history entry per
+        if final:                    # settled gesture
             self._update_headroom()
 
 class EqApplication(Adw.Application):
