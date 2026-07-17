@@ -971,9 +971,16 @@ class EqWindow(Adw.ApplicationWindow):
                 and pid not in self.favorites:
             self.favorites.add(pid)
             _save_favorites(self.favorites)
-        # fresh undo history for the newly loaded profile
-        self._hist = [self._snapshot()]
-        self._hidx = 0
+        # The timeline survives profile switches: the first load
+        # seeds it; a later switch adds a SILENT selection baseline
+        # that undo/redo walk through without counting it a step --
+        # it exists so an edit made here has a pre-state to revert
+        # to, since device snapshots carry one profile, not all.
+        if not self._hist:
+            self._hist = [self._snapshot()]
+            self._hidx = 0
+        elif not self._restoring:
+            self._push_history(sel=True)
         self._update_undo_buttons()
         if apply:
             self._apply_now()
@@ -1061,7 +1068,8 @@ class EqWindow(Adw.ApplicationWindow):
     def _snapshot(self):
         """Serialize editor state for undo (the viewed channel is left out)."""
         keys = ["all"] + list(self.ch_keys)
-        return {"apply_all": self.apply_all,
+        return {"pid": self.current_pid,
+                "apply_all": self.apply_all,
                 "preamp": float(self.preamp),
                 "ch_keys": list(self.ch_keys),
                 "slots": {k: self._slot_to_dict(k) for k in keys},
@@ -1074,7 +1082,16 @@ class EqWindow(Adw.ApplicationWindow):
                         for l in self.pref_layers.layers]}}
 
     def _restore(self, snap):
-        """Load an undo snapshot back into the editor."""
+        """Load an undo snapshot back into the editor. Snapshots
+        carry the profile id: restoring one made under another
+        profile switches to it without reseeding the timeline."""
+        pid = snap.get("pid")
+        if pid and pid != self.current_pid \
+                and self.store.get(pid) is not None:
+            self.current_pid = pid
+            self.profile_button.set_label(
+                self._display_name(self.store.get(pid)))
+            self._populate_picker()
         view = self.cur_ch          # keep the user's current tab if still valid
         self._loading = True
         try:
@@ -1110,12 +1127,21 @@ class EqWindow(Adw.ApplicationWindow):
         self._update_headroom()
         self._canvas_refresh()
 
-    def _push_history(self):
-        """Append a snapshot, dropping any redo tail (cap _HISTORY_CAP)."""
+    def _push_history(self, sel=False):
+        """Append a snapshot, dropping any redo tail (cap
+        _HISTORY_CAP). sel=True marks a selection baseline: undo and
+        redo restore it in passing but never stop on it. Dedup
+        compares content without the mark."""
         snap = self._snapshot()
+        if sel:
+            snap["sel"] = True
         if self._hidx < len(self._hist) - 1:        # drop the redo branch
             del self._hist[self._hidx + 1:]
-        if not self._hist or self._hist[self._hidx] != snap:
+
+        def _bare(d):
+            return {k: v for k, v in d.items() if k != "sel"}
+        if not self._hist or _bare(self._hist[self._hidx]) \
+                != _bare(snap):
             self._hist.append(snap)
             self._hidx = len(self._hist) - 1
             if len(self._hist) > _HISTORY_CAP:
@@ -1123,26 +1149,45 @@ class EqWindow(Adw.ApplicationWindow):
                 self._hidx -= 1
         self._update_undo_buttons()
 
+    def _snap_alive(self, snap):
+        pid = snap.get("pid")
+        return not pid or self.store.get(pid) is not None
+
     def _undo(self, *_):
-        """Step one snapshot back in history."""
+        """Step back to the previous EDIT: selection baselines are
+        restored in passing (their files revert on the way), dead
+        profiles' entries are skipped."""
         if self._hidx <= 0:
             return
-        self._hidx -= 1
         self._restoring = True
         try:
-            self._restore(self._hist[self._hidx])
+            while self._hidx > 0:
+                self._hidx -= 1
+                snap = self._hist[self._hidx]
+                if not self._snap_alive(snap):
+                    continue
+                self._restore(snap)
+                if not snap.get("sel"):
+                    break
         finally:
             self._restoring = False
         self._update_undo_buttons()
 
     def _redo(self, *_):
-        """Step one snapshot forward in history."""
+        """Step forward to the next EDIT, re-landing selection
+        baselines in passing."""
         if self._hidx >= len(self._hist) - 1:
             return
-        self._hidx += 1
         self._restoring = True
         try:
-            self._restore(self._hist[self._hidx])
+            while self._hidx < len(self._hist) - 1:
+                self._hidx += 1
+                snap = self._hist[self._hidx]
+                if not self._snap_alive(snap):
+                    continue
+                self._restore(snap)
+                if not snap.get("sel"):
+                    break
         finally:
             self._restoring = False
         self._update_undo_buttons()
