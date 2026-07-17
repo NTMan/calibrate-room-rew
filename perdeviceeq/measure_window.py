@@ -236,6 +236,13 @@ class MeasureWindow(Adw.Window):
         b.get_object("window_title").set_subtitle(self.sink_desc)
         self.center = b.get_object("status")
         self.warning = b.get_object("warning")
+
+        def _warn(txt):
+            # visibility rides the text: an empty visible label
+            # still charges the column its box spacing
+            self.warning.set_text(txt)
+            self.warning.set_visible(bool(txt))
+        self._warn = _warn
         self.name_row = b.get_object("name_row")
         self.name_row.set_text(
             (self.edit_prof or {}).get("name") or self.sink_desc)
@@ -1151,13 +1158,13 @@ class MeasureWindow(Adw.Window):
         self._set_ring_sensitive(not gone)
         self._disc.queue_draw()          # the red edge follows
         if gone:
-            self.warning.set_text(
+            self._warn(
                 "The output device is gone -- its channel "
                 "configuration changed, or it was unplugged. Bring "
                 "it back to keep measuring; you can still save what "
                 "you have measured.")
         else:
-            self.warning.set_text("")
+            self._warn("")
             self._refresh_all()
 
     def _on_source_changed(self, *_):
@@ -1190,7 +1197,7 @@ class MeasureWindow(Adw.Window):
         self._canvas_ids = {}
         self._canvas_session = None
         self._rig_blocked = False
-        self.warning.set_text("")
+        self._warn("")
         self._ensure_session(arm=False, quiet=True)
         self._refresh_all()
 
@@ -1587,7 +1594,7 @@ class MeasureWindow(Adw.Window):
         stored_src = m.get("source")
         if stored_src and not measure_build.rig_matches(
                 stored_src, src.get("serial"), node):
-            self.warning.set_text(
+            self._warn(
                 "This profile was measured with %s; its stored "
                 "takes stay hidden and measuring here is blocked."
                 % (stored_src.get("name")
