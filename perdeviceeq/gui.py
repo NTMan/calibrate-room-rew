@@ -927,7 +927,7 @@ class EqWindow(Adw.ApplicationWindow):
         p = self.store.profiles.get(pid)
         return bool(p and not p.get("builtin") and pid != CLEAN_ID)
 
-    def _load_profile(self, pid, apply=True):
+    def _load_profile(self, pid, apply=True, born=False):
         """Load profile `pid` into the editor and bind it to the device.
         With apply=True also publish its graph to the session metadata
         (primes the key for the first Bypass; see _apply_now).
@@ -981,7 +981,11 @@ class EqWindow(Adw.ApplicationWindow):
             self._hist = [self._snapshot()]
             self._hidx = 0
         elif not self._restoring:
-            self._push_history(sel=True)
+            # a freshly created profile (clone, import) is a real
+            # step -- undo deletes it into the graveyard; a plain
+            # switch stays a silent selection baseline
+            self._push_history(sel=not born,
+                               born=(pid if born else None))
         self._update_undo_buttons()
         if apply:
             self._apply_now()
@@ -1134,19 +1138,23 @@ class EqWindow(Adw.ApplicationWindow):
         self._update_headroom()
         self._canvas_refresh()
 
-    def _push_history(self, sel=False):
+    def _push_history(self, sel=False, born=None):
         """Append a snapshot, dropping any redo tail (cap
         _HISTORY_CAP). sel=True marks a selection baseline: undo and
-        redo restore it in passing but never stop on it. Dedup
-        compares content without the mark."""
+        redo restore it in passing but never stop on it. born=pid
+        marks a profile birth: undo, leaving that entry, buries the
+        profile. Dedup compares content without the marks."""
         snap = self._snapshot()
         if sel:
             snap["sel"] = True
+        if born:
+            snap["born"] = born
         if self._hidx < len(self._hist) - 1:        # drop the redo branch
             del self._hist[self._hidx + 1:]
 
         def _bare(d):
-            return {k: v for k, v in d.items() if k != "sel"}
+            return {k: v for k, v in d.items()
+                    if k not in ("sel", "born")}
         if not self._hist or _bare(self._hist[self._hidx]) \
                 != _bare(snap):
             self._hist.append(snap)
@@ -1170,6 +1178,16 @@ class EqWindow(Adw.ApplicationWindow):
         self._restoring = True
         try:
             while self._hidx > 0:
+                leaving = self._hist[self._hidx]
+                bpid = leaving.get("born")
+                if bpid and self.store.has(bpid):
+                    # undoing a birth: bury it (redo resurrects)
+                    self._graveyard[bpid] = json.loads(
+                        json.dumps(self.store.get(bpid)))
+                    self.store.delete_user(bpid)
+                    self.favorites.discard(bpid)
+                    _save_favorites(self.favorites)
+                    self._populate_picker()
                 self._hidx -= 1
                 snap = self._hist[self._hidx]
                 if not self._snap_alive(snap):
@@ -1721,7 +1739,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.favorites.add(pid)
         _save_favorites(self.favorites)
         self.profile_popover.popdown()
-        self._load_profile(pid)              # switch to the new copy to edit it
+        self._load_profile(pid, born=True)   # a birth: undo removes it
 
     def _unique_name(self, base):
         """First of `base`, `base 2`, ... not taken by an existing profile."""
@@ -1862,7 +1880,7 @@ class EqWindow(Adw.ApplicationWindow):
             pid = self.store.save_user(body)
             self.favorites.add(pid)
             _save_favorites(self.favorites)
-            self._load_profile(pid)
+            self._load_profile(pid, born=True)
         dialog.open(self, None, done)
 
     def _export_current(self):
