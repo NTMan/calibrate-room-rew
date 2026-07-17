@@ -12,6 +12,7 @@ FMIN, FMAX = 20.0, 20000.0   # audible range: FR plot grid + headroom curve scan
 CONFIG_DIR        = os.path.expanduser("~/.config/per-device-eq")
 USER_PROFILES_DIR = os.path.join(CONFIG_DIR, "profiles")
 BINDINGS_FILE     = os.path.join(CONFIG_DIR, "bindings.json")
+UI_STATE_FILE     = os.path.join(CONFIG_DIR, "ui-state.json")
 LEGACY_CONFIG     = os.path.join(CONFIG_DIR, "config.json")
 
 # Data root: the directory that holds wireplumber/, data/ and profiles/ as

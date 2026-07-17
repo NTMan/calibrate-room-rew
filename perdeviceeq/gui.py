@@ -36,12 +36,12 @@ import json, math, os, sys, threading
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Gio, GLib, Gdk, Adw
+from gi.repository import Gtk, Gio, GLib, Gdk, Adw, Pango
 
 from . import config, eq, pipewire, integration
-from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE,
+from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE, UI_STATE_FILE,
                      UI_FILE_CANDIDATES)
-from .peq_view import PeqView
+from .peq_view import CollapsibleCard, PeqView
 from .preferences import PreferenceLayers
 from .profiles import ProfileStore, editor_body
 
@@ -65,6 +65,26 @@ def _fmt_hz(f):
     if f >= 1000:
         return "%gk" % round(f / 1000.0, 1)
     return "%g" % round(f, 1)
+
+
+def _load_ui_state():
+    try:
+        with open(UI_STATE_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_ui_state(d):
+    try:
+        os.makedirs(os.path.dirname(UI_STATE_FILE), exist_ok=True)
+        tmp = UI_STATE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(d, f, indent=2)
+        os.replace(tmp, UI_STATE_FILE)
+    except OSError:
+        pass
 
 
 def _load_favorites():
@@ -154,13 +174,6 @@ class EqWindow(Adw.ApplicationWindow):
         self.header_bar = b.get_object("header_bar")
         self.window_title = b.get_object("window_title")
         self.profile_button = b.get_object("profile_button")
-        exp = Gtk.Button()
-        exp.set_valign(Gtk.Align.CENTER)
-        exp.set_icon_name("document-save-symbolic")
-        exp.add_css_class("flat")
-        exp.set_tooltip_text("Export this profile to a file to share")
-        exp.connect("clicked", lambda *_: self._export_current())
-        b.get_object("profile_row").add_suffix(exp)
         self.profile_popover = b.get_object("profile_popover")
         self.taste_row = b.get_object("taste_row")
         self.search_entry = b.get_object("search_entry")
@@ -170,9 +183,39 @@ class EqWindow(Adw.ApplicationWindow):
         self.sep_switch = b.get_object("sep_switch")
         self.channel_row = b.get_object("channel_row")
         self.preamp_row = b.get_object("preamp_row")
-        self.bypass_row = b.get_object("bypass_row")
+        self.bypass_row = Gtk.ToggleButton(label="Bypass")
+        self.bypass_row.set_tooltip_text(
+            "Hear the device raw: profile and taste muted")
         self.channel_bar = b.get_object("channel_bar")
         self.bands_group = b.get_object("bands_group")
+
+        # ---- the device card (Next #2): picker + trust in the
+        # header, the editor collapsing underneath ------------------
+        self._ui_state = _load_ui_state()
+        self.device_card = CollapsibleCard(
+            expanded=bool(self._ui_state.get("device_card", False)),
+            on_toggled=self._on_device_card_toggled)
+        self.device_card.add_header(self.profile_button)
+        exp = Gtk.Button()
+        exp.set_valign(Gtk.Align.CENTER)
+        exp.set_icon_name("document-save-symbolic")
+        exp.add_css_class("flat")
+        exp.set_tooltip_text("Export this profile to a file to share")
+        exp.connect("clicked", lambda *_: self._export_current())
+        self.device_card.add_header(exp)
+        self.device_hdr = Gtk.Label(xalign=0.0)
+        self.device_hdr.add_css_class("dim-label")
+        self.device_hdr.add_css_class("caption")
+        self.device_hdr.set_ellipsize(Pango.EllipsizeMode.END)
+        self.device_card.add_header(self.device_hdr, expand=True)
+        card_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                            spacing=12)
+        for side in ("start", "end", "bottom"):
+            getattr(card_body, "set_margin_" + side)(12)
+        card_body.append(self.channel_row)
+        card_body.append(self.bands_group)
+        self.device_card.set_body(card_body)
+        b.get_object("device_card_slot").append(self.device_card)
 
         self._install_css()
         self._build_header_buttons()
@@ -220,6 +263,7 @@ class EqWindow(Adw.ApplicationWindow):
         gear.set_tooltip_text("Settings: preference EQ layers")
         gear.connect("clicked", lambda *_: self._open_settings())
         self.header_bar.pack_end(gear)
+        self.header_bar.pack_end(self.bypass_row)
         self.taste_row.connect("notify::selected",
                                self._on_taste_selected)
         self._tame_scroll(self.taste_row)
@@ -282,6 +326,10 @@ class EqWindow(Adw.ApplicationWindow):
         wrap.append(self.trust_bar)
         self.bands_group.add(wrap)
 
+    def _on_device_card_toggled(self, expanded):
+        self._ui_state["device_card"] = bool(expanded)
+        _save_ui_state(self._ui_state)
+
     def _on_meas_toggle(self, btn):
         self.show_meas = btn.get_active()
         self._sync_view_curves()
@@ -334,6 +382,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.trust_bar.set_visible(bool(has))
         if not has:
             self._canvas = None
+            self.device_hdr.set_text("")
             self._sync_view_curves()
             return
         from . import refit, trust      # heavy deps stay lazy
@@ -408,6 +457,10 @@ class EqWindow(Adw.ApplicationWindow):
         self.refit_btn.set_sensitive(
             not cache["err"] and bool(fit or ids)
             and self._editable(self.current_pid))
+        bits = [self.trust_label.get_text(),
+                self.fit_state_label.get_text()]
+        self.device_hdr.set_text(
+            " \u00b7 ".join(x for x in bits if x))
         self._sync_view_curves()
 
     def _on_refit(self, *_):

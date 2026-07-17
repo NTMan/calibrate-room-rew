@@ -492,3 +492,72 @@ class PeqView(Gtk.Box):
                               adj.get_upper() - adj.get_page_size()))
                 adj.set_value(new)
         return True
+
+
+class CollapsibleCard(Gtk.Box):
+    """The notification pattern GNOME Shell draws by hand, in GTK
+    parts: a .card whose clickable header row (rotating chevron on
+    the right) sits over a Gtk.Revealer body with a slide-down
+    transition. Header children that consume clicks (buttons, menu
+    buttons) keep them; a click anywhere else on the row toggles.
+    on_toggled(expanded) fires after every user toggle, so the
+    owner can persist the state."""
+
+    def __init__(self, expanded=False, on_toggled=None):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self.add_css_class("card")
+        self._on_toggled = on_toggled
+        self._last = None
+        self._header = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        for side in ("top", "bottom"):
+            getattr(self._header, "set_margin_" + side)(8)
+        for side in ("start", "end"):
+            getattr(self._header, "set_margin_" + side)(12)
+        self._chevron = Gtk.Image.new_from_icon_name(
+            "pan-down-symbolic")
+        self._chevron.set_valign(Gtk.Align.CENTER)
+        self._header.append(self._chevron)
+        click = Gtk.GestureClick()
+        click.set_button(1)
+        click.connect("released", self._on_header_click)
+        self._header.add_controller(click)
+        self._rev = Gtk.Revealer()
+        self._rev.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self._rev.set_transition_duration(200)
+        self._rev.set_reveal_child(bool(expanded))
+        self.append(self._header)
+        self.append(self._rev)
+        self._sync_chevron()
+
+    def add_header(self, w, expand=False):
+        """Insert a header widget before the chevron, in call
+        order."""
+        if expand:
+            w.set_hexpand(True)
+        if self._last is None:
+            self._header.prepend(w)
+        else:
+            self._header.insert_child_after(w, self._last)
+        self._last = w
+
+    def set_body(self, w):
+        self._rev.set_child(w)
+
+    def get_expanded(self):
+        return self._rev.get_reveal_child()
+
+    def set_expanded(self, v):
+        self._rev.set_reveal_child(bool(v))
+        self._sync_chevron()
+
+    def _sync_chevron(self):
+        self._chevron.set_from_icon_name(
+            "pan-up-symbolic" if self.get_expanded()
+            else "pan-down-symbolic")
+
+    def _on_header_click(self, *_):
+        self.set_expanded(not self.get_expanded())
+        if self._on_toggled:
+            self._on_toggled(self.get_expanded())

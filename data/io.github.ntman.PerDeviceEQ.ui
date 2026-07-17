@@ -13,6 +13,51 @@
   <requires lib="libadwaita" version="1.0"/>
 
   <!-- profile picker (Weather-style): empty query = favorites, typing = catalog -->
+
+  <object class="GtkMenuButton" id="profile_button">
+    <property name="valign">center</property>
+    <property name="popover">profile_popover</property>
+    <property name="always-show-arrow">true</property>
+    <property name="label" translatable="yes">Profile</property>
+  </object>
+
+
+                  <object class="GtkBox" id="channel_row">
+                    <property name="visible">false</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkBox" id="channel_bar">
+                        <style>
+                          <class name="linked"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="hexpand">true</property>
+                        <property name="halign">end</property>
+                        <property name="spacing">8</property>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label" translatable="yes">Separate channels</property>
+                            <style>
+                              <class name="dim-label"/>
+                            </style>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkSwitch" id="sep_switch">
+                            <property name="valign">center</property>
+                            <property name="tooltip-text" translatable="yes">Tune each channel with its own EQ curve; the preamp stays shared</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                  </object>
+
+  <object class="AdwPreferencesGroup" id="bands_group">
+    <property name="title" translatable="yes">Bands</property>
+  </object>
   <object class="GtkPopover" id="profile_popover">
     <property name="width-request">340</property>
     <child>
@@ -112,7 +157,7 @@
                 <property name="orientation">vertical</property>
                 <property name="spacing">18</property>
 
-                <!-- profile (subordinate to the device) -->
+                <!-- taste (temporary row; its card lands next) -->
                 <child>
                   <object class="AdwPreferencesGroup">
                     <child>
@@ -121,73 +166,14 @@
                         <property name="subtitle" translatable="yes">Preference EQ on top of any profile</property>
                       </object>
                     </child>
-                    <child>
-                      <object class="AdwActionRow" id="profile_row">
-                        <property name="title" translatable="yes">Profile</property>
-                        <property name="subtitle" translatable="yes">EQ preset for this device</property>
-                        <property name="activatable-widget">profile_button</property>
-                        <child type="suffix">
-                          <object class="GtkMenuButton" id="profile_button">
-                            <property name="valign">center</property>
-                            <property name="popover">profile_popover</property>
-                            <property name="always-show-arrow">true</property>
-                            <property name="label" translatable="yes">Profile</property>
-                          </object>
-                        </child>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="AdwSwitchRow" id="bypass_row">
-                        <property name="title" translatable="yes">Bypass</property>
-                        <property name="subtitle" translatable="yes">Temporarily disable this profile for the device</property>
-                      </object>
-                    </child>
                   </object>
                 </child>
 
-                <!-- channel tabs ([All] or FL | FR | ...; built in code) with
-                     the link toggle inlined at the end of the same row -->
+                <!-- the device card: profile picker + trust in the
+                     header, the collapsible editor underneath; the
+                     card itself is built in code -->
                 <child>
-                  <object class="GtkBox" id="channel_row">
-                    <property name="visible">false</property>
-                    <property name="spacing">12</property>
-                    <child>
-                      <object class="GtkBox" id="channel_bar">
-                        <style>
-                          <class name="linked"/>
-                        </style>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkBox">
-                        <property name="hexpand">true</property>
-                        <property name="halign">end</property>
-                        <property name="spacing">8</property>
-                        <child>
-                          <object class="GtkLabel">
-                            <property name="label" translatable="yes">Separate channels</property>
-                            <style>
-                              <class name="dim-label"/>
-                            </style>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="GtkSwitch" id="sep_switch">
-                            <property name="valign">center</property>
-                            <property name="tooltip-text" translatable="yes">Tune each channel with its own EQ curve; the preamp stays shared</property>
-                          </object>
-                        </child>
-                      </object>
-                    </child>
-                  </object>
-                </child>
-
-                <!-- the equalizer: one PeqView (graph + band
-                     table), built in code and shared with Taste -->
-                <child>
-                  <object class="AdwPreferencesGroup" id="bands_group">
-                    <property name="title" translatable="yes">Bands</property>
-                  </object>
+                  <object class="GtkBox" id="device_card_slot"/>
                 </child>
 
                 <!-- preamp closes the section: a shared gain, not a band -->
