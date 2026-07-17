@@ -175,6 +175,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._auto_syncing = False
         self._clamped_note = None
         self._graveyard = {}        # deleted profiles, session-kept
+        self._pending_sel = None    # a mid-history switch, deferred
 
         b = Gtk.Builder.new_from_file(_ui_path())
         self.set_content(b.get_object("content"))
@@ -1039,11 +1040,18 @@ class EqWindow(Adw.ApplicationWindow):
             self._hist = [self._snapshot()]
             self._hidx = 0
         elif not self._restoring:
-            # a freshly created profile (clone, import) is a real
-            # step -- undo deletes it into the graveyard; a plain
-            # switch stays a silent selection baseline
-            self._push_history(sel=not born,
-                               born=(pid if born else None))
+            # A freshly created profile (clone, import) is a real
+            # step: undo deletes it into the graveyard. A plain
+            # switch is a selection baseline -- pushed at the tip,
+            # but DEFERRED when we stand mid-history, so a mere
+            # selection cannot destroy the redo branch; the next
+            # real edit materializes it (and truncates rightfully).
+            if born:
+                self._push_history(born=pid)
+            elif self._hidx < len(self._hist) - 1:
+                self._pending_sel = self._snapshot()
+            else:
+                self._push_history(sel=True)
         self._update_undo_buttons()
         if apply:
             self._apply_now()
@@ -1209,10 +1217,12 @@ class EqWindow(Adw.ApplicationWindow):
 
     def _push_history(self, sel=False, born=None):
         """Append a snapshot, dropping any redo tail (cap
-        _HISTORY_CAP). sel=True marks a selection baseline: undo and
-        redo restore it in passing but never stop on it. born=pid
+        _HISTORY_CAP). sel=True marks a selection baseline (a state
+        between edits, never an undo step of its own); born=pid
         marks a profile birth: undo, leaving that entry, buries the
-        profile. Dedup compares content without the marks."""
+        profile. A real push first materializes a deferred
+        mid-history switch, so the edit's pre-state is on record.
+        Dedup compares content without the marks."""
         snap = self._snapshot()
         if sel:
             snap["sel"] = True
@@ -1224,6 +1234,14 @@ class EqWindow(Adw.ApplicationWindow):
         def _bare(d):
             return {k: v for k, v in d.items()
                     if k not in ("sel", "born")}
+        pend = self._pending_sel
+        self._pending_sel = None
+        if pend is not None and not sel:
+            pend = dict(pend)
+            pend["sel"] = True
+            if _bare(self._hist[self._hidx]) != _bare(pend):
+                self._hist.append(pend)
+                self._hidx = len(self._hist) - 1
         if not self._hist or _bare(self._hist[self._hidx]) \
                 != _bare(snap):
             self._hist.append(snap)
@@ -1239,11 +1257,13 @@ class EqWindow(Adw.ApplicationWindow):
                 or pid in self._graveyard)
 
     def _undo(self, *_):
-        """Step back to the previous EDIT: selection baselines are
-        restored in passing (their files revert on the way), dead
-        profiles' entries are skipped."""
+        """ONE step back: restore the previous live entry, sel or
+        not -- undoing an edit lands its pre-state and STAYS on
+        that profile; only dead entries are skipped. A deferred
+        switch is abandoned: undo navigates the recorded branch."""
         if self._hidx <= 0:
             return
+        self._pending_sel = None
         self._restoring = True
         try:
             while self._hidx > 0:
@@ -1262,17 +1282,16 @@ class EqWindow(Adw.ApplicationWindow):
                 if not self._snap_alive(snap):
                     continue
                 self._restore(snap)
-                if not snap.get("sel"):
-                    break
+                break
         finally:
             self._restoring = False
         self._update_undo_buttons()
 
     def _redo(self, *_):
-        """Step forward to the next EDIT, re-landing selection
-        baselines in passing."""
+        """ONE step forward, skipping only dead entries."""
         if self._hidx >= len(self._hist) - 1:
             return
+        self._pending_sel = None
         self._restoring = True
         try:
             while self._hidx < len(self._hist) - 1:
@@ -1281,8 +1300,7 @@ class EqWindow(Adw.ApplicationWindow):
                 if not self._snap_alive(snap):
                     continue
                 self._restore(snap)
-                if not snap.get("sel"):
-                    break
+                break
         finally:
             self._restoring = False
         self._update_undo_buttons()
