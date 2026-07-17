@@ -61,6 +61,26 @@ def install_hook():
     conf_changed = _write_if_changed(WP_CONF, HOOK_CONF)
     return lua_changed or conf_changed
 
+def hook_installed():
+    """Both halves on disk: the question the GUI asks at startup."""
+    return os.path.exists(WP_SCRIPT) and os.path.exists(WP_CONF)
+
+
+def uninstall_hook():
+    """Remove the hook script and the component config; True when
+    anything was removed. The hook's saved-state directory stays:
+    it is the user's data, not ours to erase."""
+    removed = False
+    for p in (WP_SCRIPT, WP_CONF):
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+                removed = True
+        except OSError:
+            pass
+    return removed
+
+
 def restart_wireplumber():
     return _run(["systemctl", "--user", "restart", "wireplumber"]).returncode == 0
 

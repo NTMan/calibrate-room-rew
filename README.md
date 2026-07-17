@@ -61,8 +61,9 @@ sudo dnf install per-device-eq
 This installs the `per-device-eq` launcher, the WirePlumber hook (under
 `/usr/share/per-device-eq/`), and the desktop entry + icon. Start it from
 your application menu as **Per-Device EQ**, or run `per-device-eq`. On first
-launch the app copies its WirePlumber hook into your user session and
-restarts WirePlumber once; after that the EQ is restored automatically on
+launch the app asks to install its WirePlumber hook into your user
+session (restarting WirePlumber once); remove everything later with
+`per-device-eq --uninstall`. After that the EQ is restored automatically on
 every reboot and reconnect.
 
 ### Run from source
@@ -82,7 +83,7 @@ To also get a menu/dock entry while running from source (reversible, writes
 only under `~/.local/share`):
 
 ```
-./per-device-eq.py --install-desktop
+./per-device-eq.py --install-desktop     # desktop entry only
 ./per-device-eq.py --uninstall-desktop
 ```
 
@@ -181,7 +182,8 @@ cannot clip behind the meter's back.
 ./per-device-eq.py --list-profiles   # list profiles and their device bindings
 ./per-device-eq.py --inspect NAME    # dump a sink's params (node.name)
 ./per-device-eq.py --apply           # apply each bound profile to its sink now
-./per-device-eq.py --install-hook    # (re)install the WirePlumber hook + config
+./per-device-eq.py --install         # install the hook + desktop integration
+./per-device-eq.py --uninstall       # remove the hook + desktop integration
 ```
 
 ## Files

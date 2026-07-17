@@ -700,6 +700,50 @@ class EqWindow(Adw.ApplicationWindow):
         row.append(pair)
         self._device_body.insert_child_after(row, self.channel_row)
 
+    def _ask_integration(self):
+        """The hook is what keeps the EQ across reboots and
+        reconnects. A portable run without it used to install
+        silently; now it ASKS -- No quits (the app cannot keep its
+        promise of persistence), Yes installs and says how to
+        uninstall."""
+        if integration.hook_installed():
+            return False
+        dlg = Adw.AlertDialog(
+            heading="Install system integration?",
+            body="per-device-eq keeps your EQ across reboots and "
+                 "reconnects through a small WirePlumber hook in "
+                 "your user session (two files under ~/.local and "
+                 "~/.config). Install it now?")
+        dlg.add_response("no", "Quit")
+        dlg.add_response("yes", "Install")
+        dlg.set_response_appearance("yes",
+                                    Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("yes")
+        dlg.set_close_response("no")
+
+        def done(_d, resp):
+            if resp != "yes":
+                self.get_application().quit()
+                return
+            try:
+                if integration.install_hook():
+                    integration.restart_wireplumber()
+            except FileNotFoundError as e:
+                err = Adw.AlertDialog(heading="Install failed",
+                                      body=str(e))
+                err.add_response("ok", "OK")
+                err.present(self)
+                return
+            info = Adw.AlertDialog(
+                heading="Integration installed",
+                body="To remove it later, run:\n"
+                     "per-device-eq.py --uninstall")
+            info.add_response("ok", "OK")
+            info.present(self)
+        dlg.connect("response", done)
+        dlg.present(self)
+        return False
+
     def _on_autofit_toggled(self, btn):
         """Pressing Auto returns the scientific correction: a
         re-fit from the stored takes (hand edits ask first).
@@ -2242,9 +2286,12 @@ class EqApplication(Adw.Application):
         self.win = None
 
     def do_activate(self):
-        """Present the (single) main window."""
+        """Present the (single) main window; on a portable first
+        run, ask about the system integration before anything
+        else."""
         if self.win is None:
             self.win = EqWindow(self)
+            GLib.idle_add(self.win._ask_integration)
         self.win.present()
 
 

@@ -63,8 +63,10 @@ sudo dnf install per-device-eq
 Ставятся лаунчер `per-device-eq`, хук WirePlumber (в
 `/usr/share/per-device-eq/`) и desktop-запись с иконкой. Запускайте из меню
 приложений как **Per-Device EQ** или командой `per-device-eq`. При первом
-запуске приложение копирует хук в вашу пользовательскую сессию и один раз
-перезапускает WirePlumber; дальше эквалайзер восстанавливается сам при
+запуске приложение спрашивает разрешение поставить хук WirePlumber в
+вашу пользовательскую сессию (с одним перезапуском WirePlumber);
+убрать всё позже можно командой `per-device-eq --uninstall`.
+Дальше эквалайзер восстанавливается сам при
 каждой перезагрузке и переподключении.
 
 ### Запуск из исходников
@@ -84,7 +86,7 @@ chmod +x per-device-eq.py
 только в `~/.local/share`):
 
 ```
-./per-device-eq.py --install-desktop
+./per-device-eq.py --install-desktop     # только пункт меню
 ./per-device-eq.py --uninstall-desktop
 ```
 
@@ -185,7 +187,8 @@ USB-микрофон для колонок, плюс его калибровоч
 ./per-device-eq.py --list-profiles   # профили и их привязки к устройствам
 ./per-device-eq.py --inspect NAME    # параметры синка (node.name)
 ./per-device-eq.py --apply           # применить привязанные профили сейчас
-./per-device-eq.py --install-hook    # (пере)установить хук WirePlumber
+./per-device-eq.py --install         # поставить хук + десктоп-интеграцию
+./per-device-eq.py --uninstall       # убрать хук + десктоп-интеграцию
 ```
 
 ## Файлы
