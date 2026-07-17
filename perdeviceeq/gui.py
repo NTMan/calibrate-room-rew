@@ -39,7 +39,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Gio, GLib, Gdk, Adw
 
 from . import config, eq, pipewire, integration
-from .config import (APP_ID, TYPE_NAMES, CLEAN_ID, FAVORITES_FILE,
+from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE,
                      UI_FILE_CANDIDATES)
 from .peq_view import PeqView
 from .preferences import PreferenceLayers
@@ -65,13 +65,6 @@ def _fmt_hz(f):
     if f >= 1000:
         return "%gk" % round(f / 1000.0, 1)
     return "%g" % round(f, 1)
-
-
-def _log_freqs(n=240):
-    """n log-spaced frequencies over FMIN..FMAX for plotting the response."""
-    import math
-    a, b = math.log10(FMIN), math.log10(FMAX)
-    return [10 ** (a + (b - a) * i / (n - 1)) for i in range(n)]
 
 
 def _load_favorites():
@@ -179,7 +172,6 @@ class EqWindow(Adw.ApplicationWindow):
         self.preamp_row = b.get_object("preamp_row")
         self.bypass_row = b.get_object("bypass_row")
         self.channel_bar = b.get_object("channel_bar")
-        self.graph_frame = b.get_object("graph_frame")
         self.bands_group = b.get_object("bands_group")
 
         self._install_css()
@@ -235,21 +227,10 @@ class EqWindow(Adw.ApplicationWindow):
 
     def _build_graph(self):
         """Create the response plot (DrawingArea) with drag + right-click gestures."""
-        self.graph_area = Gtk.DrawingArea()
-        self.graph_area.set_content_height(240)
-        self.graph_area.set_hexpand(True)
-        self.graph_area.set_draw_func(self._draw_graph)
-        self._plot = None
-        self._drag_band = None
-        drag = Gtk.GestureDrag()
-        drag.connect("drag-begin", self._on_drag_begin)
-        drag.connect("drag-update", self._on_drag_update)
-        drag.connect("drag-end", self._on_drag_end)
-        self.graph_area.add_controller(drag)
-        rclick = Gtk.GestureClick()
-        rclick.set_button(3)
-        rclick.connect("pressed", self._on_right_click)
-        self.graph_area.add_controller(rclick)
+        # The one EQ editor -- graph over band table, shared with
+        # the taste layers. Edits return through _on_view_changed.
+        self.view = PeqView(self._on_view_changed)
+        self.view.graph.set_content_height(240)
 
         self._canvas = None          # measurement overlay cache
         self.show_meas = True
@@ -292,18 +273,39 @@ class EqWindow(Adw.ApplicationWindow):
         self.fit_overlay.append(self.fit_bar)
         self.fit_overlay.set_visible(False)
         over = Gtk.Overlay()
-        over.set_child(self.graph_area)
+        over.set_child(self.view)
         over.add_overlay(self.fit_overlay)
         self._fitting = False
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                        spacing=4)
         wrap.append(over)
         wrap.append(self.trust_bar)
-        self.graph_frame.set_child(wrap)
+        self.bands_group.add(wrap)
 
     def _on_meas_toggle(self, btn):
         self.show_meas = btn.get_active()
-        self.graph_area.queue_draw()
+        self._sync_view_curves()
+
+    def _sync_view_curves(self):
+        """Push the measurement overlay (or its absence) into the
+        editor: the view renders what it is handed, never fetches."""
+        ov = self._overlay_curve()
+        if ov is None:
+            self.view.set_curves(None, None)
+        else:
+            f, meas, spread, band = ov
+            self.view.set_curves(f, meas, spread, band)
+
+    def _on_view_changed(self, bands, final):
+        """The editor reports an edit of the shown slot: land it in
+        the slot IN PLACE (the alias and the slot share the list)
+        and run the classic pipeline -- fork built-ins, live apply,
+        headroom, debounced save with undo history."""
+        if self._loading:
+            return
+        self._ensure_audible()
+        self.bands[:] = [eq.Band.from_dict(b) for b in bands]
+        self._on_edit()
 
     def _overlay_curve(self):
         """(freqs, measured, spread, trust_band) for the slot on
@@ -332,7 +334,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.trust_bar.set_visible(bool(has))
         if not has:
             self._canvas = None
-            self.graph_area.queue_draw()
+            self._sync_view_curves()
             return
         from . import refit, trust      # heavy deps stay lazy
         fit = p.get("fit") or {}
@@ -406,7 +408,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.refit_btn.set_sensitive(
             not cache["err"] and bool(fit or ids)
             and self._editable(self.current_pid))
-        self.graph_area.queue_draw()
+        self._sync_view_curves()
 
     def _on_refit(self, *_):
         """Re-fit the profile from its own canvas; hand edits ask."""
@@ -445,7 +447,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.fit_bar.set_fraction(0.0)
         self.fit_bar.set_text("Fitting\u2026")
         self.fit_overlay.set_visible(True)
-        self.graph_area.set_sensitive(False)
+        self.view.set_sensitive(False)
         self.refit_btn.set_sensitive(False)
         res = {}
 
@@ -460,7 +462,7 @@ class EqWindow(Adw.ApplicationWindow):
         def done():
             self._fitting = False
             self.fit_overlay.set_visible(False)
-            self.graph_area.set_sensitive(True)
+            self.view.set_sensitive(True)
             self.refit_btn.set_sensitive(True)
             if res.get("err") is not None:
                 dlg = Adw.AlertDialog(
@@ -489,138 +491,12 @@ class EqWindow(Adw.ApplicationWindow):
         threading.Thread(target=work, daemon=True).start()
 
     # ---- graph geometry / interaction (drag band handles) ------------------
-    def _x_of(self, f):
-        """Map a frequency in Hz to a plot x pixel."""
-        ml, mt, pw_, ph = self._plot
-        return ml + (math.log10(f) - math.log10(FMIN)) / \
-            (math.log10(FMAX) - math.log10(FMIN)) * pw_
-
-    def _y_window(self):
-        """The plot's dB window follows the preamp, so the drawn
-        response (preamp + bands) stays centered instead of clipping
-        at a fixed +-24 edge; the gridline labels stay absolute. A
-        visible measurement overlay widens the window so its fan
-        stays on the plot."""
-        p = float(self.preamp or 0.0)
-        lo, hi = -DB_MAX + p, DB_MAX + p
-        c = getattr(self, "_canvas", None)
-        if c and self.show_meas and c.get("ylo") is not None:
-            lo = min(lo, c["ylo"])
-            hi = max(hi, c["yhi"])
-        return lo, hi
-
-    def _y_of(self, db):
-        """Map a dB value to a plot y pixel."""
-        ml, mt, pw_, ph = self._plot
-        lo, hi = self._y_window()
-        return mt + (hi - db) / (hi - lo) * ph
-
-    def _f_of(self, x):
-        """Inverse of _x_of: plot x pixel back to frequency (clamped)."""
-        ml, mt, pw_, ph = self._plot
-        if pw_ <= 0:
-            return None
-        t = min(1.0, max(0.0, (x - ml) / pw_))
-        return 10 ** (math.log10(FMIN) + t * (math.log10(FMAX) - math.log10(FMIN)))
-
-    def _db_of(self, y):
-        """Inverse of _y_of: plot y pixel back to dB (clamped)."""
-        ml, mt, pw_, ph = self._plot
-        if ph <= 0:
-            return None
-        lo, hi = self._y_window()
-        t = min(1.0, max(0.0, (y - mt) / ph))
-        return hi - t * (hi - lo)
-
-    @staticmethod
-    def _hsv(h, s, v):
-        """Tiny HSV->RGB helper for band colors."""
-        i = int(h * 6.0); f = h * 6.0 - i
-        p, q, t = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
-        return [(v, t, p), (q, v, p), (p, v, t),
-                (p, q, v), (t, p, v), (v, p, q)][i % 6]
-
-    def _band_color(self, f):
-        """Rainbow color for a band by log frequency (blue=low .. red=high)."""
-        lf = math.log10(min(FMAX, max(FMIN, f)))
-        t = (lf - math.log10(FMIN)) / (math.log10(FMAX) - math.log10(FMIN))
-        return self._hsv((1.0 - t) * 0.66, 0.65, 1.0)
-
-    def _hit_band(self, x, y, r=11):
-        """The band whose handle covers (x, y), or None (11 px hit radius)."""
-        if not self._plot:
-            return None
-        best, bestd = None, r * r
-        for b in self.bands:
-            bx = self._x_of(max(b.freq, FMIN))  # freq-0 trim: left edge
-            wlo, whi = self._y_window()
-            by = self._y_of(max(wlo, min(whi, b.gain)))
-            d = (bx - x) ** 2 + (by - y) ** 2
-            if d <= bestd:
-                best, bestd = b, d
-        return best
-
     def _ensure_audible(self):
         """Drop Bypass so a graph edit is heard immediately."""
         if self.bypass_row.get_active():
             self._loading = True
             self.bypass_row.set_active(False)
             self._loading = False
-
-    def _on_drag_begin(self, gesture, sx, sy):
-        """Grab the band handle under the pointer, or create a band on empty plot."""
-        self._drag_band = None
-        if not self._plot:
-            return
-        b = self._hit_band(sx, sy)
-        created = False
-        if b is None:                       # empty spot -> create a band there
-            f = self._f_of(sx); db = self._db_of(sy)
-            if f is None or db is None:
-                return
-            b = eq.Band("PK", f, db, 1.0, True)
-            self.bands.append(b)
-            created = True
-        self._ensure_audible()
-        self._drag_band = b
-        if created:
-            self._rebuild_bands()
-            self._on_edit()
-        self.graph_area.queue_draw()
-
-    def _on_drag_update(self, gesture, ox, oy):
-        """Move the dragged band with the pointer (freq/gain), applying live."""
-        if self._drag_band is None or not self._plot:
-            return
-        ok, sx, sy = gesture.get_start_point()
-        if not ok:
-            return
-        f = self._f_of(sx + ox); db = self._db_of(sy + oy)
-        if f is not None and self._drag_band.freq >= FMIN:
-            # a sub-plot band (the freq-0 balance trim) keeps its
-            # frequency under drag -- the plot cannot express it and a
-            # vertical gain drag must not retune it to 20 Hz
-            self._drag_band.freq = f
-        if db is not None:
-            self._drag_band.gain = db
-        self.graph_area.queue_draw()
-        self._on_edit()                     # live apply (debounced); no row rebuild
-
-    def _on_drag_end(self, gesture, ox, oy):
-        """Finish a drag: rebuild the (sorted) table and settle the save."""
-        if self._drag_band is None:
-            return
-        self._drag_band = None
-        self._rebuild_bands()               # sync the table to the new freq/gain
-        self._on_edit()
-
-    def _on_right_click(self, gesture, n, x, y):
-        """Remove the band nearest to a right click (within hit radius)."""
-        b = self._hit_band(x, y)
-        if b is not None and b in self.bands:
-            self.bands.remove(b)
-            self._rebuild_bands()
-            self._on_edit()
 
     def _build_preamp(self):
         """Put the preamp SpinButton and the Auto button onto preamp_row."""
@@ -698,10 +574,6 @@ class EqWindow(Adw.ApplicationWindow):
         clear_btn.add_css_class("flat")
         clear_btn.set_tooltip_text("Remove all bands shown here")
         clear_btn.connect("clicked", self._on_clear_bands)
-        add_btn = Gtk.Button.new_from_icon_name("list-add-symbolic")
-        add_btn.add_css_class("flat")
-        add_btn.set_tooltip_text("Add band")
-        add_btn.connect("clicked", self._on_add_band)
         imp_content = Adw.ButtonContent(icon_name="document-open-symbolic",
                                         label="Import EQ text")
         imp_btn = Gtk.Button(child=imp_content)
@@ -709,15 +581,7 @@ class EqWindow(Adw.ApplicationWindow):
         imp_btn.connect("clicked", lambda *_: self._import_rew())
         suffix.append(clear_btn)
         suffix.append(imp_btn)
-        suffix.append(add_btn)
         self.bands_group.set_header_suffix(suffix)
-
-        self.bands_grid = Gtk.Grid(column_spacing=10, row_spacing=4)
-        self.bands_grid.add_css_class("eqrow")
-        self.bands_grid.set_hexpand(True)
-        self.bands_grid.set_margin_top(6)
-        self.bands_grid.set_margin_bottom(6)
-        self.bands_group.add(self.bands_grid)
 
     def _wire_picker_actions(self, b):
         """The picker's actions live beside the search entry now --
@@ -893,8 +757,9 @@ class EqWindow(Adw.ApplicationWindow):
             self.bands_group.set_title("Bands" if self.apply_all
                                        else "Bands · %s" % ch)
             self.preamp_spin.set_value(self.preamp)
-            self._rebuild_bands()
-            self.graph_area.queue_draw()
+            self.view.set_bands([b.to_dict() for b in self.bands])
+            self.view.set_preamp(self.preamp)
+            self._sync_view_curves()
             self._update_headroom()
         finally:
             self._loading = prev
@@ -1062,7 +927,7 @@ class EqWindow(Adw.ApplicationWindow):
         if self._loading:
             return
         self._ensure_editable()
-        self.graph_area.queue_draw()
+        self.view.graph.queue_draw()
         # any edit starts a new measurement era: peak, percentages and
         # the latch all belonged to the old chain
         self._sess_peak = None
@@ -1191,148 +1056,18 @@ class EqWindow(Adw.ApplicationWindow):
         self.redo_btn.set_sensitive(self._hidx < len(self._hist) - 1)
 
     # ---- band table --------------------------------------------------------
-    def _rebuild_bands(self):
-        """Rebuild the band table as a freq-sorted view of self.bands."""
-        self._clear_box(self.bands_grid)
-        headers = ["", "Type", "Freq (Hz)", "Gain (dB)", "Q", "On", ""]
-        for col, text in enumerate(headers):
-            lbl = Gtk.Label(label=text, xalign=0.0)
-            lbl.add_css_class("dim-label")
-            lbl.add_css_class("caption")
-            self.bands_grid.attach(lbl, col, 0, 1, 1)
-        # The table is a freq-sorted VIEW; self.bands keeps its own order
-        # (data order does not matter to the graph or the saved profile).
-        self._row_bands = sorted(self.bands, key=lambda b: b.freq)
-        for i, bnd in enumerate(self._row_bands):
-            self._attach_band_row(i, bnd)
-
-    def _maybe_resort(self):
-        """Rebuild the table only if the sorted order actually changed;
-        called on focus leaving a Freq field so rows never jump mid-typing.
-        """
-        want = sorted(self.bands, key=lambda b: b.freq)
-        if [id(b) for b in want] != [id(b) for b in getattr(self, "_row_bands", [])]:
-            self._rebuild_bands()
-        return False
-
-    def _attach_band_row(self, i, bnd):
-        """Create one table row: dot, type, freq, gain, Q, On, remove."""
-        row = i + 1
-        dot = Gtk.Label()
-        dot.set_use_markup(True)
-        dot.set_valign(Gtk.Align.CENTER)
-        dot.set_halign(Gtk.Align.CENTER)
-        dot.set_markup(self._dot_markup(bnd.freq))
-        self.bands_grid.attach(dot, 0, row, 1, 1)
-
-        type_dd = Gtk.DropDown.new_from_strings(TYPE_NAMES)
-        type_dd.set_selected(TYPE_NAMES.index(bnd.type) if bnd.type in TYPE_NAMES else 0)
-        type_dd.set_valign(Gtk.Align.CENTER)
-        type_dd.connect("notify::selected", self._make_type_cb(bnd))
-        self._tame_scroll(type_dd)
-        self.bands_grid.attach(type_dd, 1, row, 1, 1)
-
-        # lower bound 0, not FMIN: a balance-trim band sits at freq 0
-        # (flat gain, the preamp trick) and a 20-floor would clamp it on
-        # set_value and rewrite the band via value-changed at build
-        freq = Gtk.SpinButton.new_with_range(0.0, FMAX, 1.0)
-        freq.set_digits(0); freq.set_value(bnd.freq)
-        freq.set_hexpand(True); freq.set_halign(Gtk.Align.START)
-        freq.set_valign(Gtk.Align.CENTER)
-        freq.connect("value-changed", self._make_num_cb(bnd, "freq", dot))
-        ffoc = Gtk.EventControllerFocus()
-        ffoc.connect("leave", lambda *_: GLib.idle_add(self._maybe_resort))
-        freq.add_controller(ffoc)
-        self._tame_scroll(freq)
-        self.bands_grid.attach(freq, 2, row, 1, 1)
-
-        gain = Gtk.SpinButton.new_with_range(-DB_MAX, DB_MAX, 0.1)
-        gain.set_digits(1); gain.set_value(bnd.gain)
-        gain.set_hexpand(True); gain.set_halign(Gtk.Align.START)
-        gain.set_valign(Gtk.Align.CENTER)
-        gain.connect("value-changed", self._make_num_cb(bnd, "gain"))
-        self._tame_scroll(gain)
-        self.bands_grid.attach(gain, 3, row, 1, 1)
-
-        q = Gtk.SpinButton.new_with_range(0.1, 10.0, 0.01)
-        q.set_digits(2); q.set_value(bnd.q)
-        q.set_hexpand(True); q.set_halign(Gtk.Align.START)
-        q.set_valign(Gtk.Align.CENTER)
-        q.connect("value-changed", self._make_num_cb(bnd, "q"))
-        self._tame_scroll(q)
-        self.bands_grid.attach(q, 4, row, 1, 1)
-
-        on = Gtk.Switch()
-        on.set_active(bnd.enabled)
-        on.set_valign(Gtk.Align.CENTER)
-        on.set_halign(Gtk.Align.CENTER)
-        on.connect("notify::active", self._make_enable_cb(bnd))
-        self.bands_grid.attach(on, 5, row, 1, 1)
-
-        rm = Gtk.Button.new_from_icon_name("user-trash-symbolic")
-        rm.add_css_class("flat")
-        rm.set_valign(Gtk.Align.CENTER)
-        rm.set_halign(Gtk.Align.END)
-        rm.connect("clicked", self._make_remove_cb(bnd))
-        self.bands_grid.attach(rm, 6, row, 1, 1)
-
-    def _dot_markup(self, freq):
-        """Pango markup for the colored legend dot of a frequency."""
-        r, g, bl = self._band_color(freq)
-        return ("<span foreground='#%02x%02x%02x' size='large'>\u25cf</span>"
-                % (int(r * 255), int(g * 255), int(bl * 255)))
-
-    def _make_type_cb(self, bnd):
-        """Factory: apply a filter-type change from the row's DropDown."""
-        def cb(dd, _p):
-            idx = dd.get_selected()
-            if 0 <= idx < len(TYPE_NAMES):
-                bnd.type = TYPE_NAMES[idx]
-                self._on_edit()
-        return cb
-
-    def _make_num_cb(self, bnd, attr, dot=None):
-        """Factory: apply a numeric change; freq changes also recolor the dot."""
-        def cb(spin):
-            setattr(bnd, attr, float(spin.get_value()))
-            if dot is not None and attr == "freq":
-                dot.set_markup(self._dot_markup(bnd.freq))
-            self._on_edit()
-        return cb
-
-    def _make_enable_cb(self, bnd):
-        """Factory: toggle a band on/off from the row's Switch."""
-        def cb(sw, _p):
-            bnd.enabled = sw.get_active()
-            self._on_edit()
-        return cb
-
-    def _make_remove_cb(self, bnd):
-        """Factory: delete the row's band."""
-        def cb(_btn):
-            if bnd in self.bands:
-                self.bands.remove(bnd)
-                self._rebuild_bands()
-                self._on_edit()
-        return cb
-
-    def _on_add_band(self, _btn):
-        """Append a fresh 1 kHz band and re-render."""
-        self.bands.append(eq.Band("PK", 1000.0, 0.0, 1.0, True))
-        self._rebuild_bands()
-        self._on_edit()
-
     def _on_clear_bands(self, _btn):
         """Remove all bands of the shown slot (Ctrl+Z restores them)."""
         if not self.bands:
             return
         self.bands.clear()
-        self._rebuild_bands()
+        self.view.set_bands([])
         self._on_edit()
 
     def _on_preamp(self, spin):
         """Preamp spin changed: one shared value for the whole profile."""
         self.preamp = float(spin.get_value())
+        self.view.set_preamp(self.preamp)
         self._on_edit()
 
     def _auto_preamp_db(self):
@@ -1367,6 +1102,7 @@ class EqWindow(Adw.ApplicationWindow):
 
     def _on_bypass(self, *_):
         """Bypass toggled: republish the device state."""
+        self.view.set_active(not self.bypass_row.get_active())
         if not self._loading:
             self._apply_now()
         self._update_headroom()
@@ -2018,130 +1754,6 @@ class EqWindow(Adw.ApplicationWindow):
         return s.replace(" ", "_") or "profile"
 
     # ---- FR graph ----------------------------------------------------------
-    def _draw_graph(self, _area, cr, w, h, *_):
-        """Cairo draw: grid + axis labels, response curve, band handles."""
-        ml, mr, mt, mb = 44, 10, 10, 22
-        pw_, ph = max(1, w - ml - mr), max(1, h - mt - mb)
-        self._plot = (ml, mt, pw_, ph)
-        cr.set_source_rgb(0.12, 0.12, 0.14); cr.paint()
-        cr.rectangle(ml, mt, pw_, ph)
-        cr.set_source_rgb(0.08, 0.08, 0.10); cr.fill()
-
-        def x_of(f):
-            return ml + (math.log10(f) - math.log10(FMIN)) / \
-                (math.log10(FMAX) - math.log10(FMIN)) * pw_
-
-        wlo, whi = self._y_window()
-
-        def y_of(db):
-            return mt + (whi - db) / (whi - wlo) * ph
-
-        cr.set_line_width(1.0)
-        cr.select_font_face("Sans", 0, 0); cr.set_font_size(9)
-        for f in (20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000):
-            x = x_of(f)
-            cr.set_source_rgba(1, 1, 1, 0.10)
-            cr.move_to(x, mt); cr.line_to(x, mt + ph); cr.stroke()
-            cr.set_source_rgba(1, 1, 1, 0.45)
-            lab = ("%dk" % (f // 1000)) if f >= 1000 else str(f)
-            cr.move_to(x - 8, mt + ph + 14); cr.show_text(lab)
-        for db in range(int(math.ceil(wlo / 6.0)) * 6,
-                        int(math.floor(whi)) + 1, 6):
-            y = y_of(db)
-            cr.set_source_rgba(1, 1, 1, 0.16 if db == 0 else 0.08)
-            cr.move_to(ml, y); cr.line_to(ml + pw_, y); cr.stroke()
-            cr.set_source_rgba(1, 1, 1, 0.45)
-            cr.move_to(4, y + 3); cr.show_text("%+d" % db)
-
-        ov = self._overlay_curve()
-        if ov is not None:
-            fo, meas, spread, band = ov
-            cr.save()
-            cr.rectangle(ml, mt, pw_, ph)
-            cr.clip()
-            if spread is not None:
-                cr.set_source_rgba(0.55, 0.65, 0.85, 0.14)
-                for i, f in enumerate(fo):
-                    x, y = x_of(f), y_of(meas[i] + spread[i])
-                    cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
-                for i in range(len(fo) - 1, -1, -1):
-                    cr.line_to(x_of(fo[i]),
-                               y_of(meas[i] - spread[i]))
-                cr.close_path()
-                cr.fill()
-            cr.set_source_rgba(0.85, 0.85, 0.90, 0.55)
-            cr.set_line_width(1.2)
-            for i, f in enumerate(fo):
-                x, y = x_of(f), y_of(meas[i])
-                cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
-            cr.stroke()
-            resp = eq.response_db(self.preamp, self.bands, fo)
-            cr.set_source_rgba(0.45, 0.95, 0.55, 0.90)
-            cr.set_line_width(1.5)
-            for i, f in enumerate(fo):
-                x, y = x_of(f), y_of(meas[i] + resp[i])
-                cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
-            cr.stroke()
-            cr.set_source_rgba(0, 0, 0, 0.30)
-            if band is not None:
-                blo, bhi = max(band[0], FMIN), min(band[1], FMAX)
-                if blo > FMIN:
-                    cr.rectangle(ml, mt, x_of(blo) - ml, ph)
-                    cr.fill()
-                if bhi < FMAX:
-                    cr.rectangle(x_of(bhi), mt,
-                                 ml + pw_ - x_of(bhi), ph)
-                    cr.fill()
-            else:                    # nothing certified: dim it all
-                cr.rectangle(ml, mt, pw_, ph)
-                cr.fill()
-            cr.select_font_face("Sans", 0, 0)
-            cr.set_font_size(9)
-            lx, ly = ml + 10, mt + 14
-            for lab, rgba in (
-                    ("measured", (0.85, 0.85, 0.90, 0.9)),
-                    ("predicted", (0.45, 0.95, 0.55, 0.9)),
-                    ("EQ", (0.30, 0.78, 1.0, 0.9))):
-                cr.set_source_rgba(*rgba)
-                cr.set_line_width(2.0)
-                cr.move_to(lx, ly - 3)
-                cr.line_to(lx + 14, ly - 3)
-                cr.stroke()
-                cr.move_to(lx + 18, ly)
-                cr.show_text(lab)
-                lx += 18 + cr.text_extents(lab).width + 14
-            cr.restore()
-
-        active = not self.bypass_row.get_active()
-        freqs = _log_freqs(int(max(60, pw_)))
-        curve = eq.response_db(self.preamp, self.bands, freqs)
-        cr.set_source_rgb(0.30, 0.78, 1.0) if active \
-            else cr.set_source_rgba(0.6, 0.6, 0.6, 0.7)
-        cr.set_line_width(2.0)
-        for i, f in enumerate(freqs):
-            db = max(wlo, min(whi, curve[i]))
-            px, py = x_of(f), y_of(db)
-            cr.move_to(px, py) if i == 0 else cr.line_to(px, py)
-        cr.stroke()
-        if not active:
-            cr.set_source_rgba(0.30, 0.78, 1.0, 0.5)
-            cr.set_line_width(1.5); cr.set_dash([4, 4], 0)
-            cr.move_to(ml, y_of(0)); cr.line_to(ml + pw_, y_of(0)); cr.stroke()
-            cr.set_dash([], 0)
-
-        for b in self.bands:
-            bx = x_of(max(b.freq, FMIN))    # freq-0 trim pins left
-            by = y_of(max(wlo, min(whi, b.gain)))
-            r, g, bl = self._band_color(b.freq)
-            cr.arc(bx, by, 5.5, 0, 2 * math.pi)
-            if b.enabled:
-                cr.set_source_rgb(r, g, bl); cr.fill_preserve()
-                cr.set_source_rgba(0, 0, 0, 0.55); cr.set_line_width(1.0); cr.stroke()
-            else:
-                cr.set_source_rgba(r, g, bl, 0.7)
-                cr.set_line_width(1.5); cr.stroke()
-
-
     # ---- settings: preference EQ layers ---------------------------------
     def _sync_taste_row(self):
         """The Taste combo above Profile mirrors the layer store:

@@ -182,15 +182,15 @@
                   </object>
                 </child>
 
+                <!-- the equalizer: one PeqView (graph + band
+                     table), built in code and shared with Taste -->
                 <child>
-                  <object class="GtkFrame" id="graph_frame">
-                    <style>
-                      <class name="card"/>
-                    </style>
+                  <object class="AdwPreferencesGroup" id="bands_group">
+                    <property name="title" translatable="yes">Bands</property>
                   </object>
                 </child>
 
-                <!-- preamp: a separate gain, not one of the band filters -->
+                <!-- preamp closes the section: a shared gain, not a band -->
                 <child>
                   <object class="AdwPreferencesGroup" id="preamp_group">
                     <child>
@@ -199,13 +199,6 @@
                         <property name="subtitle" translatable="yes">Headroom for this device</property>
                       </object>
                     </child>
-                  </object>
-                </child>
-
-                <!-- per-channel band table (built in code) -->
-                <child>
-                  <object class="AdwPreferencesGroup" id="bands_group">
-                    <property name="title" translatable="yes">Bands</property>
                   </object>
                 </child>
 

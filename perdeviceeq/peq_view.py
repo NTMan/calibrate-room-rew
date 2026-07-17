@@ -75,6 +75,7 @@ class PeqView(Gtk.Box):
         self._plot = None
         self._drag_band = None
         self._loading = False
+        self._active = True
 
         self.graph = Gtk.DrawingArea()
         self.graph.set_content_height(150 if compact else 220)
@@ -108,6 +109,12 @@ class PeqView(Gtk.Box):
 
     def get_bands(self):
         return [b.to_dict() for b in self._bands]
+
+    def set_active(self, active):
+        """Bypass dimming: an inactive EQ draws gray with a dashed
+        zero line, exactly like the main editor always did."""
+        self._active = bool(active)
+        self.graph.queue_draw()
 
     def set_preamp(self, v):
         """The dB window follows the preamp, like the main editor."""
@@ -269,13 +276,20 @@ class PeqView(Gtk.Box):
 
         freqs = _log_freqs(int(max(60, pw_)))
         curve = eq.response_db(self._preamp, self._bands, freqs)
-        cr.set_source_rgb(0.30, 0.78, 1.0)
+        cr.set_source_rgb(0.30, 0.78, 1.0) if self._active \
+            else cr.set_source_rgba(0.6, 0.6, 0.6, 0.7)
         cr.set_line_width(2.0)
         for i, f in enumerate(freqs):
             db = max(wlo, min(whi, curve[i]))
             px, py = self._x_of(f), self._y_of(db)
             cr.move_to(px, py) if i == 0 else cr.line_to(px, py)
         cr.stroke()
+        if not self._active:
+            cr.set_source_rgba(0.30, 0.78, 1.0, 0.5)
+            cr.set_line_width(1.5); cr.set_dash([4, 4], 0)
+            cr.move_to(ml, self._y_of(0))
+            cr.line_to(ml + pw_, self._y_of(0)); cr.stroke()
+            cr.set_dash([], 0)
 
         for b in self._bands:
             bx = self._x_of(max(b.freq, FMIN))
