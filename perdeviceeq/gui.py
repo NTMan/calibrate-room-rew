@@ -170,6 +170,7 @@ class EqWindow(Adw.ApplicationWindow):
         self._hidx = -1
         self._restoring = False
         self._dev_dirty = False     # a device-side edit awaits saving
+        self._graveyard = {}        # deleted profiles, session-kept
 
         b = Gtk.Builder.new_from_file(_ui_path())
         self.set_content(b.get_object("content"))
@@ -1086,8 +1087,14 @@ class EqWindow(Adw.ApplicationWindow):
         carry the profile id: restoring one made under another
         profile switches to it without reseeding the timeline."""
         pid = snap.get("pid")
-        if pid and pid != self.current_pid \
-                and self.store.get(pid) is not None:
+        if pid and pid != self.current_pid:
+            if not self.store.has(pid):
+                body = self._graveyard.get(pid)
+                if body is None:
+                    return           # truly gone; the walk skips these
+                # undo rolls the deletion back: resurrect the body,
+                # then the snapshot state lands on top of it
+                self.store.save_user(json.loads(json.dumps(body)))
             self.current_pid = pid
             self.profile_button.set_label(
                 self._display_name(self.store.get(pid)))
@@ -1151,7 +1158,8 @@ class EqWindow(Adw.ApplicationWindow):
 
     def _snap_alive(self, snap):
         pid = snap.get("pid")
-        return not pid or self.store.get(pid) is not None
+        return (not pid or self.store.has(pid)
+                or pid in self._graveyard)
 
     def _undo(self, *_):
         """Step back to the previous EDIT: selection baselines are
@@ -1617,6 +1625,10 @@ class EqWindow(Adw.ApplicationWindow):
         def on_resp(_d, resp):
             if resp != "delete":
                 return
+            # the session graveyard: undo entries made under this
+            # profile can resurrect it, takes and all
+            self._graveyard[pid] = json.loads(
+                json.dumps(self.store.get(pid)))
             self.store.delete_user(pid)
             self.favorites.discard(pid)
             _save_favorites(self.favorites)

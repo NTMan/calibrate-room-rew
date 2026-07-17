@@ -135,6 +135,11 @@ class ProfileStore:
     def get(self, pid):
         return self.profiles.get(pid) or self.profiles[CLEAN_ID]
 
+    def has(self, pid):
+        """Existence, honestly: get() falls back to CLEAN by design
+        and must not be used as a liveness test."""
+        return pid in self.profiles
+
     def ordered(self):
         def key(p):
             grp = 0 if p["id"] == CLEAN_ID else (1 if p["builtin"] else 2)
