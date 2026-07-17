@@ -170,6 +170,10 @@ class EqWindow(Adw.ApplicationWindow):
         self._hidx = -1
         self._restoring = False
         self._dev_dirty = False     # a device-side edit awaits saving
+        self.preamp_auto = True     # preamp follows Safe (Next #4)
+        self._preamp_syncing = False
+        self._auto_syncing = False
+        self._clamped_note = None
         self._graveyard = {}        # deleted profiles, session-kept
 
         b = Gtk.Builder.new_from_file(_ui_path())
@@ -566,14 +570,17 @@ class EqWindow(Adw.ApplicationWindow):
         self.preamp_spin.set_valign(Gtk.Align.CENTER)
         self.preamp_spin.connect("value-changed", self._on_preamp)
         self._tame_scroll(self.preamp_spin)
-        self.auto_button = Gtk.Button(label="Auto")
+        self.auto_button = Gtk.ToggleButton(label="Auto")
+        self.auto_button.set_active(True)
         self.auto_button.set_valign(Gtk.Align.CENTER)
         self.auto_button.set_tooltip_text(
-            "Set preamp to -(max of the EQ curve), so full-scale content "
-            "stays below 0 dBFS after EQ. With per-channel EQ, sets the "
-            "SAME value on every channel (the worst channel's requirement) "
-            "so the balance encoded by the curves survives")
-        self.auto_button.connect("clicked", self._on_auto)
+            "Preamp follows the Safe value on every edit of either "
+            "layer. Turning the preamp by hand un-presses this and "
+            "leaves you in charge; the session clamp still pulls the "
+            "level down when a real peak clips. One shared value for "
+            "all channels, so the balance encoded by the curves "
+            "survives.")
+        self.auto_button.connect("toggled", self._on_auto_toggled)
         # tier-1 clip lamp (ROADMAP Task 2): shown when the headroom estimate
         # crosses 0 dBFS; the row subtitle carries the estimate readout.
         self.clip_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
@@ -582,21 +589,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.clip_icon.set_visible(False)
         self.preamp_row.add_suffix(self.clip_icon)
         self.preamp_row.add_suffix(self.preamp_spin)
-        # one linked pair, both labeled with ABSOLUTE preamp targets:
-        # Safe (static worst case) | Session (measured this session)
-        self.fix_btn = Gtk.Button()
-        self.fix_btn.set_valign(Gtk.Align.CENTER)
-        self.fix_btn.set_visible(False)
-        self.fix_btn.set_tooltip_text(
-            "Set preamp from the measured session peak. Usually milder "
-            "than Safe; when it is stronger, real broadband content "
-            "recombined above the sine-gain estimate -- trust the fact")
-        self.fix_btn.connect("clicked", self._on_fix)
-        pair = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
-        pair.add_css_class("linked")
-        pair.append(self.auto_button)
-        pair.append(self.fix_btn)
-        self.preamp_row.add_suffix(pair)
+        self.preamp_row.add_suffix(self.auto_button)
         self.preamp_row.set_activatable_widget(self.preamp_spin)
         self._preamp_subtitle = self.preamp_row.get_subtitle() or ""
         # the closing card's second half: per-channel level meters
@@ -831,6 +824,7 @@ class EqWindow(Adw.ApplicationWindow):
                 "name": (p or {}).get("name", self.current_pid),
                 "apply_all": self.apply_all,
                 "preamp": float(self.preamp),
+                "preamp_auto": bool(self.preamp_auto),
                 "ch_keys": list(self.ch_keys),
                 "all": self._slot_to_dict("all"),
                 "channels": {k: self._slot_to_dict(k)
@@ -1005,6 +999,13 @@ class EqWindow(Adw.ApplicationWindow):
             self.ch_keys = dev or pch or ["FL", "FR"]
 
             self.preamp = float(p.get("preamp", 0.0))
+            self.preamp_auto = bool(p.get("preamp_auto", True))
+            self._clamped_note = None
+            self._auto_syncing = True
+            try:
+                self.auto_button.set_active(self.preamp_auto)
+            finally:
+                self._auto_syncing = False
             a = p.get("all") or {"bands": []}
             self.slots = {"all": {"bands": [eq.Band.from_dict(x)
                                             for x in a.get("bands", [])]}}
@@ -1133,6 +1134,7 @@ class EqWindow(Adw.ApplicationWindow):
         return {"pid": self.current_pid,
                 "apply_all": self.apply_all,
                 "preamp": float(self.preamp),
+                "preamp_auto": bool(self.preamp_auto),
                 "ch_keys": list(self.ch_keys),
                 "slots": {k: self._slot_to_dict(k) for k in keys},
                 "taste": {
@@ -1169,6 +1171,12 @@ class EqWindow(Adw.ApplicationWindow):
         try:
             self.apply_all = bool(snap["apply_all"])
             self.preamp = float(snap.get("preamp", 0.0))
+            self.preamp_auto = bool(snap.get("preamp_auto", True))
+            self._auto_syncing = True
+            try:
+                self.auto_button.set_active(self.preamp_auto)
+            finally:
+                self._auto_syncing = False
             self.ch_keys = list(snap["ch_keys"])
             self.slots = {}
             for k, sd in snap["slots"].items():
@@ -1303,10 +1311,81 @@ class EqWindow(Adw.ApplicationWindow):
         self._on_edit()
 
     def _on_preamp(self, spin):
-        """Preamp spin changed: one shared value for the whole profile."""
+        """Preamp spin changed: one shared value for the whole
+        profile. A HAND turn is a compromise -- it un-presses
+        Auto."""
         self.preamp = float(spin.get_value())
         self.view.set_preamp(self.preamp)
+        if self._loading or self._preamp_syncing:
+            return
+        self._clamped_note = None
+        self._set_preamp_auto(False)
         self._on_edit()
+
+    def _set_preamp_auto(self, on, land=False):
+        """Flip the follow mode and sync the toggle without echo.
+        The mode is profile state: it persists and rides undo."""
+        on = bool(on)
+        changed = on != self.preamp_auto
+        self.preamp_auto = on
+        self._auto_syncing = True
+        try:
+            self.auto_button.set_active(on)
+        finally:
+            self._auto_syncing = False
+        if on and land:
+            self._land_safe()
+        if changed and not self._loading and not self._restoring:
+            self._dev_dirty = True
+            self._schedule_save()
+
+    def _on_auto_toggled(self, btn):
+        if self._auto_syncing or self._loading:
+            return
+        self._clamped_note = None
+        self._set_preamp_auto(btn.get_active(), land=True)
+
+    def _land_safe(self):
+        """Impose the Safe value: -(max of the summed EQ curve),
+        dueling boosts and cuts cancelling in the sum; ONE shared
+        value for all channels (the worst channel's requirement),
+        so the balance encoded by the curves survives."""
+        t = self._auto_preamp_db()
+        v = -t if t else 0.0
+        if abs(v - self.preamp) < 0.05:
+            return
+        self._preamp_syncing = True
+        try:
+            self.preamp_spin.set_value(v)
+        finally:
+            self._preamp_syncing = False
+        self._dev_dirty = True
+        self._apply_now()
+        self._schedule_save()
+
+    def _clamp_to_session(self):
+        """A latched over-0 peak pulls the preamp down -- silently
+        but attributed in the subtitle: the compromise keeps only
+        as much loudness as the session proved safe. Never below
+        Safe: a broadband transient can exceed the sine bound, and
+        a compromise louder than safety is nonsense."""
+        c = self._sess_c()
+        if c is None or c <= self._CLIP_EPS_DB:
+            return
+        t = self._auto_preamp_db()
+        v = max(-t if t else 0.0, self.preamp - c)
+        if v >= self.preamp - 1e-9:
+            return
+        self._preamp_syncing = True
+        try:
+            self.preamp_spin.set_value(v)
+        finally:
+            self._preamp_syncing = False
+        self._sess_peak = None          # consumed, like Session did
+        self._clamped_note = "pulled to session %.1f" % v
+        self._dev_dirty = True
+        self._apply_now()               # clipping is live: right now
+        self._schedule_save()
 
     def _auto_preamp_db(self):
         """Preamp that zeroes the tier-1 estimate: the max of the edited
@@ -1323,20 +1402,6 @@ class EqWindow(Adw.ApplicationWindow):
                                        self._slot(k)["bands"] + tail)
                        for k in self.ch_keys)
         return max(0.0, math.ceil(peak * 10.0 - 1e-9) / 10.0)
-
-    def _on_auto(self, _btn):
-        """Auto headroom (ROADMAP Task 2, tier 1): preamp = -(max of the
-        summed EQ curve). Dueling boosts/cuts cancel in the sum, unlike the
-        old -(largest single positive gain), which over-attenuated stacked-
-        filter profiles by 2x and more (demo FR: -16.1 vs the correct -8.5).
-
-        The preamp is ONE shared per-profile value (per-channel curves
-        encode the driver matching; unequal preamps would shift the
-        interchannel balance right back out of match), so with unlinked
-        channels the requirement is the WORST channel's curve max.
-        Deliberate offsets belong in the curves."""
-        v = self._auto_preamp_db()
-        self.preamp_spin.set_value(-v if v else 0.0)  # triggers _on_preamp
 
     def _on_bypass(self, *_):
         """Bypass toggled: republish the device state."""
@@ -1372,10 +1437,12 @@ class EqWindow(Adw.ApplicationWindow):
         neutral (the tier-2 meter will keep flagging hot inputs here)."""
         if self.bypass_row.get_active():
             self.clip_icon.set_visible(False)
-            self.fix_btn.set_visible(False)
             self.preamp_row.set_subtitle(self._preamp_subtitle)
             self.preamp_row.set_tooltip_text(None)
             return
+        if (self.preamp_auto and not self._loading
+                and not self._restoring):
+            self._land_safe()       # AUTO: the preamp follows Safe
         tail = [eq.Band.from_dict(b)
                 for b in self.pref_layers.active_bands()]
         bounds = {k: eq.headroom_bound_db(self.preamp,
@@ -1391,31 +1458,23 @@ class EqWindow(Adw.ApplicationWindow):
 
         self.clip_icon.set_visible(over)
         t = self._auto_preamp_db()
-        self.auto_button.set_label("Safe %.1f" % (-t if t else 0.0))
-        c = self._sess_c()
-        caught = c is not None and c > self._CLIP_EPS_DB
-        self.fix_btn.set_visible(caught)
-        if caught:
-            # a measured fact beats the estimate: show it, offer to consume
-            # Session may never end up quieter than Safe: a broadband
-            # transient can exceed the sine bound by the L1 gap, and a
-            # "compromise" louder than safety is nonsense.
-            self.fix_btn.set_label(
-                "Session %.1f" % max(-t if t else 0.0, self.preamp - c))
-            self.preamp_row.set_subtitle(
-                "Clipped up to +%.1f dBFS this session" % c)
-        elif over:
-            self.preamp_row.set_subtitle(
-                "Over 0 dBFS by %.1f dB%s — Auto fixes" % (shown, where))
+        safe_txt = "Safe %.1f" % (-t if t else 0.0)
+        if over:
+            sub = ("Over 0 dBFS by %.1f dB%s · %s"
+                   % (shown, where, safe_txt))
         else:
-            self.preamp_row.set_subtitle(
-                "Headroom %.1f dB%s" % (0.0 - shown, where))
+            sub = "Headroom %.1f dB%s · %s" % (0.0 - shown,
+                                                    where, safe_txt)
+        if self._clamped_note:
+            sub = self._clamped_note + " · " + sub
+        self.preamp_row.set_subtitle(sub)
 
         tip = None
         if over:
             tip = ("Estimated for content peaking at 0 dBFS: the profile "
                    "pushes it past full scale (the input side is not "
-                   "measured yet). Lower the shared preamp — Auto does it.")
+                   "measured yet). Lower the shared preamp; "
+                   "press Auto to follow Safe.")
             if len(offenders) > 1:
                 listed = ", ".join("%s %+.1f" % (k, v) for k, v in offenders)
                 tip += "\nOver 0 dBFS: %s." % listed
@@ -1430,16 +1489,6 @@ class EqWindow(Adw.ApplicationWindow):
         if self._sess_peak is None:
             return None
         return math.ceil(self._sess_peak * 10.0 - 1e-9) / 10.0
-
-    def _on_fix(self, _btn):
-        """Consume the caught session peak: pull it exactly to 0 dBFS."""
-        c = self._sess_c()
-        if c is None:
-            return
-        t = self._auto_preamp_db()
-        v = max(-t if t else 0.0, self.preamp - max(0.0, c))
-        self._sess_peak = None
-        self.preamp_spin.set_value(v)
 
     def _meter_chains(self):
         """(preamp, per-input-channel band lists) the device actually runs:
@@ -1561,6 +1610,7 @@ class EqWindow(Adw.ApplicationWindow):
             if mx > self._CLIP_EPS_DB and (self._sess_peak is None
                                            or mx > self._sess_peak):
                 self._sess_peak = mx
+                self._clamp_to_session()
                 self._update_headroom()
         return False
 
