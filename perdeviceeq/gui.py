@@ -39,7 +39,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Gio, GLib, Gdk, Adw, Pango
 
 from . import config, eq, pipewire, integration
-from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE, UI_STATE_FILE,
+from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE,
+                     SYS_DESKTOP_FILE, UI_STATE_FILE,
                      UI_FILE_CANDIDATES)
 from .peq_view import CollapsibleCard, PeqView
 from .preferences import PreferenceLayers
@@ -716,8 +717,9 @@ class EqWindow(Adw.ApplicationWindow):
             heading="Install system integration?",
             body="per-device-eq keeps your EQ across reboots and "
                  "reconnects through a small WirePlumber hook in "
-                 "your user session (two files under ~/.local and "
-                 "~/.config). Install it now?")
+                 "your user session, plus a menu entry and icon "
+                 "(everything under ~/.local and ~/.config). "
+                 "Install it now?")
         dlg.add_response("no", "Quit")
         dlg.add_response("yes", "Install")
         dlg.set_response_appearance("yes",
@@ -738,6 +740,14 @@ class EqWindow(Adw.ApplicationWindow):
                 err.add_response("ok", "OK")
                 err.present(self)
                 return
+            # the dialog is the GUI face of --install: the desktop
+            # entry rides along (skipped when a system package
+            # already owns one; never fatal)
+            if not os.path.exists(SYS_DESKTOP_FILE):
+                try:
+                    integration.install_desktop_integration()
+                except FileNotFoundError:
+                    pass
             info = Adw.AlertDialog(
                 heading="Integration installed",
                 body="To remove it later, run:\n"

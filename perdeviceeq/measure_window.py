@@ -456,6 +456,7 @@ class MeasureWindow(Adw.Window):
         trow.append(title)
         header = Gtk.Label(xalign=0.0)
         header.add_css_class("dim-label")
+        header.add_css_class("caption")
         header.set_hexpand(True)
         trow.append(header)
         chev = Gtk.Image.new_from_icon_name("pan-up-symbolic")
