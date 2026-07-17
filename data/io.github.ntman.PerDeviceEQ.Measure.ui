@@ -96,6 +96,11 @@
             <property name="content">
               <object class="GtkBox">
                 <property name="spacing">24</property>
+                <!-- equal halves, ALWAYS: natural widths change
+                     when the takes fold (hidden rows stop counting)
+                     and the columns would breathe with every click
+                     of the accordion -->
+                <property name="homogeneous">true</property>
                 <property name="margin-top">8</property>
                 <property name="margin-bottom">8</property>
                 <property name="margin-start">8</property>
