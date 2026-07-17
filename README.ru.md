@@ -82,12 +82,13 @@ chmod +x per-device-eq.py
 ./per-device-eq.py
 ```
 
-Чтобы при запуске из исходников иметь пункт меню и иконку (обратимо, пишет
-только в `~/.local/share`):
+Чтобы поставить системную интеграцию из чекаута, хук WirePlumber плюс
+пункт меню с иконкой (обратимо; пишет только в `~/.local` и
+`~/.config`):
 
 ```
-./per-device-eq.py --install-desktop     # только пункт меню
-./per-device-eq.py --uninstall-desktop
+./per-device-eq.py --install
+./per-device-eq.py --uninstall
 ```
 
 ### Собрать RPM самому
@@ -183,7 +184,8 @@ USB-микрофон для колонок, плюс его калибровоч
 ## Командная строка
 
 ```
-./per-device-eq.py --list            # список синков (дефолт помечен *)
+./per-device-eq.py --list-sinks      # список синков (дефолт помечен *)
+./per-device-eq.py --list-sources    # список источников захвата
 ./per-device-eq.py --list-profiles   # профили и их привязки к устройствам
 ./per-device-eq.py --inspect NAME    # параметры синка (node.name)
 ./per-device-eq.py --apply           # применить привязанные профили сейчас

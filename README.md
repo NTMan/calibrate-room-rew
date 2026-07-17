@@ -79,12 +79,13 @@ chmod +x per-device-eq.py
 ./per-device-eq.py
 ```
 
-To also get a menu/dock entry while running from source (reversible, writes
-only under `~/.local/share`):
+To install the system integration from a checkout -- the WirePlumber
+hook plus the menu entry and icon (reversible; writes only under
+`~/.local` and `~/.config`):
 
 ```
-./per-device-eq.py --install-desktop     # desktop entry only
-./per-device-eq.py --uninstall-desktop
+./per-device-eq.py --install
+./per-device-eq.py --uninstall
 ```
 
 ### Build the RPM yourself
@@ -178,7 +179,8 @@ cannot clip behind the meter's back.
 ## Command line
 
 ```
-./per-device-eq.py --list            # list sinks (default marked with *)
+./per-device-eq.py --list-sinks      # list sinks (default marked with *)
+./per-device-eq.py --list-sources    # list capture sources
 ./per-device-eq.py --list-profiles   # list profiles and their device bindings
 ./per-device-eq.py --inspect NAME    # dump a sink's params (node.name)
 ./per-device-eq.py --apply           # apply each bound profile to its sink now

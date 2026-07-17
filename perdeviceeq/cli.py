@@ -7,7 +7,8 @@ import json, sys
 
 from .config import CLEAN_ID
 from .profiles import ProfileStore
-from .pipewire import list_sinks, node_params, metadata_set, metadata_clear
+from .pipewire import (list_sinks, list_sources, node_params,
+                       metadata_set, metadata_clear)
 
 
 def cmd_list():
@@ -15,6 +16,12 @@ def cmd_list():
         mark = "*" if s["default"] else " "
         print("%s[%4d] %s\t%s" % (mark, s["id"], s["name"], s["desc"]))
     return 0
+
+def cmd_list_sources():
+    for s in list_sources():
+        print(" [%4d] %s\t%s" % (s["id"], s["name"], s["desc"]))
+    return 0
+
 
 def cmd_list_profiles():
     store = ProfileStore()
