@@ -129,9 +129,18 @@ class PeqView(Gtk.Box):
         if freqs is None or measured is None:
             self._curves = None
         else:
-            self._curves = (list(freqs), list(measured),
-                            list(spread) if spread is not None else None,
-                            tuple(band) if band is not None else None)
+            meas = list(measured)
+            spr = list(spread) if spread is not None else None
+            fan = [m + (spr[i] if spr else 0.0)
+                   for i, m in enumerate(meas)]
+            dip = [m - (spr[i] if spr else 0.0)
+                   for i, m in enumerate(meas)]
+            # extremes cached HERE: _y_window runs per mapped point
+            # during hit tests and must stay O(1); recomputing these
+            # lists inside it made the draw quadratic
+            self._curves = (list(freqs), meas, spr,
+                            tuple(band) if band is not None else None,
+                            min(dip), max(fan))
         self.graph.queue_draw()
 
     # ---- geometry -----------------------------------------------------
@@ -139,13 +148,8 @@ class PeqView(Gtk.Box):
         lo, hi = -DB_MAX + self._preamp, DB_MAX + self._preamp
         c = self._curves
         if c is not None:
-            meas, spread = c[1], c[2]
-            fan = [m + (spread[i] if spread else 0.0)
-                   for i, m in enumerate(meas)]
-            dip = [m - (spread[i] if spread else 0.0)
-                   for i, m in enumerate(meas)]
-            lo = min([lo] + dip)
-            hi = max([hi] + fan)
+            lo = min(lo, c[4])
+            hi = max(hi, c[5])
         return lo, hi
 
     def _x_of(self, f):
@@ -196,12 +200,20 @@ class PeqView(Gtk.Box):
         cr.rectangle(ml, mt, pw_, ph)
         cr.set_source_rgb(0.08, 0.08, 0.10); cr.fill()
         wlo, whi = self._y_window()
+        lg_lo = math.log10(FMIN)
+        lg_span = math.log10(FMAX) - lg_lo
+
+        def x_of(f):
+            return ml + (math.log10(f) - lg_lo) / lg_span * pw_
+
+        def y_of(db):
+            return mt + (whi - db) / (whi - wlo) * ph
 
         cr.set_line_width(1.0)
         cr.select_font_face("Sans", 0, 0); cr.set_font_size(9)
         for f in (20, 50, 100, 200, 500, 1000, 2000, 5000, 10000,
                   20000):
-            x = self._x_of(f)
+            x = x_of(f)
             cr.set_source_rgba(1, 1, 1, 0.10)
             cr.move_to(x, mt); cr.line_to(x, mt + ph); cr.stroke()
             cr.set_source_rgba(1, 1, 1, 0.45)
@@ -209,50 +221,50 @@ class PeqView(Gtk.Box):
             cr.move_to(x - 8, mt + ph + 14); cr.show_text(lab)
         for db in range(int(math.ceil(wlo / 6.0)) * 6,
                         int(math.floor(whi)) + 1, 6):
-            y = self._y_of(db)
+            y = y_of(db)
             cr.set_source_rgba(1, 1, 1, 0.16 if db == 0 else 0.08)
             cr.move_to(ml, y); cr.line_to(ml + pw_, y); cr.stroke()
             cr.set_source_rgba(1, 1, 1, 0.45)
             cr.move_to(4, y + 3); cr.show_text("%+d" % db)
 
         if self._curves is not None:
-            fo, meas, spread, band = self._curves
+            fo, meas, spread, band = self._curves[:4]
             cr.save()
             cr.rectangle(ml, mt, pw_, ph)
             cr.clip()
             if spread is not None:
                 cr.set_source_rgba(0.55, 0.65, 0.85, 0.14)
                 for i, f in enumerate(fo):
-                    x = self._x_of(f)
-                    y = self._y_of(meas[i] + spread[i])
+                    x = x_of(f)
+                    y = y_of(meas[i] + spread[i])
                     cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
                 for i in range(len(fo) - 1, -1, -1):
-                    cr.line_to(self._x_of(fo[i]),
-                               self._y_of(meas[i] - spread[i]))
+                    cr.line_to(x_of(fo[i]),
+                               y_of(meas[i] - spread[i]))
                 cr.close_path()
                 cr.fill()
             cr.set_source_rgba(0.85, 0.85, 0.90, 0.55)
             cr.set_line_width(1.2)
             for i, f in enumerate(fo):
-                x, y = self._x_of(f), self._y_of(meas[i])
+                x, y = x_of(f), y_of(meas[i])
                 cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
             cr.stroke()
             resp = eq.response_db(self._preamp, self._bands, fo)
             cr.set_source_rgba(0.45, 0.95, 0.55, 0.90)
             cr.set_line_width(1.5)
             for i, f in enumerate(fo):
-                x, y = self._x_of(f), self._y_of(meas[i] + resp[i])
+                x, y = x_of(f), y_of(meas[i] + resp[i])
                 cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
             cr.stroke()
             cr.set_source_rgba(0, 0, 0, 0.30)
             if band is not None:
                 blo, bhi = max(band[0], FMIN), min(band[1], FMAX)
                 if blo > FMIN:
-                    cr.rectangle(ml, mt, self._x_of(blo) - ml, ph)
+                    cr.rectangle(ml, mt, x_of(blo) - ml, ph)
                     cr.fill()
                 if bhi < FMAX:
-                    cr.rectangle(self._x_of(bhi), mt,
-                                 ml + pw_ - self._x_of(bhi), ph)
+                    cr.rectangle(x_of(bhi), mt,
+                                 ml + pw_ - x_of(bhi), ph)
                     cr.fill()
             else:                    # nothing certified: dim it all
                 cr.rectangle(ml, mt, pw_, ph)
@@ -281,19 +293,19 @@ class PeqView(Gtk.Box):
         cr.set_line_width(2.0)
         for i, f in enumerate(freqs):
             db = max(wlo, min(whi, curve[i]))
-            px, py = self._x_of(f), self._y_of(db)
+            px, py = x_of(f), y_of(db)
             cr.move_to(px, py) if i == 0 else cr.line_to(px, py)
         cr.stroke()
         if not self._active:
             cr.set_source_rgba(0.30, 0.78, 1.0, 0.5)
             cr.set_line_width(1.5); cr.set_dash([4, 4], 0)
-            cr.move_to(ml, self._y_of(0))
-            cr.line_to(ml + pw_, self._y_of(0)); cr.stroke()
+            cr.move_to(ml, y_of(0))
+            cr.line_to(ml + pw_, y_of(0)); cr.stroke()
             cr.set_dash([], 0)
 
         for b in self._bands:
-            bx = self._x_of(max(b.freq, FMIN))
-            by = self._y_of(max(wlo, min(whi, b.gain)))
+            bx = x_of(max(b.freq, FMIN))
+            by = y_of(max(wlo, min(whi, b.gain)))
             r, g, bl = _band_color(b.freq)
             cr.arc(bx, by, 5.5, 0, 2 * math.pi)
             if b.enabled:
