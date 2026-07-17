@@ -243,10 +243,12 @@ seed-pinned, so no binary test data is stored in git.
 
 ## Known issues
 
-- **Volume drop after enabling EQ (PipeWire).** On some sinks with hardware
-  volume, the first volume change made *after* an in-node EQ is active can
-  collapse the real output level (while the reported volume looks correct)
-  until PipeWire/WirePlumber is restarted. Tracked upstream:
-  <https://gitlab.freedesktop.org/pipewire/pipewire/-/work_items/5344>.
-  Workaround: set the volume before enabling the EQ, or
+- **Volume drop after enabling EQ -- fixed in PipeWire 1.6.8.** On sinks
+  with hardware volume, the first volume change made *after* an in-node
+  EQ was active could collapse the real output level while the reported
+  volume looked correct: the filter-graph ate the softVolume/softMute
+  properties instead of passing them through, so channel volumes applied
+  twice, in hardware and again in software. Fixed upstream in **1.6.8**
+  (<https://gitlab.freedesktop.org/pipewire/pipewire/-/work_items/5344>);
+  on 1.6.7 and older, set the volume before enabling the EQ, or
   `systemctl --user restart wireplumber`.
