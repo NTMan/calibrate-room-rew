@@ -211,13 +211,6 @@ class EqWindow(Adw.ApplicationWindow):
         self.device_hdr.add_css_class("caption")
         self.device_hdr.set_ellipsize(Pango.EllipsizeMode.END)
         self.device_card.add_header(self.device_hdr, expand=True)
-        exp = Gtk.Button()
-        exp.set_valign(Gtk.Align.CENTER)
-        exp.set_icon_name("document-save-symbolic")
-        exp.add_css_class("flat")
-        exp.set_tooltip_text("Export this profile to a file to share")
-        exp.connect("clicked", lambda *_: self._export_current())
-        self.device_card.add_header(exp)
         self.device_card.add_header(self.profile_button)
         card_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                             spacing=12)
@@ -621,8 +614,11 @@ class EqWindow(Adw.ApplicationWindow):
         self.clip_icon.set_valign(Gtk.Align.CENTER)
         self.clip_icon.set_visible(False)
         hdr.append(self.clip_icon)
-        hdr.append(self.preamp_spin)
-        hdr.append(self.auto_button)
+        ppair = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
+        ppair.add_css_class("linked")
+        ppair.append(self.preamp_spin)
+        ppair.append(self.auto_button)
+        hdr.append(ppair)
         card.append(hdr)
         self._preamp_subtitle = "Headroom for this device"
         # the closing card's second half: per-channel level meters
@@ -684,11 +680,15 @@ class EqWindow(Adw.ApplicationWindow):
         row.append(spacer)
         pair = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
         pair.add_css_class("linked")
-        imp_content = Adw.ButtonContent(icon_name="document-open-symbolic",
-                                        label="Import EQ text")
-        imp_btn = Gtk.Button(child=imp_content)
-        imp_btn.set_tooltip_text("Replace the bands shown here from a parametric-EQ text file")
+        imp_btn = Gtk.Button.new_from_icon_name(
+            "document-open-symbolic")
+        imp_btn.set_tooltip_text(
+            "Import EQ text: replace the bands shown here from a "
+            "parametric-EQ text file")
         imp_btn.connect("clicked", lambda *_: self._import_rew())
+        exp = Gtk.Button.new_from_icon_name("document-save-symbolic")
+        exp.set_tooltip_text("Export this profile to a file to share")
+        exp.connect("clicked", lambda *_: self._export_current())
         self.refit_btn = Gtk.ToggleButton(label="Auto")
         self.refit_btn.set_tooltip_text(
             "The EQ follows the measurement. Hand edits un-press "
@@ -696,6 +696,7 @@ class EqWindow(Adw.ApplicationWindow):
             "returns the scientific correction")
         self.refit_btn.connect("toggled", self._on_autofit_toggled)
         pair.append(imp_btn)
+        pair.append(exp)
         pair.append(self.refit_btn)
         row.append(pair)
         self._device_body.insert_child_after(row, self.channel_row)
