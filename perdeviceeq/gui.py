@@ -173,14 +173,16 @@ class EqWindow(Adw.ApplicationWindow):
         self.preamp_auto = True     # preamp follows Safe (Next #4)
         self._preamp_syncing = False
         self._auto_syncing = False
+        self._autofit_syncing = False
         self._clamped_note = None
         self._graveyard = {}        # deleted profiles, session-kept
         self._pending_sel = None    # a mid-history switch, deferred
 
         b = Gtk.Builder.new_from_file(_ui_path())
+        self._builder = b
         self.set_content(b.get_object("content"))
         self.header_bar = b.get_object("header_bar")
-        self.window_title = b.get_object("window_title")
+        self.header_note = b.get_object("header_note")
         self.profile_button = b.get_object("profile_button")
         self.profile_popover = b.get_object("profile_popover")
         self.search_entry = b.get_object("search_entry")
@@ -189,8 +191,6 @@ class EqWindow(Adw.ApplicationWindow):
         self.follow_btn = b.get_object("follow_btn")
         self.sep_switch = b.get_object("sep_switch")
         self.channel_row = b.get_object("channel_row")
-        self.preamp_row = b.get_object("preamp_row")
-        self.preamp_group = b.get_object("preamp_group")
         self.bypass_row = Gtk.ToggleButton(label="Bypass")
         self.bypass_row.set_tooltip_text(
             "Hear the device raw: profile and taste muted")
@@ -203,7 +203,14 @@ class EqWindow(Adw.ApplicationWindow):
         self.device_card = CollapsibleCard(
             expanded=bool(self._ui_state.get("device_card", False)),
             on_toggled=self._on_device_card_toggled)
-        self.device_card.add_header(self.profile_button)
+        dt = Gtk.Label(label="Device", xalign=0.0)
+        dt.add_css_class("heading")
+        self.device_card.add_header(dt)
+        self.device_hdr = Gtk.Label(xalign=0.0)
+        self.device_hdr.add_css_class("dim-label")
+        self.device_hdr.add_css_class("caption")
+        self.device_hdr.set_ellipsize(Pango.EllipsizeMode.END)
+        self.device_card.add_header(self.device_hdr, expand=True)
         exp = Gtk.Button()
         exp.set_valign(Gtk.Align.CENTER)
         exp.set_icon_name("document-save-symbolic")
@@ -211,11 +218,7 @@ class EqWindow(Adw.ApplicationWindow):
         exp.set_tooltip_text("Export this profile to a file to share")
         exp.connect("clicked", lambda *_: self._export_current())
         self.device_card.add_header(exp)
-        self.device_hdr = Gtk.Label(xalign=0.0)
-        self.device_hdr.add_css_class("dim-label")
-        self.device_hdr.add_css_class("caption")
-        self.device_hdr.set_ellipsize(Pango.EllipsizeMode.END)
-        self.device_card.add_header(self.device_hdr, expand=True)
+        self.device_card.add_header(self.profile_button)
         card_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                             spacing=12)
         for side in ("start", "end", "bottom"):
@@ -223,6 +226,7 @@ class EqWindow(Adw.ApplicationWindow):
         card_body.append(self.channel_row)
         card_body.append(self.bands_group)
         self.device_card.set_body(card_body)
+        self._device_body = card_body
         b.get_object("device_card_slot").append(self.device_card)
 
         # ---- the taste card: the layer picker in the header, the
@@ -295,8 +299,11 @@ class EqWindow(Adw.ApplicationWindow):
         self.redo_btn = Gtk.Button.new_from_icon_name("edit-redo-symbolic")
         self.redo_btn.set_tooltip_text("Redo (Ctrl+Shift+Z)")
         self.redo_btn.connect("clicked", lambda *_: self._redo())
-        self.header_bar.pack_start(self.undo_btn)
-        self.header_bar.pack_start(self.redo_btn)
+        hist_pair = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
+        hist_pair.add_css_class("linked")
+        hist_pair.append(self.undo_btn)
+        hist_pair.append(self.redo_btn)
+        self.header_bar.pack_start(hist_pair)
         self.pref_layers = PreferenceLayers()
         self.header_bar.pack_end(self.bypass_row)
         self._sync_taste_card()
@@ -467,6 +474,12 @@ class EqWindow(Adw.ApplicationWindow):
             self.fit_state_label.add_css_class(
                 "error" if stale else
                 "warning" if incomplete else "dim-label")
+        self._autofit_syncing = True
+        try:
+            self.refit_btn.set_active(bool(fit) and not edited
+                                      and not stale)
+        finally:
+            self._autofit_syncing = False
         self.refit_btn.set_sensitive(
             not cache["err"] and bool(fit or ids)
             and self._editable(self.current_pid))
@@ -565,7 +578,26 @@ class EqWindow(Adw.ApplicationWindow):
             self._loading = False
 
     def _build_preamp(self):
-        """Put the preamp SpinButton and the Auto button onto preamp_row."""
+        """The closing card, hand-rolled like the others: a header
+        row (the Preamp title, the readout, the warning, the spin,
+        the Auto mode) over the per-channel meters."""
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        card.add_css_class("card")
+        hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                      spacing=8)
+        for side in ("top", "bottom"):
+            getattr(hdr, "set_margin_" + side)(8)
+        for side in ("start", "end"):
+            getattr(hdr, "set_margin_" + side)(12)
+        pt = Gtk.Label(label="Preamp", xalign=0.0)
+        pt.add_css_class("heading")
+        hdr.append(pt)
+        self.preamp_sub = Gtk.Label(xalign=0.0)
+        self.preamp_sub.add_css_class("dim-label")
+        self.preamp_sub.add_css_class("caption")
+        self.preamp_sub.set_hexpand(True)
+        self.preamp_sub.set_ellipsize(Pango.EllipsizeMode.END)
+        hdr.append(self.preamp_sub)
         self.preamp_spin = Gtk.SpinButton.new_with_range(-DB_MAX, DB_MAX, 0.5)
         self.preamp_spin.set_digits(1)
         self.preamp_spin.set_valign(Gtk.Align.CENTER)
@@ -588,26 +620,21 @@ class EqWindow(Adw.ApplicationWindow):
         self.clip_icon.add_css_class("error")
         self.clip_icon.set_valign(Gtk.Align.CENTER)
         self.clip_icon.set_visible(False)
-        self.preamp_row.add_suffix(self.clip_icon)
-        self.preamp_row.add_suffix(self.preamp_spin)
-        self.preamp_row.add_suffix(self.auto_button)
-        self.preamp_row.set_activatable_widget(self.preamp_spin)
-        self._preamp_subtitle = self.preamp_row.get_subtitle() or ""
+        hdr.append(self.clip_icon)
+        hdr.append(self.preamp_spin)
+        hdr.append(self.auto_button)
+        card.append(hdr)
+        self._preamp_subtitle = "Headroom for this device"
         # the closing card's second half: per-channel level meters
         # (rows are rebuilt whenever the channel set changes)
         self.meters_grid = Gtk.Grid(column_spacing=10, row_spacing=4)
         for side in ("top", "bottom", "start", "end"):
             getattr(self.meters_grid, "set_margin_" + side)(10)
-        # PreferencesGroup.add puts only PreferencesRow descendants
-        # into the card's list; anything else lands in a box BELOW
-        # it -- so the meters ride a row, or they fall out of the
-        # card
-        row = Adw.PreferencesRow()
-        row.set_activatable(False)
-        row.set_child(self.meters_grid)
-        self._meters_row = row
+        self._meters_row = self.meters_grid
         self._meters_row.set_visible(False)
-        self.preamp_group.add(row)
+        card.append(self.meters_grid)
+        b = self._builder
+        b.get_object("preamp_card_slot").append(card)
 
     _CSS_INSTALLED = False
 
@@ -636,10 +663,13 @@ class EqWindow(Adw.ApplicationWindow):
                 disp, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def _build_bands_area(self):
-        """The Bands header actions: the measurement eye, Clear,
-        Import and Re-fit -- the trust text itself lives in the
-        card header now."""
-        suffix = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        """The editor's action strip inside the device card: the
+        measurement eye on the left, Import and the Auto-fit mode
+        on the right. The Bands caption died -- the channel tab
+        above already says it; Clear died -- six trash cans and
+        Ctrl+Z cover it."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                      spacing=6)
         self.meas_toggle = Gtk.ToggleButton()
         self.meas_toggle.set_icon_name("view-reveal-symbolic")
         self.meas_toggle.set_active(True)
@@ -648,25 +678,43 @@ class EqWindow(Adw.ApplicationWindow):
         self.meas_toggle.set_tooltip_text(
             "Show the measurement behind this profile")
         self.meas_toggle.connect("toggled", self._on_meas_toggle)
-        clear_btn = Gtk.Button.new_from_icon_name("edit-clear-all-symbolic")
-        clear_btn.add_css_class("flat")
-        clear_btn.set_tooltip_text("Remove all bands shown here")
-        clear_btn.connect("clicked", self._on_clear_bands)
+        row.append(self.meas_toggle)
+        spacer = Gtk.Box()
+        spacer.set_hexpand(True)
+        row.append(spacer)
+        pair = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
+        pair.add_css_class("linked")
         imp_content = Adw.ButtonContent(icon_name="document-open-symbolic",
                                         label="Import EQ text")
         imp_btn = Gtk.Button(child=imp_content)
         imp_btn.set_tooltip_text("Replace the bands shown here from a parametric-EQ text file")
         imp_btn.connect("clicked", lambda *_: self._import_rew())
-        self.refit_btn = Gtk.Button(label="Re-fit")
-        self.refit_btn.add_css_class("flat")
+        self.refit_btn = Gtk.ToggleButton(label="Auto")
         self.refit_btn.set_tooltip_text(
-            "Rebuild the bands from the stored measurement")
-        self.refit_btn.connect("clicked", self._on_refit)
-        suffix.append(self.meas_toggle)
-        suffix.append(clear_btn)
-        suffix.append(imp_btn)
-        suffix.append(self.refit_btn)
-        self.bands_group.set_header_suffix(suffix)
+            "The EQ follows the measurement. Hand edits un-press "
+            "this; pressing it re-fits from the stored takes and "
+            "returns the scientific correction")
+        self.refit_btn.connect("toggled", self._on_autofit_toggled)
+        pair.append(imp_btn)
+        pair.append(self.refit_btn)
+        row.append(pair)
+        self._device_body.insert_child_after(row, self.channel_row)
+
+    def _on_autofit_toggled(self, btn):
+        """Pressing Auto returns the scientific correction: a
+        re-fit from the stored takes (hand edits ask first).
+        Un-pressing by hand means nothing -- edits un-press it
+        themselves."""
+        if self._autofit_syncing or self._loading:
+            return
+        if btn.get_active():
+            self._on_refit()
+        else:
+            self._autofit_syncing = True
+            try:
+                btn.set_active(True)
+            finally:
+                self._autofit_syncing = False
 
     def _wire_picker_actions(self, b):
         """The picker's actions live beside the search entry now --
@@ -728,7 +776,8 @@ class EqWindow(Adw.ApplicationWindow):
         if miss:
             self.live = False
             self.node = None
-            self.window_title.set_subtitle("PipeWire tools not found")
+            self.header_note.set_text("PipeWire tools not found")
+            self.header_note.set_visible(True)
             self.device_dd.set_sensitive(False)
             self.follow_btn.set_sensitive(False)
             return
@@ -840,8 +889,6 @@ class EqWindow(Adw.ApplicationWindow):
             self.cur_ch = ch
             slot = self._slot(ch)
             self.bands = slot["bands"]               # alias: edits mutate the slot
-            self.bands_group.set_title("Bands" if self.apply_all
-                                       else "Bands · %s" % ch)
             self.preamp_spin.set_value(self.preamp)
             self.view.set_bands([b.to_dict() for b in self.bands])
             self.view.set_preamp(self.preamp)
@@ -1320,14 +1367,6 @@ class EqWindow(Adw.ApplicationWindow):
             _step(range(self._hidx + 1, len(self._hist))))
 
     # ---- band table --------------------------------------------------------
-    def _on_clear_bands(self, _btn):
-        """Remove all bands of the shown slot (Ctrl+Z restores them)."""
-        if not self.bands:
-            return
-        self.bands.clear()
-        self.view.set_bands([])
-        self._on_edit()
-
     def _on_preamp(self, spin):
         """Preamp spin changed: one shared value for the whole
         profile. A HAND turn is a compromise -- it un-presses
@@ -1455,8 +1494,8 @@ class EqWindow(Adw.ApplicationWindow):
         neutral (the tier-2 meter will keep flagging hot inputs here)."""
         if self.bypass_row.get_active():
             self.clip_icon.set_visible(False)
-            self.preamp_row.set_subtitle(self._preamp_subtitle)
-            self.preamp_row.set_tooltip_text(None)
+            self.preamp_sub.set_text(self._preamp_subtitle)
+            self.preamp_sub.set_tooltip_text(None)
             return
         if (self.preamp_auto and not self._loading
                 and not self._restoring):
@@ -1485,7 +1524,7 @@ class EqWindow(Adw.ApplicationWindow):
                                                     where, safe_txt)
         if self._clamped_note:
             sub = self._clamped_note + " · " + sub
-        self.preamp_row.set_subtitle(sub)
+        self.preamp_sub.set_text(sub)
 
         tip = None
         if over:
@@ -1496,7 +1535,7 @@ class EqWindow(Adw.ApplicationWindow):
             if len(offenders) > 1:
                 listed = ", ".join("%s %+.1f" % (k, v) for k, v in offenders)
                 tip += "\nOver 0 dBFS: %s." % listed
-        self.preamp_row.set_tooltip_text(tip)
+        self.preamp_sub.set_tooltip_text(tip)
         self.clip_icon.set_tooltip_text(tip if over else None)
 
 
