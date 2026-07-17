@@ -278,30 +278,12 @@ class EqWindow(Adw.ApplicationWindow):
 
         self._canvas = None          # measurement overlay cache
         self.show_meas = True
-        self.meas_toggle = Gtk.ToggleButton()
-        self.meas_toggle.set_icon_name("view-reveal-symbolic")
-        self.meas_toggle.set_active(True)
-        self.meas_toggle.add_css_class("flat")
-        self.meas_toggle.set_tooltip_text(
-            "Show the measurement behind this profile")
-        self.meas_toggle.connect("toggled", self._on_meas_toggle)
+        # Text registers only: their strings feed the card header's
+        # dim trust line. The bar that showed them under the table
+        # duplicated that line and is gone; the eye and Re-fit moved
+        # into the Bands header (see _build_bands_area).
         self.trust_label = Gtk.Label(xalign=0.0)
-        self.trust_label.set_hexpand(True)
-        self.trust_label.add_css_class("dim-label")
         self.fit_state_label = Gtk.Label()
-        self.refit_btn = Gtk.Button(label="Re-fit")
-        self.refit_btn.add_css_class("flat")
-        self.refit_btn.set_tooltip_text(
-            "Rebuild the bands from the stored measurement")
-        self.refit_btn.connect("clicked", self._on_refit)
-        self.trust_bar = Gtk.Box(spacing=8)
-        for w in (self.meas_toggle, self.trust_label,
-                  self.fit_state_label, self.refit_btn):
-            self.trust_bar.append(w)
-        self.trust_bar.set_margin_start(6)
-        self.trust_bar.set_margin_end(6)
-        self.trust_bar.set_margin_bottom(4)
-        self.trust_bar.set_visible(False)
         self.fit_bar = Gtk.ProgressBar()
         self.fit_bar.set_show_text(True)
         fit_lbl = Gtk.Label(label="Calculating new fit")
@@ -323,7 +305,6 @@ class EqWindow(Adw.ApplicationWindow):
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                        spacing=4)
         wrap.append(over)
-        wrap.append(self.trust_bar)
         self.bands_group.add(wrap)
 
     def _on_device_card_toggled(self, expanded):
@@ -379,7 +360,7 @@ class EqWindow(Adw.ApplicationWindow):
         p = self.store.get(self.current_pid) or {}
         m = p.get("measurement")
         has = isinstance(m, dict) and bool(m.get("takes"))
-        self.trust_bar.set_visible(bool(has))
+        self.meas_toggle.set_visible(bool(has))
         if not has:
             self._canvas = None
             self.device_hdr.set_text("")
@@ -442,7 +423,7 @@ class EqWindow(Adw.ApplicationWindow):
             txt = "Measurement attached"
         self.trust_label.set_text(txt)
         tip = "\n".join((rep or {}).get("reasons") or [])
-        self.trust_bar.set_tooltip_text(tip or None)
+        self.device_hdr.set_tooltip_text(tip or None)
         chips = [t for t, on in (("stale", stale),
                                  ("incomplete", incomplete),
                                  ("edited", edited)) if on]
@@ -621,8 +602,18 @@ class EqWindow(Adw.ApplicationWindow):
                 disp, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def _build_bands_area(self):
-        """Build the Bands header actions (Clear/Import/add) and the band grid."""
+        """The Bands header actions: the measurement eye, Clear,
+        Import and Re-fit -- the trust text itself lives in the
+        card header now."""
         suffix = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.meas_toggle = Gtk.ToggleButton()
+        self.meas_toggle.set_icon_name("view-reveal-symbolic")
+        self.meas_toggle.set_active(True)
+        self.meas_toggle.add_css_class("flat")
+        self.meas_toggle.set_visible(False)
+        self.meas_toggle.set_tooltip_text(
+            "Show the measurement behind this profile")
+        self.meas_toggle.connect("toggled", self._on_meas_toggle)
         clear_btn = Gtk.Button.new_from_icon_name("edit-clear-all-symbolic")
         clear_btn.add_css_class("flat")
         clear_btn.set_tooltip_text("Remove all bands shown here")
@@ -632,8 +623,15 @@ class EqWindow(Adw.ApplicationWindow):
         imp_btn = Gtk.Button(child=imp_content)
         imp_btn.set_tooltip_text("Replace the bands shown here from a parametric-EQ text file")
         imp_btn.connect("clicked", lambda *_: self._import_rew())
+        self.refit_btn = Gtk.Button(label="Re-fit")
+        self.refit_btn.add_css_class("flat")
+        self.refit_btn.set_tooltip_text(
+            "Rebuild the bands from the stored measurement")
+        self.refit_btn.connect("clicked", self._on_refit)
+        suffix.append(self.meas_toggle)
         suffix.append(clear_btn)
         suffix.append(imp_btn)
+        suffix.append(self.refit_btn)
         self.bands_group.set_header_suffix(suffix)
 
     def _wire_picker_actions(self, b):
