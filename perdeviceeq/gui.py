@@ -39,8 +39,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Gio, GLib, Gdk, Adw, Pango
 
 from . import config, eq, pipewire, integration
-from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE,
-                     SYS_DESKTOP_FILE, UI_STATE_FILE,
+from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE, UI_STATE_FILE,
                      UI_FILE_CANDIDATES)
 from .peq_view import CollapsibleCard, PeqView
 from .preferences import PreferenceLayers
@@ -731,23 +730,16 @@ class EqWindow(Adw.ApplicationWindow):
             if resp != "yes":
                 self.get_application().quit()
                 return
+            # the dialog is the GUI face of --install, and they
+            # SHARE the routine now -- one source of truth
             try:
-                if integration.install_hook():
-                    integration.restart_wireplumber()
+                integration.install_full()
             except FileNotFoundError as e:
                 err = Adw.AlertDialog(heading="Install failed",
                                       body=str(e))
                 err.add_response("ok", "OK")
                 err.present(self)
                 return
-            # the dialog is the GUI face of --install: the desktop
-            # entry rides along (skipped when a system package
-            # already owns one; never fatal)
-            if not os.path.exists(SYS_DESKTOP_FILE):
-                try:
-                    integration.install_desktop_integration()
-                except FileNotFoundError:
-                    pass
             info = Adw.AlertDialog(
                 heading="Integration installed",
                 body="To remove it later, run:\n"
@@ -2189,6 +2181,22 @@ class EqWindow(Adw.ApplicationWindow):
             name.connect("notify::editing",
                          self._make_taste_rename_cb(lay["id"], name))
             h.append(name)
+            # EditableLabel starts editing on ANY click, and the
+            # name spans most of the row -- a plain click kept
+            # landing in rename instead of selection. The capture
+            # gesture hands the click to selection; the pencil
+            # starts editing programmatically, and while editing
+            # the gesture stands aside.
+            g = Gtk.GestureClick()
+            g.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+
+            def _pick(gest, *_a, r=row, e=name):
+                if e.get_editing():
+                    return
+                gest.set_state(Gtk.EventSequenceState.CLAIMED)
+                self._on_taste_row(self.taste_list, r)
+            g.connect("pressed", _pick)
+            name.add_controller(g)
             pen = Gtk.Button.new_from_icon_name(
                 "document-edit-symbolic")
             pen.add_css_class("flat")

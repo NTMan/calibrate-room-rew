@@ -30,9 +30,8 @@ for _cand in (_HERE, "/usr/share/per-device-eq"):
 
 from perdeviceeq.config import SYS_DESKTOP_FILE
 from perdeviceeq.pipewire import missing_tools, missing_tools_message
-from perdeviceeq.integration import (install_hook, uninstall_hook,
+from perdeviceeq.integration import (install_full, uninstall_hook,
                                       restart_wireplumber,
-                                      install_desktop_integration,
                                       uninstall_desktop_integration)
 from perdeviceeq.cli import (cmd_list, cmd_list_sources,
                              cmd_list_profiles, cmd_inspect,
@@ -80,23 +79,17 @@ def main():
         return cmd_apply()
     if args.install:
         try:
-            changed = install_hook()
+            res = install_full()
         except FileNotFoundError as e:
             print(str(e), file=sys.stderr)
             return 2
-        if changed:
-            print("hook + config installed; restarting WirePlumber once...")
-            restart_wireplumber()
-        else:
-            print("hook already up to date")
-        if os.path.exists(SYS_DESKTOP_FILE):
-            print("desktop entry: provided by the system package")
-        else:
-            try:
-                install_desktop_integration()
-                print("desktop entry + icon installed")
-            except FileNotFoundError as e:
-                print("desktop entry skipped: %s" % e)
+        print("hook + config installed; WirePlumber restarted once..."
+              if res["hook"] else "hook already up to date")
+        print({"packaged": "desktop entry: provided by the system "
+                           "package",
+               "installed": "desktop entry + icon installed",
+               "missing": "desktop entry skipped: assets not found"}
+              [res["desktop"]])
         print("uninstall everything with: per-device-eq.py --uninstall")
         return 0
     if args.uninstall:

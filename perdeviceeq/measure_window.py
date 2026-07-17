@@ -563,6 +563,7 @@ class MeasureWindow(Adw.Window):
         if drives:
             info += "  ·  spread driver"
         lbl = Gtk.Label(label=info, xalign=0.0, hexpand=True)
+        lbl.add_css_class("caption")
         lbl.add_css_class("warning" if drives else "dim-label")
         if drives:
             lbl.set_tooltip_text(

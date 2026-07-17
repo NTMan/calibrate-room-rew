@@ -61,6 +61,26 @@ def install_hook():
     conf_changed = _write_if_changed(WP_CONF, HOOK_CONF)
     return lua_changed or conf_changed
 
+def install_full():
+    """One source of truth for --install and the GUI dialog: the
+    hook (with one WirePlumber restart when it changed), then the
+    desktop entry unless a system package owns it. Returns
+    {"hook": changed, "desktop": "packaged"|"installed"|"missing"}
+    for the caller to narrate its own way."""
+    changed = install_hook()
+    if changed:
+        restart_wireplumber()
+    if os.path.exists(SYS_DESKTOP_FILE):
+        desk = "packaged"
+    else:
+        try:
+            install_desktop_integration()
+            desk = "installed"
+        except FileNotFoundError:
+            desk = "missing"
+    return {"hook": changed, "desktop": desk}
+
+
 def hook_installed():
     """Both halves on disk: the question the GUI asks at startup."""
     return os.path.exists(WP_SCRIPT) and os.path.exists(WP_CONF)
