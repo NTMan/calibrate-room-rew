@@ -157,23 +157,18 @@
                 <property name="orientation">vertical</property>
                 <property name="spacing">18</property>
 
-                <!-- taste (temporary row; its card lands next) -->
-                <child>
-                  <object class="AdwPreferencesGroup">
-                    <child>
-                      <object class="AdwComboRow" id="taste_row">
-                        <property name="title" translatable="yes">Taste</property>
-                        <property name="subtitle" translatable="yes">Preference EQ on top of any profile</property>
-                      </object>
-                    </child>
-                  </object>
-                </child>
-
                 <!-- the device card: profile picker + trust in the
                      header, the collapsible editor underneath; the
                      card itself is built in code -->
                 <child>
                   <object class="GtkBox" id="device_card_slot"/>
+                </child>
+
+                <!-- the taste card: the layer picker in the header,
+                     the active layer's editor underneath; built in
+                     code -->
+                <child>
+                  <object class="GtkBox" id="taste_card_slot"/>
                 </child>
 
                 <!-- preamp closes the section: a shared gain, not a band -->

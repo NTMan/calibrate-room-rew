@@ -175,7 +175,6 @@ class EqWindow(Adw.ApplicationWindow):
         self.window_title = b.get_object("window_title")
         self.profile_button = b.get_object("profile_button")
         self.profile_popover = b.get_object("profile_popover")
-        self.taste_row = b.get_object("taste_row")
         self.search_entry = b.get_object("search_entry")
         self.profile_list = b.get_object("profile_list")
         self.device_dd = b.get_object("device_dd")
@@ -216,6 +215,38 @@ class EqWindow(Adw.ApplicationWindow):
         card_body.append(self.bands_group)
         self.device_card.set_body(card_body)
         b.get_object("device_card_slot").append(self.device_card)
+
+        # ---- the taste card: the layer picker in the header, the
+        # active layer's editor underneath ---------------------------
+        self.taste_card = CollapsibleCard(
+            expanded=bool(self._ui_state.get("taste_card", False)),
+            on_toggled=self._on_taste_card_toggled)
+        tl = Gtk.Label(label="Taste", xalign=0.0)
+        tl.add_css_class("heading")
+        self.taste_card.add_header(tl)
+        spacer = Gtk.Box()
+        self.taste_card.add_header(spacer, expand=True)
+        self.taste_button = Gtk.MenuButton()
+        self.taste_button.set_valign(Gtk.Align.CENTER)
+        self.taste_button.set_always_show_arrow(True)
+        self.taste_button.set_popover(self._build_taste_popover())
+        self.taste_card.add_header(self.taste_button)
+        tbody = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                        spacing=12)
+        for side in ("start", "end", "bottom"):
+            getattr(tbody, "set_margin_" + side)(12)
+        self.taste_view = PeqView(self._on_taste_view_changed,
+                                  compact=True)
+        self.taste_hint = Gtk.Label(
+            label="No taste layer active. Pick or create one to "
+                  "dial your EQ over every device.")
+        self.taste_hint.set_wrap(True)
+        self.taste_hint.set_max_width_chars(46)
+        self.taste_hint.add_css_class("dim-label")
+        tbody.append(self.taste_hint)
+        tbody.append(self.taste_view)
+        self.taste_card.set_body(tbody)
+        b.get_object("taste_card_slot").append(self.taste_card)
 
         self._install_css()
         self._build_header_buttons()
@@ -258,16 +289,8 @@ class EqWindow(Adw.ApplicationWindow):
         self.header_bar.pack_start(self.undo_btn)
         self.header_bar.pack_start(self.redo_btn)
         self.pref_layers = PreferenceLayers()
-        gear = Gtk.Button.new_from_icon_name("emblem-system-symbolic")
-        gear.add_css_class("flat")
-        gear.set_tooltip_text("Settings: preference EQ layers")
-        gear.connect("clicked", lambda *_: self._open_settings())
-        self.header_bar.pack_end(gear)
         self.header_bar.pack_end(self.bypass_row)
-        self.taste_row.connect("notify::selected",
-                               self._on_taste_selected)
-        self._tame_scroll(self.taste_row)
-        self._sync_taste_row()
+        self._sync_taste_card()
 
     def _build_graph(self):
         """Create the response plot (DrawingArea) with drag + right-click gestures."""
@@ -1806,212 +1829,165 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- FR graph ----------------------------------------------------------
     # ---- settings: preference EQ layers ---------------------------------
-    def _sync_taste_row(self):
-        """The Taste combo above Profile mirrors the layer store:
-        who is listening right now, one click to switch."""
-        names = ["No layer"] + [l["name"]
-                                for l in self.pref_layers.layers]
-        self._taste_ids = [None] + [l["id"]
-                                    for l in self.pref_layers.layers]
-        self._taste_syncing = True
-        self.taste_row.set_model(Gtk.StringList.new(names))
-        act = self.pref_layers.active_id
-        idx = self._taste_ids.index(act) if act in self._taste_ids \
-            else 0
-        self.taste_row.set_selected(idx)
-        self._taste_syncing = False
-
-    def _on_taste_selected(self, *_):
-        if getattr(self, "_taste_syncing", False):
-            return
-        idx = self.taste_row.get_selected()
-        ids = getattr(self, "_taste_ids", [None])
-        if 0 <= idx < len(ids):
-            self.pref_layers.set_active(ids[idx])
-            self._apply_now()
-            self._update_headroom()
-
-    def _on_settings_key(self, _ctrl, keyval, _code, state):
-        if not (state & Gdk.ModifierType.CONTROL_MASK):
-            return False
-        if keyval not in (Gdk.KEY_z, Gdk.KEY_Z):
-            return False
-        if state & Gdk.ModifierType.SHIFT_MASK:
-            self._taste_step(self._taste_redo, self._taste_undo)
-        else:
-            self._taste_step(self._taste_undo, self._taste_redo)
-        return True                  # never falls to the window
-
-    def _taste_step(self, src, dst):
-        """Pop one taste snapshot from src, push the current state
-        onto dst, land the snapshot in the store, the view and the
-        pipe. Entries for since-deleted layers drop silently."""
-        while src:
-            lid, bands = src.pop()
-            cur = self.pref_layers.get(lid)
-            if cur is None:
-                continue
-            dst.append((lid, [dict(b) for b in cur["bands"]]))
-            self.pref_layers.upsert(dict(cur, bands=bands))
-            view = self._settings_views.get(lid)
-            if view is not None:
-                view.set_bands(bands)
-            if self.pref_layers.active_id == lid:
-                self._apply_now()
-                self._update_headroom()
-            return
-
     def _taste_refresh(self):
         """After any layer change: re-apply, recompute the headroom
-        hints and keep the Taste row in step with the store."""
+        hints and keep the card in step with the store."""
         self._apply_now()
         self._update_headroom()
-        self._sync_taste_row()
+        self._sync_taste_card()
 
-    def _open_settings(self):
-        """The gear: taste layers live here -- device-independent,
-        composed after whatever profile is active, never touching
-        the profiles themselves."""
-        dlg = Adw.PreferencesDialog()
-        dlg.set_title("Settings")
-        # Taste gets its own session undo: same instrument, same
-        # safety net. BUBBLE phase, so entries keep their text undo;
-        # claimed always while the dialog is open, so the shortcut
-        # cannot fall through and silently undo the DEVICE profile
-        # behind the shade.
-        self._taste_undo, self._taste_redo = [], []
-        self._taste_pending = {}
-        self._settings_views = {}
-        keys = Gtk.EventControllerKey()
-        keys.connect("key-pressed", self._on_settings_key)
-        dlg.add_controller(keys)
-        dlg.set_content_width(640)      # clamps to the window when
-        dlg.set_content_height(600)     # it is narrower
-        page = Adw.PreferencesPage()
-        page.set_title("Preference EQ")
-        page.set_icon_name("audio-x-generic-symbolic")
-        self._layers_group = Adw.PreferencesGroup()
-        self._layers_group.set_title("Preference EQ layers")
-        self._layers_group.set_description(
-            "Taste, not correction: a hand-dialed EQ composed after "
-            "the active profile on every device. Profiles stay "
-            "untouched.")
-        add = Gtk.Button.new_from_icon_name("list-add-symbolic")
-        add.add_css_class("flat")
-        add.set_tooltip_text("Add a layer")
-        add.connect("clicked", self._on_layer_add)
-        self._layers_group.set_header_suffix(add)
-        page.add(self._layers_group)
-        dlg.add(page)
-        self._layer_rows = []
-        self._rebuild_layer_rows()
-        dlg.present(self)
+    def _build_taste_popover(self):
+        """The layer picker, patterned on the profile one: New in
+        the header, per-row rename and delete, No layer on top."""
+        self.taste_popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                      spacing=6)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + side)(6)
+        head = Gtk.Box(spacing=6)
+        title = Gtk.Label(label="Preference EQ layers", xalign=0.0)
+        title.add_css_class("dim-label")
+        title.add_css_class("caption")
+        title.set_hexpand(True)
+        new_btn = Gtk.Button.new_from_icon_name("list-add-symbolic")
+        new_btn.add_css_class("flat")
+        new_btn.set_tooltip_text("New layer")
+        new_btn.connect("clicked", self._on_taste_new)
+        head.append(title)
+        head.append(new_btn)
+        box.append(head)
+        self.taste_list = Gtk.ListBox()
+        self.taste_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.taste_list.add_css_class("navigation-sidebar")
+        self.taste_list.connect("row-activated", self._on_taste_row)
+        box.append(self.taste_list)
+        self.taste_popover.set_child(box)
+        return self.taste_popover
 
-    def _rebuild_layer_rows(self):
-        for row in self._layer_rows:
-            self._layers_group.remove(row)
-        self._layer_rows = []
-        anchor = Gtk.CheckButton()          # radio group anchor
-        anchor.set_valign(Gtk.Align.CENTER)
-        anchor.set_active(self.pref_layers.active_id is None)
-        anchor.connect("toggled", self._make_layer_active_cb(None))
-        none_row = Adw.ActionRow(title="No layer")
-        none_row.set_subtitle("Correction only")
-        none_row.add_prefix(anchor)
-        none_row.set_activatable_widget(anchor)
-        self._layers_group.add(none_row)
-        self._layer_rows.append(none_row)
+    def _taste_row_widget(self, lay):
+        """One layer row: checkmark, editable name, pencil, X."""
+        row = Gtk.ListBoxRow()
+        row.lid = None if lay is None else lay["id"]
+        h = Gtk.Box(spacing=6)
+        chk = Gtk.Image.new_from_icon_name("object-select-symbolic")
+        chk.set_opacity(
+            1.0 if row.lid == self.pref_layers.active_id else 0.0)
+        h.append(chk)
+        if lay is None:
+            name = Gtk.Label(label="No layer", xalign=0.0)
+            name.set_hexpand(True)
+            h.append(name)
+        else:
+            name = Gtk.EditableLabel()
+            name.set_text(lay["name"])
+            name.set_hexpand(True)
+            name.set_valign(Gtk.Align.CENTER)
+            name.connect("notify::editing",
+                         self._make_taste_rename_cb(lay["id"], name))
+            h.append(name)
+            pen = Gtk.Button.new_from_icon_name(
+                "document-edit-symbolic")
+            pen.add_css_class("flat")
+            pen.set_valign(Gtk.Align.CENTER)
+            pen.set_tooltip_text("Rename")
+            pen.connect("clicked",
+                        lambda *_a, e=name: e.start_editing())
+            h.append(pen)
+            x = Gtk.Button.new_from_icon_name(
+                "window-close-symbolic")
+            x.add_css_class("flat")
+            x.set_valign(Gtk.Align.CENTER)
+            x.set_tooltip_text("Delete")
+            x.connect("clicked",
+                      lambda *_a, l=lay: self._on_taste_delete(l))
+            h.append(x)
+        row.set_child(h)
+        return row
+
+    def _sync_taste_card(self):
+        """The button label, the picker rows and the body all
+        mirror the layer store."""
+        lb = self.taste_list
+        child = lb.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            lb.remove(child)
+            child = nxt
+        lb.append(self._taste_row_widget(None))
         for lay in self.pref_layers.layers:
-            row = self._layer_row(lay, anchor)
-            self._layers_group.add(row)
-            self._layer_rows.append(row)
+            lb.append(self._taste_row_widget(lay))
+        act = self.pref_layers.active()
+        self.taste_button.set_label(act["name"] if act
+                                    else "No layer")
+        has = act is not None
+        self.taste_hint.set_visible(not has)
+        self.taste_view.set_visible(has)
+        if has:
+            self.taste_view.set_bands(act.get("bands") or [])
 
-    def _make_layer_active_cb(self, lid):
-        def cb(btn):
-            if btn.get_active():
-                self.pref_layers.set_active(lid)
-                self._taste_refresh()
+    def _make_taste_rename_cb(self, lid, editable):
+        def cb(*_):
+            if editable.get_editing():
+                return               # commit happens on leave
+            cur = self.pref_layers.get(lid)
+            txt = editable.get_text().strip()
+            if cur is None or not txt or txt == cur["name"]:
+                return
+            self.pref_layers.upsert(dict(cur, name=txt))
+            self._sync_taste_card()
         return cb
 
-    def _layer_row(self, lay, group):
-        lid = lay["id"]
-        row = Adw.ExpanderRow(title=lay["name"] or "Preference")
-        radio = Gtk.CheckButton()
-        radio.set_group(group)
-        radio.set_valign(Gtk.Align.CENTER)
-        radio.set_active(self.pref_layers.active_id == lid)
-        radio.connect("toggled", self._make_layer_active_cb(lid))
-        row.add_prefix(radio)
-        rm = Gtk.Button.new_from_icon_name("user-trash-symbolic")
-        rm.add_css_class("flat")
-        rm.set_valign(Gtk.Align.CENTER)
-        rm.set_tooltip_text("Delete this layer")
-        rm.connect("clicked", lambda *_: self._on_layer_delete(lid))
-        row.add_suffix(rm)
-        name = Adw.EntryRow(title="Name")
-        name.set_text(lay["name"])
+    def _on_taste_card_toggled(self, expanded):
+        self._ui_state["taste_card"] = bool(expanded)
+        _save_ui_state(self._ui_state)
 
-        def renamed(entry):
-            text = entry.get_text().strip()
-            cur = self.pref_layers.get(lid)
-            if cur and text and cur["name"] != text:
-                self.pref_layers.upsert(dict(cur, name=text))
-                row.set_title(text)
-                self._sync_taste_row()
-        name.connect("changed", renamed)
-        row.add_row(name)
-        row.add_row(self._layer_band_editor(lid))
-        return row
+    def _on_taste_row(self, _lb, row):
+        self.taste_popover.popdown()
+        self.pref_layers.set_active(getattr(row, "lid", None))
+        self._taste_refresh()
 
-    def _on_layer_add(self, *_):
-        self.pref_layers.upsert({"name": "New layer", "bands": []})
-        self._rebuild_layer_rows()
-        self._sync_taste_row()
+    def _on_taste_new(self, *_):
+        names = {l["name"] for l in self.pref_layers.layers}
+        i = 1
+        while ("Layer %d" % i) in names:
+            i += 1
+        lid = self.pref_layers.upsert({"name": "Layer %d" % i,
+                                       "bands": []})
+        self.pref_layers.set_active(lid)
+        self._taste_refresh()
 
-    def _on_layer_delete(self, lid):
-        was = self.pref_layers.active_id == lid
-        self.pref_layers.delete(lid)
-        self._rebuild_layer_rows()
-        if was:
-            self._apply_now()
-            self._update_headroom()
-        self._sync_taste_row()
+    def _on_taste_delete(self, lay):
+        self.taste_popover.popdown()    # popovers sit above dialogs
+        dlg = Adw.AlertDialog(
+            heading="Delete layer?",
+            body="“%s” will be deleted. This cannot be "
+                 "undone." % lay["name"])
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("delete", "Delete")
+        dlg.set_response_appearance(
+            "delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
 
-    def _layer_band_editor(self, lid):
-        """One PeqView per layer: the taste editor is the SAME
-        instrument as the correction editor -- graph and table,
-        rendered and driven identically. Write-through: every edit
-        lands in the store and re-applies live when the layer is
-        active; the headroom refresh runs on final edits only, so a
-        drag does not spam it."""
-        def changed(bands, final):
-            cur = self.pref_layers.get(lid)
-            if cur is None:
+        def on_resp(_d, resp):
+            if resp != "delete":
                 return
-            if self._taste_pending.get(lid) is None:
-                # snapshot BEFORE the first movement of a gesture,
-                # so undo rewinds the whole drag, not one frame
-                self._taste_pending[lid] = [dict(b)
-                                            for b in cur["bands"]]
-            self.pref_layers.upsert(dict(cur, bands=bands))
-            if self.pref_layers.active_id == lid:
-                self._apply_now()
-            if final:
-                before = self._taste_pending.pop(lid, None)
-                if before is not None and before != bands:
-                    self._taste_undo.append((lid, before))
-                    self._taste_redo.clear()
-                if self.pref_layers.active_id == lid:
-                    self._update_headroom()
-        view = PeqView(changed, compact=True)
-        cur = self.pref_layers.get(lid)
-        view.set_bands(cur["bands"] if cur else [])
-        self._settings_views[lid] = view
-        row = Gtk.ListBoxRow()
-        row.set_activatable(False)
-        row.set_child(view)
-        return row
+            self.pref_layers.delete(lay["id"])
+            self._taste_refresh()
+        dlg.connect("response", on_resp)
+        dlg.present(self)
 
+    def _on_taste_view_changed(self, bands, final):
+        """Write-through: the active layer takes every edit; the
+        session undo for taste returns as part of the GLOBAL
+        history in the next patch."""
+        act = self.pref_layers.active()
+        if act is None:
+            return
+        self.pref_layers.upsert(dict(act, bands=bands))
+        self._apply_now()
+        if final:
+            self._update_headroom()
 
 class EqApplication(Adw.Application):
     def __init__(self):
