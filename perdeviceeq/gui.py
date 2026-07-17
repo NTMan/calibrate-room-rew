@@ -185,6 +185,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.sep_switch = b.get_object("sep_switch")
         self.channel_row = b.get_object("channel_row")
         self.preamp_row = b.get_object("preamp_row")
+        self.preamp_group = b.get_object("preamp_group")
         self.bypass_row = Gtk.ToggleButton(label="Bypass")
         self.bypass_row.set_tooltip_text(
             "Hear the device raw: profile and taste muted")
@@ -598,6 +599,13 @@ class EqWindow(Adw.ApplicationWindow):
         self.preamp_row.add_suffix(pair)
         self.preamp_row.set_activatable_widget(self.preamp_spin)
         self._preamp_subtitle = self.preamp_row.get_subtitle() or ""
+        # the closing card's second half: per-channel level meters
+        # (rows are rebuilt whenever the channel set changes)
+        self.meters_grid = Gtk.Grid(column_spacing=10, row_spacing=4)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(self.meters_grid, "set_margin_" + side)(10)
+        self.meters_grid.set_visible(False)
+        self.preamp_group.add(self.meters_grid)
 
     _CSS_INSTALLED = False
 
@@ -613,10 +621,8 @@ class EqWindow(Adw.ApplicationWindow):
             " .eqrow dropdown > button { min-height: 24px; }"
             " .eqrow spinbutton text, .eqrow spinbutton entry,"
             " .eqrow dropdown > button, .eqrow button"
-            " { min-height: 24px; padding-top: 1px; padding-bottom: 1px; }"
-            # ...and flag every over-0 channel on its tab in the channel bar
-            # tabs go red only when the tier-2 meter LATCHED an actual clip
-            " button.clip-live label { color: @error_color; font-weight: 600; }")
+            " { min-height: 24px; padding-top: 1px;"
+            " padding-bottom: 1px; }")
         css = Gtk.CssProvider()
         if hasattr(css, "load_from_string"):
             css.load_from_string(data)
@@ -857,24 +863,12 @@ class EqWindow(Adw.ApplicationWindow):
         devices -- which gives the clip badge a home in both modes."""
         self._clear_box(self.channel_bar)
         self._chan_buttons = {}
-        self._meter_areas = {}
         keys = ["all"] if self.apply_all else list(self.ch_keys)
         show_meters = pipewire.meter_available()
         first = None
         for k in keys:
-            idxs = (tuple(range(len(self.ch_keys))) if k == "all"
-                    else (self.ch_keys.index(k),))
-            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-            box.append(Gtk.Label(label="All" if k == "all" else k))
-            area = Gtk.DrawingArea()
-            area.set_content_width(6 * len(idxs) + 2 * (len(idxs) - 1))
-            area.set_content_height(22)
-            area.set_valign(Gtk.Align.CENTER)
-            area.set_draw_func(self._draw_tab_meter, idxs)
-            area.set_visible(show_meters)
-            box.append(area)
-            btn = Gtk.ToggleButton()
-            btn.set_child(box)
+            btn = Gtk.ToggleButton(
+                label="All" if k == "all" else k)
             if first is None:
                 first = btn
             else:
@@ -885,8 +879,63 @@ class EqWindow(Adw.ApplicationWindow):
             btn.connect("toggled", self._make_chan_cb(k))
             self.channel_bar.append(btn)
             self._chan_buttons[k] = btn
-            self._meter_areas[k] = area
         self.channel_row.set_visible(len(self.ch_keys) > 1)
+        self._rebuild_meter_rows(show_meters)
+
+    def _rebuild_meter_rows(self, show):
+        """Per-channel post-composition levels with clip lamps, in
+        the closing card next to the preamp -- they belong to the
+        SUM of the layers, not to one, and they must survive the
+        cards folding."""
+        self._clear_box(self.meters_grid)
+        self._meter_areas = {}
+        self._meter_lamps = {}
+        self.meters_grid.set_visible(show and bool(self.ch_keys))
+        for i, k in enumerate(self.ch_keys):
+            lbl = Gtk.Label(label=k, xalign=0.0)
+            lbl.add_css_class("dim-label")
+            lbl.add_css_class("caption")
+            self.meters_grid.attach(lbl, 0, i, 1, 1)
+            area = Gtk.DrawingArea()
+            area.set_hexpand(True)
+            area.set_content_height(12)
+            area.set_valign(Gtk.Align.CENTER)
+            area.set_draw_func(self._draw_level_bar, i)
+            self.meters_grid.attach(area, 1, i, 1, 1)
+            lamp = Gtk.Image.new_from_icon_name(
+                "dialog-warning-symbolic")
+            lamp.add_css_class("error")
+            lamp.set_visible(False)
+            self.meters_grid.attach(lamp, 2, i, 1, 1)
+            self._meter_areas[i] = area
+            self._meter_lamps[i] = lamp
+
+    def _draw_level_bar(self, _area, cr, w, h, i):
+        """Post-EQ level, -24..+3 dB, horizontal: blue below the
+        0 dBFS line, red above it -- the old tab meters' palette,
+        moved to the closing card."""
+        LO, HI = -24.0, 3.0
+        st = self._meter_state
+
+        def x_of(v):
+            return (min(max(v, LO), HI) - LO) / (HI - LO) * w
+        zero = x_of(0.0)
+        cr.set_source_rgba(0.5, 0.5, 0.5, 0.28)
+        cr.rectangle(0, 0, w, h)
+        cr.fill()
+        db = st[i][0] if st and i < len(st) else LO
+        if db > LO:
+            xr = x_of(db)
+            cr.set_source_rgba(0.22, 0.52, 0.90, 1.0)
+            cr.rectangle(0, 0, min(xr, zero), h)
+            cr.fill()
+            if db > 0.0:
+                cr.set_source_rgba(0.87, 0.19, 0.19, 1.0)
+                cr.rectangle(zero, 0, xr - zero, h)
+                cr.fill()
+        cr.set_source_rgba(1, 1, 1, 0.55)
+        cr.rectangle(zero - 0.5, 0, 1, h)
+        cr.fill()
 
     def _make_chan_cb(self, key):
         """Factory: switch the edited channel to `ch`."""
@@ -1307,12 +1356,12 @@ class EqWindow(Adw.ApplicationWindow):
         reads out the WORST applied chain -- exactly what its spin and
         Auto act on -- and turns error-red past 0 dBFS. Clipping is still
         per output channel: every over-0 channel is also flagged on its
-        tab in the channel bar; the tab tooltip carries each channel's
-        clipped-sample percentage — the same metric audit_headroom prints. In Bypass
+        row in the closing card; each lamp's tooltip carries that
+        channel's clipped-sample percentage -- the same metric
+        audit_headroom prints. In Bypass
         tier 1 has nothing to warn about -- the profile adds no gain and the
         input level is not measured yet -- so everything goes back to
         neutral (the tier-2 meter will keep flagging hot inputs here)."""
-        chan_btns = getattr(self, "_chan_buttons", {})
         if self.bypass_row.get_active():
             self.clip_icon.set_visible(False)
             self.fix_btn.set_visible(False)
@@ -1489,24 +1538,16 @@ class EqWindow(Adw.ApplicationWindow):
             bar, latched = self._bal[i].update(frame["t"], pk, cl)
             st.append((bar, latched, self._bal[i].clip_total))
         self._meter_state = st
-        for key, area in self._meter_areas.items():
-            idxs = (range(len(st)) if key == "all"
-                    else [self.ch_keys.index(key)]
-                    if key in self.ch_keys else [])
-            idxs = [i for i in idxs if i < len(st)]
-            btn = self._chan_buttons.get(key)
-            if btn is not None and idxs:
-                if any(st[i][1] for i in idxs):
-                    btn.add_css_class("clip-live")
-                else:
-                    btn.remove_css_class("clip-live")
-                if self._sess_samples:
-                    btn.set_tooltip_text("\n".join(
-                        "%s %.3f%% clipped this session"
-                        % (self.ch_keys[i] if key == "all" else key,
-                           100.0 * st[i][2] / self._sess_samples)
-                        for i in idxs))
+        for i, area in self._meter_areas.items():
             area.queue_draw()
+            lamp = self._meter_lamps.get(i)
+            if lamp is None or i >= len(st):
+                continue
+            lamp.set_visible(bool(st[i][1]))
+            if self._sess_samples:
+                lamp.set_tooltip_text(
+                    "%.3f%% clipped this session"
+                    % (100.0 * st[i][2] / self._sess_samples))
         if not self.bypass_row.get_active():
             mx = max(frame["peaks_db"])
             if mx > self._CLIP_EPS_DB and (self._sess_peak is None
@@ -1514,32 +1555,6 @@ class EqWindow(Adw.ApplicationWindow):
                 self._sess_peak = mx
                 self._update_headroom()
         return False
-
-    def _draw_tab_meter(self, area, cr, w, h, idxs):
-        """Clip-guard bars, -24..+3 dB: blue below the 0 dBFS line, red
-        above it. One bar per input channel of this tab."""
-        LO, HI = -24.0, 3.0
-        st = self._meter_state
-        bw, gap = 6, 2
-        def y_of(v):
-            return h - (min(max(v, LO), HI) - LO) / (HI - LO) * h
-        zero = y_of(0.0)
-        for j, i in enumerate(idxs):
-            x = j * (bw + gap)
-            cr.set_source_rgba(0.5, 0.5, 0.5, 0.28)
-            cr.rectangle(x, 0, bw, h)
-            cr.fill()
-            db = st[i][0] if st and i < len(st) else LO
-            if db <= LO:
-                continue
-            top = y_of(db)
-            cr.set_source_rgba(0.22, 0.52, 0.90, 1.0)
-            cr.rectangle(x, max(top, zero), bw, h - max(top, zero))
-            cr.fill()
-            if db > 0.0:
-                cr.set_source_rgba(0.87, 0.19, 0.19, 1.0)
-                cr.rectangle(x, top, bw, zero - top)
-                cr.fill()
 
     # ---- profile picker ----------------------------------------------------
     def _on_picker_toggle(self, *_):
