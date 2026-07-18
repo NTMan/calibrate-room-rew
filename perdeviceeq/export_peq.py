@@ -57,9 +57,9 @@ BUILTIN_TARGETS = [
      "note": "AutoEq style; REW and EqualizerAPO import it",
      "writer": "parametric", "ext": ".txt"},
     {"id": "jamesdsp",
-     "name": "RootlessJamesDSP",
-     "note": "Android; Arbitrary response EQ reads EqualizerAPO"
-             " GraphicEQ text (no parametric import)",
+     "name": "GraphicEQ text (EqualizerAPO)",
+     "note": "EqualizerAPO GraphicEQ line; the JamesDSP family"
+             " (Arbitrary response EQ) reads it too",
      "writer": "graphiceq", "ext": ".txt"},
     {"id": "wavelet",
      "name": "Wavelet",
@@ -67,9 +67,10 @@ BUILTIN_TARGETS = [
              " (level is renormalized by the app)",
      "writer": "graphiceq", "ext": ".txt", "bare": True},
     {"id": "vendor-8band",
-     "name": "Generic 8-band graphic (template)",
-     "note": "octave sliders 100-12.8k, +/-6 dB in 1 dB steps --"
-             " verify against your app or drop in a measured basis",
+     "name": "Soundcore Custom EQ (8 bands)",
+     "note": "centers 100-12.8k and +/-6 dB confirmed on the"
+             " Liberty 5 app; slider curves assumed octave bells"
+             " until a measured basis is dropped in",
      "writer": "fixed", "ext": ".txt",
      "centers": [100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0,
                  6400.0, 12800.0],
