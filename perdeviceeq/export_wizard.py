@@ -254,6 +254,7 @@ class ExportDialog(Adw.Dialog):
         writer = t["writer"]
         taste = st.get("taste", True)
         allc = self.chains if taste else self.chains_plain
+        auto = bool(self.body.get("preamp_auto", True))
         nf = xp.log_grid(self.flo, self.fhi, _NULL_N)
         if writer == "poweramp":
             name = self.body.get("name", "profile")
@@ -265,9 +266,10 @@ class ExportDialog(Adw.Dialog):
                 g, bands, _note = xp.pick_chain(allc,
                                                 st["policy"])
                 chains = [("all", g, bands)]
-            adj, low = xp.headroom_preamp(
-                chains[0][1], [b for _k, _g, b in chains])
-            if low:
+            adj, moved = xp.headroom_preamp(
+                chains[0][1], [b for _k, _g, b in chains],
+                auto=auto)
+            if moved:
                 chains = [(k, adj, b) for k, _g, b in chains]
             text = xp.poweramp_json(t, chains, name)
             errs = xp.null_test_poweramp(text, chains, nf)
@@ -280,8 +282,8 @@ class ExportDialog(Adw.Dialog):
             line = ("Null test per chain over %s: %s dB -- %s."
                     " Preset preamp %+.1f dB%s."
                     % (self._band_str(), per, verdict, adj,
-                       (" (lowered %.1f dB for headroom)" % low)
-                       if low else ""))
+                       (" (lowered %.1f dB for headroom)" % -moved)
+                       if moved < 0 and not auto else ""))
             self._set_status(st, line, worst <= xp.NULL_PASS_DB)
         elif writer in ("parametric", "sheet"):
             g, bands, note = xp.pick_chain(allc, st["policy"])
@@ -290,12 +292,13 @@ class ExportDialog(Adw.Dialog):
             if folded:
                 hdr.append("Flat-gain trim folded into the shared"
                            " gain (%+.1f dB)." % folded)
-            fg, low = xp.headroom_preamp(fg, [fbands])
-            if low:
+            fg, moved = xp.headroom_preamp(fg, [fbands],
+                                           auto=auto)
+            if moved < 0 and not auto:
                 hdr.append("Shared gain lowered %.1f dB so the"
                            " composed chain stays under 0 dBFS."
-                           % low)
-            ref = xp.chain_response(g - low, bands, nf)
+                           % -moved)
+            ref = xp.chain_response(g + moved, bands, nf)
             if writer == "parametric":
                 text = xp.parametric_text(fg, fbands, header=hdr)
                 err = xp.null_test_parametric(text, nf, ref)

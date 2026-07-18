@@ -457,16 +457,25 @@ def test_poweramp_clamps_and_refusals():
     assert not ex.poweramp_stereo_keys([("FC", 0.0, [])])
 
 
-def test_headroom_preamp_lowers_for_taste():
+def test_headroom_preamp_manual_and_auto():
     boost = [{"type": "LSC", "freq": 50.0, "gain": 12.0, "q": 1.0,
               "enabled": True}]
-    adj, low = ex.headroom_preamp(-6.4, [boost])
-    assert low > 4.0 and adj < -11.0
-    assert abs(adj + low - (-6.4)) < 1e-9
-    same, zero = ex.headroom_preamp(-6.4, [[
-        {"type": "PK", "freq": 1000.0, "gain": -3.0, "q": 1.0,
-         "enabled": True}]])
-    assert zero == 0.0 and same == -6.4
+    calm = [{"type": "PK", "freq": 1000.0, "gain": 3.0, "q": 1.0,
+             "enabled": True}]
+    # manual: the stored value is intent -- respected, and only
+    # ever lowered when the composition peaks past it
+    adj, moved = ex.headroom_preamp(-6.4, [boost])
+    assert adj < -11.0 and moved < -4.0
+    assert abs((-6.4 + moved) - adj) < 1e-9
+    keep, zero = ex.headroom_preamp(-6.4, [calm])
+    assert keep == -6.4 and zero == 0.0
+    # auto: the composed Safe of the EXPORTED chains, moving both
+    # directions -- dropping a hot taste layer gives loudness back
+    # -- with the desktop's own 0.1 dB ceil so numbers match home
+    up, dm = ex.headroom_preamp(-16.3, [calm], auto=True)
+    assert up == -3.0 and abs(dm - 13.3) < 1e-9
+    down, _m = ex.headroom_preamp(-1.0, [boost], auto=True)
+    assert down < -11.0
 
 
 def test_poweramp_preamp_covers_taste_headroom():
@@ -474,9 +483,9 @@ def test_poweramp_preamp_covers_taste_headroom():
               "enabled": True}]
     chains = ex.composed_chains(_profile_channels(), taste)
     t = {x["id"]: x for x in ex.load_targets()}["poweramp"]
-    adj, low = ex.headroom_preamp(chains[0][1],
-                                  [b for _k, _g, b in chains])
-    assert low > 0.0
+    adj, moved = ex.headroom_preamp(chains[0][1],
+                                    [b for _k, _g, b in chains])
+    assert moved < 0.0
     chains2 = [(k, adj, b) for k, _g, b in chains]
     text = ex.poweramp_json(t, chains2, "hp")
     import json as _json

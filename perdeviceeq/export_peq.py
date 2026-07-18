@@ -429,22 +429,30 @@ def null_test_parametric(text, freqs, ref_resp):
     return max(abs(a - b) for a, b in zip(got, ref_resp))
 
 
-def headroom_preamp(preamp, chain_bands, n=480):
-    """The preamp an exported artifact must carry so the composed
-    chain never crosses 0 dBFS in the destination: the profile
-    preamp, lowered (never raised) to cover the peak of every
-    chain's band response over the audible band. The profile value
-    was set for the device chain; a taste layer stacked on top can
-    peak higher, and the destination has no live headroom meter to
-    warn anyone. chain_bands is an iterable of band-dict lists.
-    Returns (adjusted_preamp, lowered_by_db)."""
+def headroom_preamp(preamp, chain_bands, auto=False, n=480):
+    """The preamp an exported artifact carries. The profile value
+    is Safe for the DESKTOP composition (device + whatever taste is
+    active there); the artifact may bake a different composition,
+    so its level must be computed for what is actually in the file.
+    Under auto=True the value IS the composed Safe -- the desktop
+    Auto formula applied to the exported chains, raised or lowered
+    as the composition demands (dropping a +12 dB taste must give
+    the loudness back). Under manual the profile value is intent:
+    it is respected and only lowered, never raised, when the
+    composition peaks past it. The peak is rounded up to the 0.1 dB
+    step exactly like the desktop spin, so the number here matches
+    the number Auto would show at home for the same chains.
+    chain_bands is an iterable of band-dict lists.
+    Returns (preamp_out, moved_db) with moved_db = out - in."""
     grid = log_grid(20.0, 20000.0, n)
     peak = 0.0
     for bands in chain_bands:
         resp = chain_response(0.0, bands, grid)
         peak = max(peak, max(resp))
-    adj = min(float(preamp), -peak)
-    return adj, float(preamp) - adj
+    t = max(0.0, math.ceil(peak * 10.0 - 1e-9) / 10.0)
+    safe = -t if t else 0.0
+    adj = safe if auto else min(float(preamp), safe)
+    return adj, adj - float(preamp)
 
 
 # ---- Poweramp Equalizer (parametric preset JSON) -----------------------
