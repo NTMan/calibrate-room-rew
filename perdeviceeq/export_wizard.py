@@ -247,9 +247,9 @@ class ExportDialog(Adw.Dialog):
         elif writer == "graphiceq":
             grid = xp.graphic_grid()
             resp, note = xp.collapse(self.chains, st["policy"], grid)
-            hdr = ([] if t.get("bare")
-                   else self._header(t, note))
-            text, shift = xp.graphiceq_text(grid, resp, header=hdr)
+            text, shift = xp.graphiceq_text(
+                grid, resp, header=self._header(t, note),
+                bare=bool(t.get("bare")))
             ref, _n = xp.collapse(self.chains, st["policy"], nf)
             err = xp.null_test_graphic(text, nf, ref, shift)
             line = self._null_line(err)

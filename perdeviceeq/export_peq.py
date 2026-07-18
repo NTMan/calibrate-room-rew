@@ -270,22 +270,31 @@ def graphic_grid():
     return [float(f) for f in AUTOEQ_GEQ_FREQS]
 
 
-def graphiceq_text(freqs, resp, header=()):
+def graphiceq_text(freqs, resp, header=(), bare=False):
     """The Wavelet / AutoEq GraphicEQ line for a response sampled on
     `freqs`. Points above 0 dB are level-shifted down as a whole (a
-    graphic EQ has no preamp to carry headroom); the shift is stated
-    in the header and returned so the null test can net it out.
+    graphic EQ has no preamp to carry headroom); the shift is
+    returned so the null test can net it out and, for non-bare
+    targets, stated in the header. With bare=True the output is the
+    naked GraphicEQ line and nothing else -- Wavelet refuses a file
+    with any other content, so header lines (including our own
+    shift note) must not exist, not merely be optional. The caller
+    surfaces the shift in its UI instead.
     Returns (text, shift_db)."""
-    lines = list(header)
     top = max(resp)
     # below 0.05 dB a shift is float noise, not headroom
     shift = -top if top > 0.05 else 0.0
-    if shift:
-        lines.append("Level shifted %+.1f dB so no point is above "
-                     "0 dB." % shift)
     body = "GraphicEQ: " + "; ".join(
         "%d %.1f" % (int(round(f)), r + shift)
         for f, r in zip(freqs, resp))
+    if bare:
+        # byte-shape of the reference artifact: one line, no
+        # trailing newline (the published AutoEq files have none)
+        return body, shift
+    lines = list(header)
+    if shift:
+        lines.append("Level shifted %+.1f dB so no point is above "
+                     "0 dB." % shift)
     return _hdr(lines, "# ") + body + "\n", shift
 
 

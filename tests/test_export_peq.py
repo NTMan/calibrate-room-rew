@@ -200,6 +200,21 @@ def test_registry_jamesdsp_is_graphiceq():
     assert t["wavelet"].get("bare") is True
 
 
+def test_graphiceq_bare_is_the_naked_line():
+    # Wavelet refused a file with a leading "# Level shifted" note:
+    # bare must silence every line we would otherwise add, and the
+    # byte shape must match the published AutoEq artifact -- one
+    # line, no trailing newline.
+    resp = [4.2] * 127                     # forces a level shift
+    text, shift = ex.graphiceq_text(ex.graphic_grid(), resp,
+                                    header=["ignored"], bare=True)
+    assert shift == -4.2
+    assert text.startswith("GraphicEQ: 20 ")
+    assert "\n" not in text and "#" not in text
+    fs, gs = ex.parse_graphiceq(text)
+    assert len(fs) == 127 and abs(max(gs)) < 0.05
+
+
 def test_headers_are_apo_comments():
     text = ex.parametric_text(-1.0, [
         {"type": "PK", "freq": 100, "gain": 2.0, "q": 1.0}],
