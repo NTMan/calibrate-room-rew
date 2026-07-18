@@ -384,3 +384,64 @@ def test_load_basis_roundtrip_and_mismatch(tmp_path, capsys):
                centers=[100.0, 1000.0])
     assert ex.load_basis(bad, freqs) is None
     assert "does not match" in capsys.readouterr().err
+
+
+# ---- Poweramp Equalizer ------------------------------------------------
+
+
+def test_poweramp_enum_table_is_the_calibration():
+    # two 2026-07-18 calibration exports: the type-cycled preset
+    # pinned the set, a hand-entered correction (nine Peaking bands
+    # landing as type 3) disambiguated Peaking from Band Pass
+    assert ex.PA_TYPE == {"PK": 3, "LSC": 4, "HSC": 5}
+    assert (ex.PA_BOTH, ex.PA_LEFT, ex.PA_RIGHT) == (0, 1, 2)
+    t = {x["id"]: x for x in ex.load_targets()}["poweramp"]
+    assert t["writer"] == "poweramp" and t["ext"] == ".json"
+    assert t["freq_range"] == [20.0, 24000.0]
+
+
+def test_poweramp_stereo_roundtrip_with_trim_and_taste():
+    chains = ex.composed_chains(_profile_channels(), _TASTE)
+    t = {x["id"]: x for x in ex.load_targets()}["poweramp"]
+    text = ex.poweramp_json(t, chains, "soundcore Liberty 5")
+    import json as _json
+    preset = _json.loads(text)[0]
+    assert preset["name"] == "soundcore Liberty 5"
+    assert preset["parametric"] is True
+    assert preset["preamp"] == -1.0
+    chans = {b["channels"] for b in preset["bands"]}
+    assert chans == {ex.PA_LEFT, ex.PA_RIGHT}
+    # the FL balance trim became a Low Shelf at the Nyquist ceiling
+    trims = [b for b in preset["bands"]
+             if b["type"] == ex.PA_TYPE["LSC"]
+             and b["frequency"] == 24000.0]
+    assert len(trims) == 1 and trims[0]["channels"] == ex.PA_LEFT
+    assert trims[0]["gain"] == -1.5
+    freqs = ex.log_grid(20.0, 12000.0, 480)
+    errs = ex.null_test_poweramp(text, chains, freqs)
+    assert set(errs) == {"FL", "FR"}
+    assert max(errs.values()) <= ex.NULL_PASS_DB, errs
+
+
+def test_poweramp_single_chain_routes_both():
+    chains = ex.composed_chains(_profile_all(), None)
+    t = {x["id"]: x for x in ex.load_targets()}["poweramp"]
+    text = ex.poweramp_json(t, chains, "mono")
+    import json as _json
+    bands = _json.loads(text)[0]["bands"]
+    assert bands and all(b["channels"] == ex.PA_BOTH for b in bands)
+    freqs = ex.log_grid(20.0, 12000.0, 480)
+    errs = ex.null_test_poweramp(text, chains, freqs)
+    assert max(errs.values()) <= ex.NULL_PASS_DB
+
+
+def test_poweramp_clamps_and_refusals():
+    t = dict({x["id"]: x for x in ex.load_targets()}["poweramp"])
+    band = {"type": "PK", "freq": 10.0, "gain": 22.0, "q": 0.02,
+            "enabled": True}
+    out = ex._pa_band(band, t, ex.PA_BOTH)
+    assert out["frequency"] == 20.0 and out["gain"] == 15.0
+    assert out["q"] == 0.1
+    with pytest.raises(ValueError):
+        ex.poweramp_json(t, [("FC", 0.0, [])], "x")
+    assert not ex.poweramp_stereo_keys([("FC", 0.0, [])])

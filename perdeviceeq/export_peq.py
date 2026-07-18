@@ -43,7 +43,8 @@ NULL_PASS_DB = 0.1          # the acceptance ceiling for native exports
 
 USER_TARGET_DIR = os.path.join(CONFIG_DIR, "export-targets")
 
-WRITERS = ("parametric", "graphiceq", "fixed", "sheet")
+WRITERS = ("parametric", "graphiceq", "fixed", "sheet",
+           "poweramp")
 
 BUILTIN_TARGETS = [
     {"id": "peq-text",
@@ -68,6 +69,13 @@ BUILTIN_TARGETS = [
      "centers": [100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0,
                  6400.0, 12800.0],
      "gain_range": [-6.0, 6.0], "gain_step": 1.0, "basis_q": 1.414},
+    {"id": "poweramp",
+     "name": "Poweramp Equalizer",
+     "note": "Android; parametric preset JSON, per-band left/right"
+             " channels -- true stereo, no collapse",
+     "writer": "poweramp", "ext": ".json",
+     "gain_range": [-15.0, 15.0], "q_range": [0.1, 12.0],
+     "freq_range": [20.0, 24000.0]},
     {"id": "hand-peq",
      "name": "Hand-transfer sheet",
      "note": "Any parametric EQ entered by hand",
@@ -413,6 +421,115 @@ def null_test_parametric(text, freqs, ref_resp):
     pre, bands = eq.parse_autoeq(text)
     got = eq.response_db(pre, bands, freqs)
     return max(abs(a - b) for a, b in zip(got, ref_resp))
+
+
+# ---- Poweramp Equalizer (parametric preset JSON) -----------------------
+#
+# The integer enums are not documented anywhere; this table was
+# established from two calibration exports made in the app itself
+# (2026-07-18). The first (every type cycled in order, one band on
+# L, one on R) pinned the enum set, the channel values and the
+# ranges; it left 2/3 ambiguous because Band Pass and Peaking wear
+# near-identical bell icons on the band cards. The second export --
+# a hand-entered AutoEq-style correction whose nine Peaking bands
+# all landed as type 3, drawn as bells by the app's own
+# visualization -- settled the pair. type: 0 Low Pass, 1 High Pass,
+# 2 Band Pass, 3 Peaking, 4 Low Shelf, 5 High Shelf. channels:
+# 0 both, 1 left, 2 right. Frequency tops out at 24000; the preset
+# preamp is plain dB (UI -12.0 exports as -12.0).
+
+PA_TYPE = {"PK": 3, "LSC": 4, "HSC": 5}
+PA_TYPE_BACK = {3: "PK", 4: "LSC", 5: "HSC"}
+PA_BOTH, PA_LEFT, PA_RIGHT = 0, 1, 2
+PA_CH = {"FL": PA_LEFT, "FR": PA_RIGHT}
+
+
+def _pa_band(b, target, channels):
+    """One profile band as a Poweramp band dict, clamped into the
+    target's ranges. A flat-gain trim shelf (freq < 1 Hz) becomes a
+    Low Shelf at the frequency CEILING: full gain everywhere below
+    the corner, and the shortfall lives above the fit band instead
+    of inside it (a corner at the floor would put the half-gain
+    point exactly on the band edge the null test measures)."""
+    g_lo, g_hi = target["gain_range"]
+    q_lo, q_hi = target["q_range"]
+    f_lo, f_hi = target["freq_range"]
+    freq = float(b["freq"])
+    btype = b["type"]
+    if btype == "HSC" and freq < 1.0:
+        btype, freq = "LSC", f_hi
+    return {"type": PA_TYPE[btype],
+            "channels": channels,
+            "frequency": min(max(freq, f_lo), f_hi),
+            "q": min(max(float(b.get("q", 1.0)), q_lo), q_hi),
+            "gain": min(max(float(b.get("gain", 0.0)), g_lo), g_hi),
+            "color": 0}
+
+
+def poweramp_stereo_keys(chains):
+    """True when the chain set maps onto Poweramp's per-band
+    channel routing: one shared chain, or exactly FL / FR."""
+    keys = {k for k, _g, _b in chains}
+    return keys == {"all"} or keys <= {"FL", "FR"}
+
+
+def poweramp_json(target, chains, name):
+    """A Poweramp Equalizer preset JSON of the WHOLE chain set --
+    the first writer that does not collapse. Every enabled band is
+    routed with the app's own channels field (FL left, FR right,
+    a single chain to both); the shared preamp lands in the preset
+    preamp. JSON has no comment channel, so provenance travels in
+    the preset name and the wizard page, not in header lines.
+    Returns the JSON text."""
+    if not poweramp_stereo_keys(chains):
+        raise ValueError("chain keys %r do not map onto L/R"
+                         % sorted(k for k, _g, _b in chains))
+    preamp = float(chains[0][1])
+    out_bands = []
+    for key, _g, bands in chains:
+        ch = PA_BOTH if key == "all" else PA_CH[key]
+        for b in bands:
+            if not b.get("enabled", True):
+                continue
+            out_bands.append(_pa_band(b, target, ch))
+    preset = {"name": name, "preamp": preamp,
+              "parametric": True, "bands": out_bands}
+    return json.dumps([preset], indent=2, ensure_ascii=False) + "\n"
+
+
+def parse_poweramp(text, side):
+    """(preamp, Band list) for one side ("FL" / "FR") from a preset
+    JSON: the bands routed to that side plus the shared ones. Only
+    the types this exporter writes are accepted -- the null test
+    roundtrips our own artifact, nothing foreign."""
+    preset = json.loads(text)[0]
+    want = (PA_BOTH, PA_CH.get(side, PA_BOTH))
+    bands = []
+    for b in preset["bands"]:
+        if b["channels"] not in want:
+            continue
+        btype = PA_TYPE_BACK.get(b["type"])
+        if btype is None:
+            raise ValueError("unexpected Poweramp band type %r"
+                             % b["type"])
+        bands.append(eq.Band(btype, float(b["frequency"]),
+                             float(b["gain"]), float(b["q"]), True))
+    return float(preset["preamp"]), bands
+
+
+def null_test_poweramp(text, chains, freqs):
+    """Per-chain max |exported - in-app| in dB over `freqs`:
+    {key: err}. Each side of the preset is parsed back and run
+    through the app's own biquads against the matching unfolded
+    chain, trims and all."""
+    out = {}
+    for key, g, bands in chains:
+        side = key if key in PA_CH else "FL"
+        pre, got_bands = parse_poweramp(text, side)
+        got = eq.response_db(pre, got_bands, freqs)
+        ref = chain_response(g, bands, freqs)
+        out[key] = max(abs(a - b) for a, b in zip(got, ref))
+    return out
 
 
 # ---- the fixed-band fit (writer class b) -------------------------------

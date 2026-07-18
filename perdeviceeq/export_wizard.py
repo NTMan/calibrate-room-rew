@@ -124,6 +124,8 @@ class ExportDialog(Adw.Dialog):
 
     @staticmethod
     def _policy_label(policy):
+        if policy == "stereo":
+            return "True stereo (per-band channels)"
         if policy == "all":
             return "Single chain (apply-all)"
         if policy == "mean":
@@ -131,8 +133,13 @@ class ExportDialog(Adw.Dialog):
         return "Channel %s" % policy
 
     def _target_page(self, target):
-        band_domain = target["writer"] in ("parametric", "sheet")
-        choices = xp.collapse_choices(self.chains, band_domain)
+        stereo = (target["writer"] == "poweramp"
+                  and xp.poweramp_stereo_keys(self.chains))
+        band_domain = target["writer"] in ("parametric", "sheet",
+                                           "poweramp")
+        choices = (["stereo"] if stereo
+                   else xp.collapse_choices(self.chains,
+                                            band_domain))
         st = {"target": target, "policy": choices[0]}
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                       spacing=12, margin_top=12, margin_bottom=12,
@@ -222,7 +229,29 @@ class ExportDialog(Adw.Dialog):
         t = st["target"]
         writer = t["writer"]
         nf = xp.log_grid(self.flo, self.fhi, _NULL_N)
-        if writer in ("parametric", "sheet"):
+        if writer == "poweramp":
+            name = self.body.get("name", "profile")
+            if self.taste_name:
+                name = "%s + %s" % (name, self.taste_name)
+            if st["policy"] == "stereo":
+                chains = self.chains
+            else:
+                g, bands, _note = xp.pick_chain(self.chains,
+                                                st["policy"])
+                chains = [("all", g, bands)]
+            text = xp.poweramp_json(t, chains, name)
+            errs = xp.null_test_poweramp(text, chains, nf)
+            worst = max(errs.values())
+            per = ", ".join("%s %.2f" % (k, v)
+                            for k, v in sorted(errs.items()))
+            verdict = ("pass" if worst <= xp.NULL_PASS_DB else
+                       "CHECK, above the %.1f dB ceiling"
+                       % xp.NULL_PASS_DB)
+            self._set_status(
+                st, "Null test per chain over %s: %s dB -- %s."
+                % (self._band_str(), per, verdict),
+                worst <= xp.NULL_PASS_DB)
+        elif writer in ("parametric", "sheet"):
             g, bands, note = xp.pick_chain(self.chains, st["policy"])
             fg, fbands, folded = xp.fold_flat(g, bands)
             hdr = self._header(t, note)
