@@ -64,15 +64,36 @@ listener, headroom that never lies.
 
 ## Direction
 
-- **Targets (the debate).** Fit to arbitrary magnitude curves -- Harman
-  IE/OE and friends -- as a property of the MEASUREMENT frame, not of
-  taste. Pro: on a coupler/pinna rig, flat-at-the-mic is not the
-  perceptual goal; a target bound to the rig makes profiles portable
-  truth and keeps taste layers transferable across devices measured on
-  different rigs. Contra: provenance and frame-compatibility machinery.
-  Deciding experiment: an EARS-flat profile plus a taste layer on one
-  IEM should match an EARS-to-Harman profile without taste, by ear and
-  by curve; if it does not, targets earn their complexity.
+- **Frames and targets (architecture settled; the debate narrowed to
+  scope).** Two domains that never mix. Playback stays device + taste
+  + preamp, forever; everything frame-related lives on the MEASUREMENT
+  side. A canvas carries frame provenance (the rig, or
+  bridged-via-<bridge.json sha>); the measurement card shows it and
+  the fit consumes it silently, translating canvas or target between
+  rig coordinates BEFORE fitting. A rig delta must never enter the
+  PipeWire chain: applying it in playback would "fix" the listener's
+  ear for the difference between stands.
+  The listener's anchor is itself the target: "EARS-flat plus the
+  taste layer" IS the perceptual goal expressed in EARS coordinates,
+  and a target in any other frame is anchor + D from the bridge. The
+  bridge is the old Contra -- frame-compatibility machinery -- made
+  empirical: D is measured, not read from a PDF. The canonical bridge
+  should average 2-3 reference IEMs (seat-rig interaction is
+  per-device); a single ORIGIN is the first approximation.
+  Amp inserts (the UTWS case): a combo is just another device with its
+  own sink and its own measured profile -- the amp's delta rides
+  inside for free, no fourth playback layer. A same-rig differential
+  delta (wired vs through-the-amp, the best case for EARS: same-rig,
+  full-band trust) is a SYNTHESIS aid only -- predict a starting
+  profile without remeasuring -- and is never transferable across
+  IEMs: output impedance interacts with the specific IEM's impedance
+  curve.
+  Next concrete steps: bridge ORIGIN across EARS and the 711 clone
+  when it arrives; add the frame property to the canvas. Deciding
+  experiment for full arbitrary-curve targets stays: an EARS-flat
+  profile plus a taste layer on one IEM should match an
+  EARS-to-Harman profile without taste, by ear and by curve; if it
+  does not, targets earn their complexity.
 - **Profile exchange service.** Static, sha-addressed index of `.pdeq`
   packages first (a git repo can be the backend); accounts, ratings and
   comments only if the static thing proves too small.
@@ -119,6 +140,15 @@ listener, headroom that never lies.
 - Mic calibration files are per-incidence-angle: 0° aimed at the active
   speaker for per-speaker sweeps, 90° up for speakers all around; below
   the room transition they coincide.
+- Mic cal promises a flat pressure sensor at the capsule and nothing
+  more: after honest cals it is the SIMULATED EARS that differ (pinna
+  vs coupler), so a nonzero bridge D between two calibrated rigs is a
+  legitimate frame difference, not evidence against anyone's file.
+- When one coupler serves both channels in turn (EARS with earbuds
+  seated one at a time), take-to-take spread reads SEATING, not
+  hardware -- the FL/FR trust-band asymmetry on the first live bridge
+  was left-bud-in-right-ear repeatability. One coupler + one cal also
+  keeps the fit's cross-channel balance trims valid by construction.
 
 ## Upstream notes
 
