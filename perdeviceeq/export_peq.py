@@ -463,9 +463,11 @@ def _pa_band(b, target, channels):
     btype = b["type"]
     if btype == "HSC" and freq < 1.0:
         btype, freq = "LSC", f_hi
+    # the app's own exports carry integer frequencies only; write
+    # what the app writes and let the null test price the rounding
     return {"type": PA_TYPE[btype],
             "channels": channels,
-            "frequency": min(max(freq, f_lo), f_hi),
+            "frequency": int(round(min(max(freq, f_lo), f_hi))),
             "q": min(max(float(b.get("q", 1.0)), q_lo), q_hi),
             "gain": min(max(float(b.get("gain", 0.0)), g_lo), g_hi),
             "color": 0}
@@ -499,7 +501,9 @@ def poweramp_json(target, chains, name):
             out_bands.append(_pa_band(b, target, ch))
     preset = {"name": name, "preamp": preamp,
               "parametric": True, "bands": out_bands}
-    return json.dumps([preset], indent=2, ensure_ascii=False) + "\n"
+    # byte shape of the app's own export: tab indent, no trailing
+    # newline -- the Wavelet lesson, applied before it bites twice
+    return json.dumps([preset], indent="\t", ensure_ascii=False)
 
 
 def parse_poweramp(text, side):

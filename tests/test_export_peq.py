@@ -422,6 +422,11 @@ def test_poweramp_stereo_roundtrip_with_trim_and_taste():
              and b["frequency"] == 24000.0]
     assert len(trims) == 1 and trims[0]["channels"] == ex.PA_LEFT
     assert trims[0]["gain"] == -1.5
+    # byte shape of the app's own exports: tab indent, integer
+    # frequencies, no trailing newline
+    assert "\t" in text and text.endswith("]")
+    import re as _re
+    assert not _re.search(r'"frequency": \d+\.', text)
     freqs = ex.log_grid(20.0, 12000.0, 480)
     errs = ex.null_test_poweramp(text, chains, freqs)
     assert set(errs) == {"FL", "FR"}
