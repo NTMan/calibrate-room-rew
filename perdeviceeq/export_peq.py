@@ -182,15 +182,18 @@ def fold_flat(preamp, bands):
 
 
 def collapse_choices(chains, band_domain):
-    """The policies the wizard may offer: the chain keys, plus
-    "mean" for response-domain writers (graphiceq / fixed) when the
-    profile is per-channel. Band-domain writers (parametric / sheet)
-    export one chain's bands verbatim, so mean is not on the menu --
-    averaging band tables is not a defined operation."""
+    """The policies the wizard may offer, default first. For
+    response-domain writers (graphiceq / fixed) on a per-channel
+    profile the mean leads: the target plays one chain into both
+    ears, so the average response is the least-wrong single answer
+    and exporting a specific channel is the deliberate choice, not
+    the accident of list order. Band-domain writers (parametric /
+    sheet) export one chain's bands verbatim, so mean is not on the
+    menu -- averaging band tables is not a defined operation."""
     keys = [k for k, _g, _b in chains]
     if len(keys) == 1 or band_domain:
         return keys
-    return keys + ["mean"]
+    return ["mean"] + keys
 
 
 def pick_chain(chains, policy):

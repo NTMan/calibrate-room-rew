@@ -125,8 +125,9 @@ def test_collapse_choices():
     assert ex.collapse_choices(one, band_domain=True) == ["all"]
     assert ex.collapse_choices(one, band_domain=False) == ["all"]
     assert ex.collapse_choices(two, band_domain=True) == ["FL", "FR"]
+    # mean leads: the shared-channels default (field feedback)
     assert ex.collapse_choices(two, band_domain=False) == \
-        ["FL", "FR", "mean"]
+        ["mean", "FL", "FR"]
 
 
 def test_collapse_pick_and_mean():
