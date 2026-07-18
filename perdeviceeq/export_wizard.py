@@ -88,7 +88,13 @@ class ExportDialog(Adw.Dialog):
     def _targets_page(self):
         page = Adw.PreferencesPage()
         intro = Adw.PreferencesGroup()
-        intro.set_description(self._chain_summary())
+        desc = self._chain_summary(taste=False)
+        if self.taste_name:
+            desc += ("\nTaste layer \u201c%s\u201d is active;"
+                     " every target page carries the include"
+                     " switch, on by default."
+                     % self.taste_name)
+        intro.set_description(desc)
         page.add(intro)
         targets = xp.load_targets()
         groups = (("Import files",
@@ -259,6 +265,10 @@ class ExportDialog(Adw.Dialog):
                 g, bands, _note = xp.pick_chain(allc,
                                                 st["policy"])
                 chains = [("all", g, bands)]
+            adj, low = xp.headroom_preamp(
+                chains[0][1], [b for _k, _g, b in chains])
+            if low:
+                chains = [(k, adj, b) for k, _g, b in chains]
             text = xp.poweramp_json(t, chains, name)
             errs = xp.null_test_poweramp(text, chains, nf)
             worst = max(errs.values())
@@ -267,10 +277,12 @@ class ExportDialog(Adw.Dialog):
             verdict = ("pass" if worst <= xp.NULL_PASS_DB else
                        "CHECK, above the %.1f dB ceiling"
                        % xp.NULL_PASS_DB)
-            self._set_status(
-                st, "Null test per chain over %s: %s dB -- %s."
-                % (self._band_str(), per, verdict),
-                worst <= xp.NULL_PASS_DB)
+            line = ("Null test per chain over %s: %s dB -- %s."
+                    % (self._band_str(), per, verdict))
+            if low:
+                line += (" Preset preamp lowered %.1f dB for 0"
+                         " dBFS headroom." % low)
+            self._set_status(st, line, worst <= xp.NULL_PASS_DB)
         elif writer in ("parametric", "sheet"):
             g, bands, note = xp.pick_chain(allc, st["policy"])
             fg, fbands, folded = xp.fold_flat(g, bands)
@@ -278,7 +290,12 @@ class ExportDialog(Adw.Dialog):
             if folded:
                 hdr.append("Flat-gain trim folded into the shared"
                            " gain (%+.1f dB)." % folded)
-            ref = xp.chain_response(g, bands, nf)
+            fg, low = xp.headroom_preamp(fg, [fbands])
+            if low:
+                hdr.append("Shared gain lowered %.1f dB so the"
+                           " composed chain stays under 0 dBFS."
+                           % low)
+            ref = xp.chain_response(g - low, bands, nf)
             if writer == "parametric":
                 text = xp.parametric_text(fg, fbands, header=hdr)
                 err = xp.null_test_parametric(text, nf, ref)

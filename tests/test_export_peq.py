@@ -455,3 +455,32 @@ def test_poweramp_clamps_and_refusals():
     with pytest.raises(ValueError):
         ex.poweramp_json(t, [("FC", 0.0, [])], "x")
     assert not ex.poweramp_stereo_keys([("FC", 0.0, [])])
+
+
+def test_headroom_preamp_lowers_for_taste():
+    boost = [{"type": "LSC", "freq": 50.0, "gain": 12.0, "q": 1.0,
+              "enabled": True}]
+    adj, low = ex.headroom_preamp(-6.4, [boost])
+    assert low > 4.0 and adj < -11.0
+    assert abs(adj + low - (-6.4)) < 1e-9
+    same, zero = ex.headroom_preamp(-6.4, [[
+        {"type": "PK", "freq": 1000.0, "gain": -3.0, "q": 1.0,
+         "enabled": True}]])
+    assert zero == 0.0 and same == -6.4
+
+
+def test_poweramp_preamp_covers_taste_headroom():
+    taste = [{"type": "LSC", "freq": 50.0, "gain": 12.0, "q": 1.0,
+              "enabled": True}]
+    chains = ex.composed_chains(_profile_channels(), taste)
+    t = {x["id"]: x for x in ex.load_targets()}["poweramp"]
+    adj, low = ex.headroom_preamp(chains[0][1],
+                                  [b for _k, _g, b in chains])
+    assert low > 0.0
+    chains2 = [(k, adj, b) for k, _g, b in chains]
+    text = ex.poweramp_json(t, chains2, "hp")
+    import json as _json
+    assert _json.loads(text)[0]["preamp"] == adj
+    freqs = ex.log_grid(20.0, 12000.0, 480)
+    errs = ex.null_test_poweramp(text, chains2, freqs)
+    assert max(errs.values()) <= ex.NULL_PASS_DB

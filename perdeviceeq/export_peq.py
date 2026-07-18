@@ -429,6 +429,24 @@ def null_test_parametric(text, freqs, ref_resp):
     return max(abs(a - b) for a, b in zip(got, ref_resp))
 
 
+def headroom_preamp(preamp, chain_bands, n=480):
+    """The preamp an exported artifact must carry so the composed
+    chain never crosses 0 dBFS in the destination: the profile
+    preamp, lowered (never raised) to cover the peak of every
+    chain's band response over the audible band. The profile value
+    was set for the device chain; a taste layer stacked on top can
+    peak higher, and the destination has no live headroom meter to
+    warn anyone. chain_bands is an iterable of band-dict lists.
+    Returns (adjusted_preamp, lowered_by_db)."""
+    grid = log_grid(20.0, 20000.0, n)
+    peak = 0.0
+    for bands in chain_bands:
+        resp = chain_response(0.0, bands, grid)
+        peak = max(peak, max(resp))
+    adj = min(float(preamp), -peak)
+    return adj, float(preamp) - adj
+
+
 # ---- Poweramp Equalizer (parametric preset JSON) -----------------------
 #
 # The integer enums are not documented anywhere; this table was
