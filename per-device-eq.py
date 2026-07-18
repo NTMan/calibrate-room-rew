@@ -58,6 +58,16 @@ def main():
                    help="install the WirePlumber hook + the desktop entry")
     g.add_argument("--uninstall", action="store_true",
                    help="remove the hook + the desktop entry")
+    g.add_argument("--bridge", nargs=2, metavar=("A", "B"),
+                   help="frame bridge: the measured delta between two "
+                        "profiles of one reference device on two rigs")
+    ap.add_argument("--published", metavar="CURVE",
+                    help="with --bridge: freq/dB text of the same "
+                         "device on a trusted rig, for the external-"
+                         "anchor audit of B")
+    ap.add_argument("--out", metavar="DIR", default="bridge-out",
+                    help="with --bridge: output directory "
+                         "(default: %(default)s)")
     args = ap.parse_args()
 
     if (args.list_sinks or args.list_sources or args.inspect
@@ -67,6 +77,23 @@ def main():
             print(missing_tools_message(miss), file=sys.stderr)
             return 2
 
+    if args.bridge:
+        from perdeviceeq import bridge as br
+        from perdeviceeq.profiles import ProfileStore
+        try:
+            store = ProfileStore()
+            a = br.resolve_profile(store, args.bridge[0])
+            b = br.resolve_profile(store, args.bridge[1])
+            pub = (br.parse_curve(args.published)
+                   if args.published else None)
+            res = br.compute_bridge(a, b, published=pub)
+            rp = br.write_outputs(res, args.out)
+        except (br.BridgeError, OSError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        sys.stdout.write(open(rp).read())
+        print("written: %s" % args.out)
+        return 0
     if args.list_sinks:
         return cmd_list()
     if args.list_sources:
