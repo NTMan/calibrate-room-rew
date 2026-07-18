@@ -51,6 +51,8 @@ class ExportDialog(Adw.Dialog):
         self.taste_name = layer["name"] if layer else None
         self.chains = xp.composed_chains(
             self.body, win.pref_layers.active_bands())
+        self.chains_plain = (xp.composed_chains(self.body, None)
+                             if self.taste_name else self.chains)
         self.flo, self.fhi = xp.fit_band(self.body)
         self.nav = Adw.NavigationView()
         self.nav.add(self._targets_page())
@@ -58,13 +60,13 @@ class ExportDialog(Adw.Dialog):
 
     # ---- shared wording -------------------------------------------
 
-    def _chain_summary(self):
+    def _chain_summary(self, taste=True):
         """One sentence stating what gets baked: profile, taste
         layer if one is on, chain count, the shared preamp. Shown on
         both pages and written into every export header. Phrased so
         no line ever matches the AutoEq "Preamp:" shape."""
         s = "Profile \u201c%s\u201d" % self.body.get("name", "?")
-        if self.taste_name:
+        if self.taste_name and taste:
             s += " + taste layer \u201c%s\u201d" % self.taste_name
         n = len(self.chains)
         ch = "one chain" if n == 1 else "%d channel chains" % n
@@ -74,11 +76,11 @@ class ExportDialog(Adw.Dialog):
     def _band_str(self):
         return "%g-%g Hz" % (self.flo, self.fhi)
 
-    def _header(self, target, note):
+    def _header(self, target, note, taste=True):
         from . import __version__
         return ["Exported by per-device-eq %s for %s"
                 % (__version__, target["name"]),
-                "Source: " + self._chain_summary(),
+                "Source: " + self._chain_summary(taste),
                 "Chain collapse: %s." % note]
 
     # ---- page 1: where is this going? -----------------------------
@@ -146,8 +148,22 @@ class ExportDialog(Adw.Dialog):
                       margin_start=12, margin_end=12)
         head = Gtk.Label(xalign=0, wrap=True)
         head.add_css_class("dim-label")
-        head.set_text(self._chain_summary())
+        st["head"] = head
         box.append(head)
+        st["taste"] = True
+        rows = Adw.PreferencesGroup()
+        got_rows = False
+        if self.taste_name:
+            sw = Adw.SwitchRow(
+                title="Include taste layer \u201c%s\u201d"
+                      % self.taste_name, active=True)
+
+            def on_taste(row, _p):
+                st["taste"] = row.get_active()
+                self._bake(st)
+            sw.connect("notify::active", on_taste)
+            rows.add(sw)
+            got_rows = True
         combo = None
         if len(choices) > 1:
             names = Gtk.StringList()
@@ -155,9 +171,10 @@ class ExportDialog(Adw.Dialog):
                 names.append(self._policy_label(c))
             combo = Adw.ComboRow(title="Export which chain",
                                  model=names)
-            grp = Adw.PreferencesGroup()
-            grp.add(combo)
-            box.append(grp)
+            rows.add(combo)
+            got_rows = True
+        if got_rows:
+            box.append(rows)
         st["status"] = Gtk.Label(xalign=0, wrap=True)
         box.append(st["status"])
         if target["writer"] == "fixed":
@@ -228,15 +245,18 @@ class ExportDialog(Adw.Dialog):
         fit residual -- nothing is copied or saved unverified."""
         t = st["target"]
         writer = t["writer"]
+        taste = st.get("taste", True)
+        allc = self.chains if taste else self.chains_plain
+        st["head"].set_text(self._chain_summary(taste))
         nf = xp.log_grid(self.flo, self.fhi, _NULL_N)
         if writer == "poweramp":
             name = self.body.get("name", "profile")
-            if self.taste_name:
+            if self.taste_name and taste:
                 name = "%s + %s" % (name, self.taste_name)
             if st["policy"] == "stereo":
-                chains = self.chains
+                chains = allc
             else:
-                g, bands, _note = xp.pick_chain(self.chains,
+                g, bands, _note = xp.pick_chain(allc,
                                                 st["policy"])
                 chains = [("all", g, bands)]
             text = xp.poweramp_json(t, chains, name)
@@ -252,9 +272,9 @@ class ExportDialog(Adw.Dialog):
                 % (self._band_str(), per, verdict),
                 worst <= xp.NULL_PASS_DB)
         elif writer in ("parametric", "sheet"):
-            g, bands, note = xp.pick_chain(self.chains, st["policy"])
+            g, bands, note = xp.pick_chain(allc, st["policy"])
             fg, fbands, folded = xp.fold_flat(g, bands)
-            hdr = self._header(t, note)
+            hdr = self._header(t, note, taste)
             if folded:
                 hdr.append("Flat-gain trim folded into the shared"
                            " gain (%+.1f dB)." % folded)
@@ -275,11 +295,11 @@ class ExportDialog(Adw.Dialog):
                     err <= xp.NULL_PASS_DB)
         elif writer == "graphiceq":
             grid = xp.graphic_grid()
-            resp, note = xp.collapse(self.chains, st["policy"], grid)
+            resp, note = xp.collapse(allc, st["policy"], grid)
             text, shift = xp.graphiceq_text(
-                grid, resp, header=self._header(t, note),
+                grid, resp, header=self._header(t, note, taste),
                 bare=bool(t.get("bare")))
-            ref, _n = xp.collapse(self.chains, st["policy"], nf)
+            ref, _n = xp.collapse(allc, st["policy"], nf)
             err = xp.null_test_graphic(text, nf, ref, shift)
             line = self._null_line(err)
             if shift:
@@ -287,12 +307,12 @@ class ExportDialog(Adw.Dialog):
             self._set_status(st, line, err <= xp.NULL_PASS_DB)
         else:                                   # fixed
             pf = xp.log_grid(self.flo, self.fhi, _PLOT_N)
-            desired, note = xp.collapse(self.chains, st["policy"],
+            desired, note = xp.collapse(allc, st["policy"],
                                         pf)
             sol = xp.solve_fixed(t, pf, desired)
             st["sol"] = sol
-            text = xp.fixed_sheet_text(t, sol,
-                                       header=self._header(t, note))
+            text = xp.fixed_sheet_text(
+                t, sol, header=self._header(t, note, taste))
             self._set_status(
                 st, "Fit over %s: residual max %.1f dB, rms %.1f dB"
                 " across %s; level trim %+.1f dB."
