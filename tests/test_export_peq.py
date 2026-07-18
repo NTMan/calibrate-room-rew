@@ -152,7 +152,7 @@ def test_parametric_roundtrip_nulls():
     g, b, _ = ex.fold_flat(g0, b0)
     text = ex.parametric_text(g, b, header=(
         "per-device-eq export", "Collapse: single chain"))
-    assert text.startswith("per-device-eq export\n")
+    assert text.startswith("# per-device-eq export\n")
     pre, bands = eq.parse_autoeq(text)
     assert pre == pytest.approx(-2.5)
     assert len(bands) == 3            # disabled one never exported
@@ -173,11 +173,50 @@ def test_parametric_folds_trim_into_preamp():
     assert ex.null_test_parametric(text, freqs, ref) <= 0.03
 
 
+# extracted from a published AutoEq GraphicEQ.txt, independently
+# of the constant in export_peq -- the file format Wavelet accepts
+# is this list and nothing else
+_AUTOEQ_FREQS = [
+    20, 21, 22, 23, 24, 26, 27, 29, 30, 32, 34, 36,
+    38, 40, 43, 45, 48, 50, 53, 56, 59, 63, 66, 70,
+    74, 78, 83, 87, 92, 97, 103, 109, 115, 121, 128, 136,
+    143, 151, 160, 169, 178, 188, 199, 210, 222, 235, 248, 262,
+    277, 292, 309, 326, 345, 364, 385, 406, 429, 453, 479, 506,
+    534, 565, 596, 630, 665, 703, 743, 784, 829, 875, 924, 977,
+    1032, 1090, 1151, 1216, 1284, 1357, 1433, 1514, 1599, 1689, 1784, 1885,
+    1991, 2103, 2221, 2347, 2479, 2618, 2766, 2921, 3086, 3260, 3443, 3637,
+    3842, 4058, 4287, 4528, 4783, 5052, 5337, 5637, 5955, 6290, 6644, 7018,
+    7414, 7831, 8272, 8738, 9230, 9749, 10298, 10878, 11490, 12137,
+    12821, 13543, 14305, 15110, 15961, 16860, 17809, 18812, 19871]
+
+
+def test_graphic_grid_is_the_autoeq_contract():
+    assert ex.graphic_grid() == [float(f) for f in _AUTOEQ_FREQS]
+
+
+def test_registry_jamesdsp_is_graphiceq():
+    t = {x["id"]: x for x in ex.load_targets()}
+    assert t["jamesdsp"]["writer"] == "graphiceq"
+    assert t["wavelet"].get("bare") is True
+
+
+def test_headers_are_apo_comments():
+    text = ex.parametric_text(-1.0, [
+        {"type": "PK", "freq": 100, "gain": 2.0, "q": 1.0}],
+        header=["one", "two"])
+    head = text.splitlines()[:2]
+    assert head == ["# one", "# two"]
+    gtext, _s = ex.graphiceq_text([20.0, 19871.0], [0.0, 0.0],
+                                  header=["note"])
+    assert gtext.splitlines()[0] == "# note"
+    assert eq.parse_autoeq(text)[0] == -1.0
+
+
 def test_graphiceq_line_and_null():
     chains = ex.composed_chains(_profile_all(), None)
     gf = ex.graphic_grid()
     assert len(gf) == len(set(gf))
-    assert gf[0] == 20.0 and gf[-1] == 20000.0
+    assert gf[0] == 20.0 and gf[-1] == 19871.0
     resp, _note = ex.collapse(chains, "all", gf)
     text, shift = ex.graphiceq_text(gf, resp)
     assert shift < 0.0                # this chain peaks at +0.5 dB

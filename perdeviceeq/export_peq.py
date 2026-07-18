@@ -40,7 +40,6 @@ from .config import CONFIG_DIR
 # the profile carries no stamped fit params (fit_peq's own defaults).
 FIT_LO_DEFAULT, FIT_HI_DEFAULT = 20.0, 12000.0
 NULL_PASS_DB = 0.1          # the acceptance ceiling for native exports
-GRAPHIC_POINTS = 127        # AutoEq-sized GraphicEQ grid
 
 USER_TARGET_DIR = os.path.join(CONFIG_DIR, "export-targets")
 
@@ -53,15 +52,18 @@ BUILTIN_TARGETS = [
      "writer": "parametric", "ext": ".txt"},
     {"id": "jamesdsp",
      "name": "RootlessJamesDSP",
-     "note": "Android; imports AutoEq ParametricEQ text",
-     "writer": "parametric", "ext": ".txt"},
+     "note": "Android; Arbitrary response EQ reads EqualizerAPO"
+             " GraphicEQ text (no parametric import)",
+     "writer": "graphiceq", "ext": ".txt"},
     {"id": "wavelet",
      "name": "Wavelet",
-     "note": "Android; imports AutoEq GraphicEQ text",
-     "writer": "graphiceq", "ext": ".txt"},
+     "note": "Android; imports the exact AutoEq GraphicEQ file"
+             " (level is renormalized by the app)",
+     "writer": "graphiceq", "ext": ".txt", "bare": True},
     {"id": "vendor-8band",
-     "name": "Vendor graphic, 8 octave bands",
-     "note": "Soundcore-class companion apps; sliders set by hand",
+     "name": "Generic 8-band graphic (template)",
+     "note": "octave sliders 100-12.8k, +/-6 dB in 1 dB steps --"
+             " verify against your app or drop in a measured basis",
      "writer": "fixed", "ext": ".txt",
      "centers": [100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0,
                  6400.0, 12800.0],
@@ -227,30 +229,45 @@ def collapse(chains, policy, freqs):
 # ---- writers -----------------------------------------------------------
 
 
-def _hdr(lines):
+def _hdr(lines, prefix=""):
     if not lines:
         return ""
-    return "".join("%s\n" % l for l in lines) + "\n"
+    return "".join("%s%s\n" % (prefix, l) for l in lines) + "\n"
 
 
 def parametric_text(preamp, bands, header=()):
     """AutoEq-style ParametricEQ text of ONE chain, band-exact.
     Header lines ride on top: every parser of this format keys on
     the Preamp / Filter line shapes and skips the rest."""
-    return _hdr(header) + eq.eq_text(preamp, to_bands(bands))
+    return (_hdr(header, "# ")
+            + eq.eq_text(preamp, to_bands(bands)))
 
 
-def graphic_grid(points=GRAPHIC_POINTS):
-    """The GraphicEQ frequency grid: `points` log-spaced integer
-    frequencies over 20..20000 Hz, deduplicated."""
-    la, lb = math.log10(20.0), math.log10(20000.0)
-    out, last = [], None
-    for i in range(points):
-        f = int(round(10 ** (la + (lb - la) * i / (points - 1))))
-        if f != last:
-            out.append(float(f))
-            last = f
-    return out
+# The frequency set of AutoEq's GraphicEQ.txt output, verbatim
+# (extracted from the published results). This is a contract, not
+# a formula: Wavelet's import documentation states that adding,
+# changing or removing frequencies makes the file incompatible, so
+# the exporter reproduces the list bit for bit.
+AUTOEQ_GEQ_FREQS = (
+    20, 21, 22, 23, 24, 26, 27, 29, 30, 32,
+    34, 36, 38, 40, 43, 45, 48, 50, 53, 56,
+    59, 63, 66, 70, 74, 78, 83, 87, 92, 97,
+    103, 109, 115, 121, 128, 136, 143, 151, 160, 169,
+    178, 188, 199, 210, 222, 235, 248, 262, 277, 292,
+    309, 326, 345, 364, 385, 406, 429, 453, 479, 506,
+    534, 565, 596, 630, 665, 703, 743, 784, 829, 875,
+    924, 977, 1032, 1090, 1151, 1216, 1284, 1357, 1433, 1514,
+    1599, 1689, 1784, 1885, 1991, 2103, 2221, 2347, 2479, 2618,
+    2766, 2921, 3086, 3260, 3443, 3637, 3842, 4058, 4287, 4528,
+    4783, 5052, 5337, 5637, 5955, 6290, 6644, 7018, 7414, 7831,
+    8272, 8738, 9230, 9749, 10298, 10878, 11490, 12137, 12821, 13543,
+    14305, 15110, 15961, 16860, 17809, 18812, 19871)
+
+
+def graphic_grid():
+    """The GraphicEQ frequency grid: AutoEq's fixed 127 integer
+    frequencies (20..19871 Hz), the set Wavelet accepts."""
+    return [float(f) for f in AUTOEQ_GEQ_FREQS]
 
 
 def graphiceq_text(freqs, resp, header=()):
@@ -269,7 +286,7 @@ def graphiceq_text(freqs, resp, header=()):
     body = "GraphicEQ: " + "; ".join(
         "%d %.1f" % (int(round(f)), r + shift)
         for f, r in zip(freqs, resp))
-    return _hdr(lines) + body + "\n", shift
+    return _hdr(lines, "# ") + body + "\n", shift
 
 
 def parse_graphiceq(text):

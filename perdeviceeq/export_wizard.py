@@ -247,12 +247,15 @@ class ExportDialog(Adw.Dialog):
         elif writer == "graphiceq":
             grid = xp.graphic_grid()
             resp, note = xp.collapse(self.chains, st["policy"], grid)
-            text, shift = xp.graphiceq_text(
-                grid, resp, header=self._header(t, note))
+            hdr = ([] if t.get("bare")
+                   else self._header(t, note))
+            text, shift = xp.graphiceq_text(grid, resp, header=hdr)
             ref, _n = xp.collapse(self.chains, st["policy"], nf)
             err = xp.null_test_graphic(text, nf, ref, shift)
-            self._set_status(st, self._null_line(err),
-                             err <= xp.NULL_PASS_DB)
+            line = self._null_line(err)
+            if shift:
+                line += " Level shifted %+.1f dB." % shift
+            self._set_status(st, line, err <= xp.NULL_PASS_DB)
         else:                                   # fixed
             pf = xp.log_grid(self.flo, self.fhi, _PLOT_N)
             desired, note = xp.collapse(self.chains, st["policy"],
