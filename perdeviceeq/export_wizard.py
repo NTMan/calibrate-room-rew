@@ -91,10 +91,10 @@ class ExportDialog(Adw.Dialog):
         targets = xp.load_targets()
         groups = (("Import files",
                    "Formats the target application reads in",
-                   ("parametric", "graphiceq")),
+                   xp.FILE_WRITERS),
                   ("Set by hand",
                    "Values you key into the target yourself",
-                   ("fixed", "sheet")))
+                   xp.HAND_WRITERS))
         for title, desc, writers in groups:
             grp = Adw.PreferencesGroup(title=title, description=desc)
             got = False

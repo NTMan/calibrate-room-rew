@@ -49,6 +49,11 @@ def test_builtin_targets_shape():
     assert "peq-text" in ids and "wavelet" in ids
     assert "vendor-8band" in ids and "hand-peq" in ids
     assert all(t["writer"] in ex.WRITERS for t in ts)
+    # every writer is classified for the wizard's first page --
+    # an unclassified writer would exist but never show a row
+    assert set(ex.WRITERS) == \
+        set(ex.FILE_WRITERS) | set(ex.HAND_WRITERS)
+    assert not set(ex.FILE_WRITERS) & set(ex.HAND_WRITERS)
 
 
 def test_targets_dropin_override_and_append(tmp_path):

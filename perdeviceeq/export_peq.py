@@ -43,8 +43,13 @@ NULL_PASS_DB = 0.1          # the acceptance ceiling for native exports
 
 USER_TARGET_DIR = os.path.join(CONFIG_DIR, "export-targets")
 
-WRITERS = ("parametric", "graphiceq", "fixed", "sheet",
-           "poweramp")
+# Writers grouped by how the target consumes EQ. The wizard's
+# first page is built from these two tuples, so a writer outside
+# both would never get a row -- the tests assert the classification
+# stays complete.
+FILE_WRITERS = ("parametric", "graphiceq", "poweramp")
+HAND_WRITERS = ("fixed", "sheet")
+WRITERS = FILE_WRITERS + HAND_WRITERS
 
 BUILTIN_TARGETS = [
     {"id": "peq-text",
