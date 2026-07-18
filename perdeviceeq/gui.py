@@ -38,7 +38,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Gio, GLib, Gdk, Adw, Pango
 
-from . import config, eq, pipewire, integration
+from . import __version__, config, eq, pipewire, integration
 from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE, UI_STATE_FILE,
                      UI_FILE_CANDIDATES)
 from .peq_view import CollapsibleCard, PeqView
@@ -285,7 +285,8 @@ class EqWindow(Adw.ApplicationWindow):
 
     # ---- widget construction ----------------------------------------------
     def _build_header_buttons(self):
-        """Add the undo/redo buttons to the end of the header bar."""
+        """Undo/redo at the start of the header bar, the primary menu
+        and the bypass switch at its end."""
         self.undo_btn = Gtk.Button.new_from_icon_name("edit-undo-symbolic")
         self.undo_btn.set_tooltip_text("Undo (Ctrl+Z)")
         self.undo_btn.connect("clicked", lambda *_: self._undo())
@@ -298,6 +299,14 @@ class EqWindow(Adw.ApplicationWindow):
         hist_pair.append(self.redo_btn)
         self.header_bar.pack_start(hist_pair)
         self.pref_layers = PreferenceLayers()
+        menu = Gio.Menu()
+        menu.append("Export EQ\u2026", "win.export-eq")
+        menu.append("About Per-Device EQ", "win.about")
+        self.menu_btn = Gtk.MenuButton(icon_name="open-menu-symbolic")
+        self.menu_btn.set_tooltip_text("Main menu")
+        self.menu_btn.set_menu_model(menu)
+        self.menu_btn.set_primary(True)
+        self.header_bar.pack_end(self.menu_btn)
         self.header_bar.pack_end(self.bypass_row)
         self._sync_taste_card()
 
@@ -780,14 +789,36 @@ class EqWindow(Adw.ApplicationWindow):
         self.profile_list.connect("row-activated", self._on_pick_row)
 
     def _install_shortcuts(self, app):
-        """Register win.undo / win.redo actions with their accelerators."""
+        """Register the win.* actions: undo / redo with their
+        accelerators, the primary-menu items without."""
         for name, cb, accels in (("undo", self._undo, ["<Control>z"]),
                                  ("redo", self._redo,
-                                  ["<Control><Shift>z", "<Control>y"])):
+                                  ["<Control><Shift>z", "<Control>y"]),
+                                 ("export-eq", self._on_export_eq, []),
+                                 ("about", self._on_about, [])):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _p, cb=cb: cb())
             self.add_action(action)
-            app.set_accels_for_action("win." + name, accels)
+            if accels:
+                app.set_accels_for_action("win." + name, accels)
+
+    def _on_export_eq(self):
+        """Open the export wizard (primary menu). Imported lazily:
+        the dialog module is only needed once someone exports."""
+        from .export_wizard import ExportDialog
+        ExportDialog(self).present(self)
+
+    def _on_about(self):
+        d = Adw.AboutDialog(
+            application_name="Per-Device EQ",
+            application_icon=APP_ID,
+            developer_name="Mikhail Gavrilov",
+            version=__version__,
+            website="https://github.com/NTMan/per-device-eq",
+            issue_url="https://github.com/NTMan/per-device-eq"
+                      "/issues",
+            license_type=Gtk.License.GPL_3_0)
+        d.present(self)
 
     # ---- scroll taming (wheel must not change spin/dropdown values) --------
     def _tame_scroll(self, widget):
