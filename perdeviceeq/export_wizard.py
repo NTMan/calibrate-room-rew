@@ -61,17 +61,18 @@ class ExportDialog(Adw.Dialog):
     # ---- shared wording -------------------------------------------
 
     def _chain_summary(self, taste=True):
-        """One sentence stating what gets baked: profile, taste
-        layer if one is on, chain count, the shared preamp. Shown on
-        both pages and written into every export header. Phrased so
-        no line ever matches the AutoEq "Preamp:" shape."""
+        """One sentence describing the SOURCE: profile, taste layer
+        when included, chain count. No level figure: the profile
+        preamp is not what an artifact carries (headroom lowers it,
+        a graphic line has none at all), so each writer states its
+        own effective level in the status instead. Phrased so no
+        line ever matches the AutoEq "Preamp:" shape."""
         s = "Profile \u201c%s\u201d" % self.body.get("name", "?")
         if self.taste_name and taste:
             s += " + taste layer \u201c%s\u201d" % self.taste_name
         n = len(self.chains)
         ch = "one chain" if n == 1 else "%d channel chains" % n
-        return ("%s -- %s, shared preamp %+.1f dB."
-                % (s, ch, float(self.body.get("preamp", 0.0))))
+        return "%s -- %s." % (s, ch)
 
     def _band_str(self):
         return "%g-%g Hz" % (self.flo, self.fhi)
@@ -154,7 +155,7 @@ class ExportDialog(Adw.Dialog):
                       margin_start=12, margin_end=12)
         head = Gtk.Label(xalign=0, wrap=True)
         head.add_css_class("dim-label")
-        st["head"] = head
+        head.set_text(self._chain_summary(taste=False))
         box.append(head)
         st["taste"] = True
         rows = Adw.PreferencesGroup()
@@ -253,7 +254,6 @@ class ExportDialog(Adw.Dialog):
         writer = t["writer"]
         taste = st.get("taste", True)
         allc = self.chains if taste else self.chains_plain
-        st["head"].set_text(self._chain_summary(taste))
         nf = xp.log_grid(self.flo, self.fhi, _NULL_N)
         if writer == "poweramp":
             name = self.body.get("name", "profile")
@@ -278,10 +278,10 @@ class ExportDialog(Adw.Dialog):
                        "CHECK, above the %.1f dB ceiling"
                        % xp.NULL_PASS_DB)
             line = ("Null test per chain over %s: %s dB -- %s."
-                    % (self._band_str(), per, verdict))
-            if low:
-                line += (" Preset preamp lowered %.1f dB for 0"
-                         " dBFS headroom." % low)
+                    " Preset preamp %+.1f dB%s."
+                    % (self._band_str(), per, verdict, adj,
+                       (" (lowered %.1f dB for headroom)" % low)
+                       if low else ""))
             self._set_status(st, line, worst <= xp.NULL_PASS_DB)
         elif writer in ("parametric", "sheet"):
             g, bands, note = xp.pick_chain(allc, st["policy"])
@@ -299,8 +299,10 @@ class ExportDialog(Adw.Dialog):
             if writer == "parametric":
                 text = xp.parametric_text(fg, fbands, header=hdr)
                 err = xp.null_test_parametric(text, nf, ref)
-                self._set_status(st, self._null_line(err),
-                                 err <= xp.NULL_PASS_DB)
+                self._set_status(
+                    st, self._null_line(err)
+                    + " Export preamp %+.1f dB." % fg,
+                    err <= xp.NULL_PASS_DB)
             else:
                 text = xp.sheet_text(t, fg, fbands, header=hdr)
                 rp, rb = xp.rounded_chain(t, fg, fbands)
@@ -308,7 +310,8 @@ class ExportDialog(Adw.Dialog):
                 err = max(abs(a - b) for a, b in zip(got, ref))
                 self._set_status(
                     st, "Rounding to the target's steps costs max "
-                    "%.2f dB over %s." % (err, self._band_str()),
+                    "%.2f dB over %s. Export preamp %+.1f dB."
+                    % (err, self._band_str(), fg),
                     err <= xp.NULL_PASS_DB)
         elif writer == "graphiceq":
             grid = xp.graphic_grid()
