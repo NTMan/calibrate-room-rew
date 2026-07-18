@@ -262,3 +262,70 @@ def test_rounded_chain_reports_delta_material():
     assert b[0]["gain"] == pytest.approx(3.0)
     assert b[0]["q"] == pytest.approx(1.2)
     assert b[0]["freq"] == pytest.approx(997.0)   # no freq_step
+
+
+# ---- the fixed-band fit (writer class b) --------------------------------
+
+_T8 = {"id": "t8", "name": "T8", "writer": "fixed",
+       "centers": [100.0 * 2 ** i for i in range(8)],
+       "gain_range": [-12.0, 12.0], "gain_step": 0.1,
+       "basis_q": 1.4}
+
+
+def test_solve_fixed_recovers_a_basis_combination():
+    freqs = ex.log_grid(50.0, 16000.0, 240)
+    b = ex.peaking_basis(_T8["centers"], 1.4, freqs)
+    truth = 2.0 * b[:, 2] - 3.0 * b[:, 5] + 1.5
+    sol = ex.solve_fixed(_T8, freqs, [float(v) for v in truth])
+    want = [0.0, 0.0, 2.0, 0.0, 0.0, -3.0, 0.0, 0.0]
+    for got, exp in zip(sol["gains"], want):
+        assert got == pytest.approx(exp, abs=0.1)
+    assert sol["offset"] == pytest.approx(1.5, abs=0.05)
+    assert sol["resid_max"] < 0.1
+    assert "peaking" in sol["basis"]
+
+
+def test_solve_fixed_respects_bounds_and_reports_residual():
+    t = dict(_T8, gain_range=[-6.0, 6.0], gain_step=1.0)
+    freqs = ex.log_grid(50.0, 16000.0, 240)
+    b = ex.peaking_basis(t["centers"], 1.4, freqs)
+    sol = ex.solve_fixed(t, freqs, [float(v) for v in 10.0 * b[:, 0]])
+    assert sol["gains"][0] == 6.0             # clamped at the cap
+    assert sol["resid_max"] > 1.0             # and honest about it
+    assert len(sol["resid"]) == len(freqs)
+
+
+def test_fixed_sheet_carries_fit_provenance_and_residual():
+    freqs = ex.log_grid(50.0, 16000.0, 120)
+    b = ex.peaking_basis(_T8["centers"], 1.4, freqs)
+    sol = ex.solve_fixed(_T8, freqs, [float(v) for v in 1.0 * b[:, 3]])
+    text = ex.fixed_sheet_text(_T8, sol, header=("Target: T8",))
+    assert "Residual: max" in text
+    assert "Level trim absorbed" in text
+    assert "least squares" in text
+    assert text.count(" Hz   ") == 8
+    assert "800 Hz   +1.0" in text
+
+
+def test_load_basis_roundtrip_and_mismatch(tmp_path, capsys):
+    freqs = ex.log_grid(50.0, 16000.0, 96)
+    unit = ex.peaking_basis(_T8["centers"], 1.4, freqs)
+    basis = {"freq": freqs, "curve_gain_db": 6.0,
+             "curves": [[6.0 * unit[i][j] for i in range(len(freqs))]
+                        for j in range(8)]}
+    bp = tmp_path / "t8.basis.json"
+    bp.write_text(json.dumps(basis), encoding="utf-8")
+    t = dict(_T8, basis_file=str(bp))
+    got = ex.load_basis(t, freqs)
+    assert got is not None
+    for j in (0, 4, 7):
+        for i in (0, 40, 95):
+            assert got[i][j] == pytest.approx(unit[i][j], abs=1e-6)
+    sol = ex.solve_fixed(t, freqs,
+                         [float(2.0 * v) for v in unit[:, 4]])
+    assert "measured basis" in sol["basis"]
+    assert sol["gains"][4] == pytest.approx(2.0, abs=0.1)
+    bad = dict(_T8, basis_file=str(bp),
+               centers=[100.0, 1000.0])
+    assert ex.load_basis(bad, freqs) is None
+    assert "does not match" in capsys.readouterr().err

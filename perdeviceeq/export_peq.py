@@ -386,6 +386,127 @@ def null_test_parametric(text, freqs, ref_resp):
     return max(abs(a - b) for a, b in zip(got, ref_resp))
 
 
+# ---- the fixed-band fit (writer class b) -------------------------------
+
+
+def peaking_basis(centers, q, freqs):
+    """One unit column per slider: the response of a 1 dB peaking
+    biquad at each center, scaled linearly by the solver. The biquad
+    shape is mildly gain-dependent, so linear scaling is an
+    approximation -- the standard one for graphic-EQ work, and the
+    residual is computed against it and shown either way."""
+    import numpy as np
+    cols = [eq.response_db(0.0, [eq.Band("PK", c, 1.0, q)], freqs)
+            for c in centers]
+    return np.array(cols, dtype=float).T
+
+
+def load_basis(target, freqs):
+    """The measured slider basis interpolated onto `freqs`, or None.
+    The JSON contract ({"freq": [...], "curve_gain_db": g,
+    "curves": [[dB, ...] one per center]}) is the rig procedure from
+    the ROADMAP made a file: each curve is one slider at `g` dB with
+    the zero run subtracted. Relative paths resolve next to the
+    drop-in that named them. A basis that does not match the
+    target's centers is refused loudly and the caller falls back to
+    the assumed basis -- a silently wrong basis would defeat the
+    residual's whole point."""
+    path = target.get("basis_file")
+    if not path:
+        return None
+    if not os.path.isabs(path):
+        base = os.path.dirname(target.get("_src", ""))
+        path = os.path.join(base or USER_TARGET_DIR, path)
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        print("per-device-eq: export basis %s unreadable: %s"
+              % (path, e), file=sys.stderr)
+        return None
+    fs = [float(v) for v in (data.get("freq") or [])]
+    curves = data.get("curves") or []
+    g = float(data.get("curve_gain_db") or 0.0)
+    if (len(fs) < 2 or not g
+            or len(curves) != len(target.get("centers") or [])):
+        print("per-device-eq: export basis %s does not match "
+              "target %s (need freq, curve_gain_db and one curve "
+              "per center)" % (path, target.get("id")),
+              file=sys.stderr)
+        return None
+    import numpy as np
+    cols = [[_interp_logf(fs, [float(v) for v in c], f) / g
+             for f in freqs] for c in curves]
+    return np.array(cols, dtype=float).T
+
+
+def solve_fixed(target, freqs, desired):
+    """Writer class (b): gains for the target's fixed centers by
+    bounded least squares, a free level offset absorbing what
+    sliders cannot reach (a vendor graphic has no preamp; level is
+    the volume knob's job, not the fit's error). Gains are rounded
+    to the target's step and clamped, then the offset is re-derived
+    and the residual computed AGAINST THE ROUNDED GAINS -- the sheet
+    must state the error of what the person will actually enter.
+    Returns the dict the wizard plots and fixed_sheet_text prints;
+    the residual is in it by construction, so the fixed-band path
+    cannot produce an export that never computed one."""
+    import numpy as np
+    from scipy.optimize import lsq_linear
+    centers = [float(c) for c in target["centers"]]
+    k = len(centers)
+    basis = load_basis(target, freqs)
+    if basis is not None:
+        note = "measured basis (%s)" % os.path.basename(
+            target.get("basis_file", ""))
+    else:
+        q = float(target.get("basis_q") or 1.414)
+        basis = peaking_basis(centers, q, freqs)
+        note = "assumed peaking basis, Q %g" % q
+    d = np.asarray(desired, dtype=float)
+    glo, ghi = [float(v) for v in
+                (target.get("gain_range") or [-6.0, 6.0])]
+    a = np.hstack([basis, np.ones((len(freqs), 1))])
+    lo = np.array([glo] * k + [-np.inf])
+    hi = np.array([ghi] * k + [np.inf])
+    sol = lsq_linear(a, d, bounds=(lo, hi))
+    step = float(target.get("gain_step") or 0.0)
+    gains = [min(ghi, max(glo, round_step(v, step)))
+             for v in sol.x[:k]]
+    shaped = basis @ np.asarray(gains)
+    offset = float(np.mean(d - shaped))
+    achieved = shaped + offset
+    resid = d - achieved
+    return {"centers": centers, "gains": gains, "offset": offset,
+            "freqs": list(freqs),
+            "desired": [float(v) for v in d],
+            "achieved": [float(v) for v in achieved],
+            "resid": [float(v) for v in resid],
+            "resid_max": float(np.max(np.abs(resid))),
+            "resid_rms": float(math.sqrt(float(np.mean(resid
+                                                       * resid)))),
+            "basis": note}
+
+
+def fixed_sheet_text(target, sol, header=()):
+    """The slider sheet for a solve_fixed result. The fit's basis,
+    the absorbed level trim and the residual figures are printed
+    INTO the sheet: even the artifact carries what the wizard
+    showed."""
+    gd = _step_decimals(target.get("gain_step"))
+    lines = list(header)
+    lines.append("Fit: bounded least squares over %s."
+                 % sol["basis"])
+    lines.append("Level trim absorbed by the fit: %+.1f dB "
+                 "(volume, not a slider)." % sol["offset"])
+    lines.append("Residual: max %.1f dB, rms %.1f dB across the "
+                 "fit band." % (sol["resid_max"], sol["resid_rms"]))
+    lines.append("")
+    for c, g in zip(sol["centers"], sol["gains"]):
+        lines.append("%8s Hz   %+.*f" % ("%g" % c, gd, g))
+    return "\n".join(lines) + "\n"
+
+
 def null_test_graphic(text, freqs, ref_resp, shift=0.0):
     """Max |exported - (in-app + shift)| in dB over `freqs`, reading
     the point list the way importers do (_interp_logf). `shift` is
