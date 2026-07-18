@@ -40,12 +40,22 @@ listener, headroom that never lies.
 
 ## Next (the sprint)
 
-1. **Merged hardware export.** Export the COMPOSED chain (device + active
-   taste, preamp included) as one parametric-EQ text for hardware and
-   apps that cannot layer: EqualizerAPO/Qudelix-style. Accept when the
-   exported file null-tests against the in-app chain within 0.1 dB across
-   the fit band, and the per-channel collapse policy is stated in the
-   header comment.
+1. **Export wizard.** One window-level action (the primary menu is its
+   home) that bakes the COMPOSED chain -- device + active taste, preamp
+   included -- and asks one question: where is this going? A registry of
+   known external equalizers drives the rest, three writer classes:
+   (a) native import files for targets that have import (REW /
+   EqualizerAPO-style parametric text, Wavelet GraphicEQ, RootlessJamesDSP);
+   (b) a constrained fit for fixed-band vendor graphics (Soundcore-class
+   companion apps) -- fixed frequencies, gains solved by least squares,
+   against a MEASURED basis where we have one, with the residual curve
+   shown BEFORE export so nobody carries a surprise; (c) a hand-transfer
+   sheet for targets with no import at all: a readable table, values
+   rounded to the target's step, one screen. Accept when parametric
+   exports null-test against the in-app chain within 0.1 dB across the
+   fit band with the per-channel collapse policy stated in the header,
+   and the fixed-band path never exports without having shown its
+   residual.
 2. **Profile package.** One-file `.pdeq` bundle: profile + measurement +
    fit provenance + rig fingerprint + content sha. Import validates and
    shows provenance. Accept when export→import roundtrips byte-stable.
@@ -104,9 +114,28 @@ listener, headroom that never lies.
 - **Hardware PEQ, the full story.** Per-device capability tables (band
   counts, Q ranges, shelf types, preamp granularity), bank naming and
   multi-bank export where the hardware has them.
-- **Android.** Survey the global-PEQ hosts (Wavelet,
-  RootlessJamesDSP-class engines) for a profile handoff format; a
-  companion exporter, not a port.
+- **Mobile (Android and iOS): the bud-side doctrine.** The platform
+  fact first: iOS has no system PEQ and cannot have one -- third-party
+  apps cannot touch each other's audio, Headphone Accommodations serves
+  AirPods/Beats only. So the one common denominator for a
+  give-and-forget solution is DSP inside the earbuds via the vendor's
+  companion app, and that path is primary, not a fallback: it survives
+  phone swaps, adds no phone battery cost or latency, and covers every
+  source. Vendor graphic EQs hide their band shapes, but the DSP sits
+  in the bud, so the shapes are MEASURABLE: one slider at a time to max
+  on the rig, subtract the zero run, and the fit degenerates into
+  least squares over the measured basis -- exact gains for hand entry,
+  the missing import stops hurting. Measure in the ANC mode the person
+  actually wears, with HearID/adaptive presets off. Target curves for a
+  dead donor device (the Falcon case): take the DELTA of the two
+  models from ONE published measurement base -- same-rig differences
+  transfer across frames far better than absolute curves. On Android,
+  Wavelet is the optional upgrade (session-effect global EQ, zero
+  hassle, imports GraphicEQ); RootlessJamesDSP is a true parametric
+  but lives on stream capture -- latency, DRM apps silently escaping,
+  permission rituals -- fine for an enthusiast, wrong for a gift. The
+  export wizard's registry (sprint item 1) is where all of these live
+  as targets.
 - **Advocacy.** Write-ups of the established facts below (the BT
   loudness/limiter findings deserve their own post), short demo videos,
   and a comparison page against static AutoEq presets.
