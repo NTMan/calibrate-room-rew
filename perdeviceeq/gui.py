@@ -555,9 +555,6 @@ class EqWindow(Adw.ApplicationWindow):
                 dlg.present(self)
             elif self.current_pid == pid:
                 self._load_profile(pid)
-                # in Auto the preamp lands the composed Safe NOW;
-                # in manual this just refreshes the readout
-                self._update_headroom()
             else:
                 self._populate_picker()
             return False
@@ -1154,6 +1151,11 @@ class EqWindow(Adw.ApplicationWindow):
             self.store.set_binding(self.node, pid)
         finally:
             self._loading = False
+        # land the composed Safe under Auto: a profile saved before
+        # Auto existed (or whose cache went stale while nobody was
+        # editing) carries a preamp the current chain never
+        # blessed; in manual this only refreshes the readout
+        self._update_headroom()
         # remember built-ins you select, so they stay in the default picker list
         if pid != CLEAN_ID and self.store.get(pid).get("builtin") \
                 and pid not in self.favorites:
