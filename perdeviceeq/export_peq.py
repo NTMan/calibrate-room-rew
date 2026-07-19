@@ -758,6 +758,23 @@ def _projection_err(chains, freqs):
     return max(abs(a - b) for a, b in zip(est, true))
 
 
+def chain_fit_residual(fg, desired, bands, cap=None):
+    """Level-free tracking error of a band chain against the
+    desired correction, for the device strip: how well the CURRENT
+    chain -- fitted or hand-edited -- realizes what the canvas
+    asks. The constant part of the difference rides legitimately
+    in the preamp and trims, so it is removed before the max is
+    taken; `cap` clips the desired's boost first, because the
+    fit's own target never asked past it."""
+    d = list(desired)
+    if cap is not None:
+        d = [min(v, cap) for v in d]
+    r = chain_response(0.0, bands, fg)
+    e = [a - b for a, b in zip(d, r)]
+    m = sum(e) / len(e)
+    return max(abs(v - m) for v in e)
+
+
 def audit_target(t, chains, freqs):
     """(score, flag, reasons) for sorting a target picker and
     annotating its rows BEFORE any page opens -- ordered by

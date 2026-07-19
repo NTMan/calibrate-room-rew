@@ -859,3 +859,24 @@ def test_shelf_q_ceiling_dissolves_edge_stacks():
             assert b["q"] <= SHELF_Q_MAX + 1e-6
             assert b["gain"] > -12.0    # no cancelling-stack limbs
     assert len([b for b in bands if b["freq"] < 150.0]) <= 3
+
+
+def test_chain_fit_residual_is_level_free_and_capped():
+    fg = ex.log_grid(20.0, 12000.0, 240)
+    bands = [{"type": "LSC", "freq": 60.0, "gain": 4.0, "q": 0.5,
+              "enabled": True},
+             {"type": "PK", "freq": 2500.0, "gain": -8.0,
+              "q": 0.8, "enabled": True}]
+    desired = list(ex.chain_response(0.0, bands, fg))
+    assert ex.chain_fit_residual(fg, desired, bands) < 1e-9
+    shifted = [v + 3.0 for v in desired]      # level rides in trims
+    assert ex.chain_fit_residual(fg, shifted, bands) < 1e-9
+    wrong = [dict(bands[0], gain=1.0), bands[1]]
+    assert ex.chain_fit_residual(fg, desired, wrong) > 1.0
+    spiked = list(desired)
+    for i, f in enumerate(fg):               # an unfillable ask
+        if f > 9000.0:
+            spiked[i] += 9.0
+    big = ex.chain_fit_residual(fg, spiked, bands)
+    capped = ex.chain_fit_residual(fg, spiked, bands, cap=6.0)
+    assert capped < big

@@ -408,6 +408,7 @@ class EqWindow(Adw.ApplicationWindow):
             self._sync_view_curves()
             return
         from . import refit, trust      # heavy deps stay lazy
+        from . import export_peq, fit_peq
         fit = p.get("fit") or {}
         params = fit.get("params") or {}
         cache = {"curves": {}, "band": {}, "err": None,
@@ -443,6 +444,18 @@ class EqWindow(Adw.ApplicationWindow):
             cache["curves"][key] = {"f": f, "meas": meas,
                                     "spread": spread}
             cache["band"][key] = band
+            bl = [b for b in ((p.get("channels") or {})
+                              .get(key, {}).get("bands") or [])
+                  if b.get("enabled", True)]
+            if bl and fit:
+                fgd, des, _m = fit_peq.desired_curve(f, mag,
+                                                     nlo, nhi)
+                rv = export_peq.chain_fit_residual(
+                    list(fgd), list(des), bl,
+                    cap=float(params.get("max_boost", 6.0)))
+                worst = (rv if cache.get("fit_resid") is None
+                         else max(cache["fit_resid"], rv))
+                cache["fit_resid"] = worst
         if lo_all is not None:
             cache["ylo"], cache["yhi"] = lo_all - 3.0, hi_all + 3.0
         self._canvas = cache
@@ -460,6 +473,9 @@ class EqWindow(Adw.ApplicationWindow):
                                        _fmt_hz(band[1]))
                     if band else "no controlled band")
             txt = "Trust %d · %s" % (rep.get("score", 0), btxt)
+            fr = cache.get("fit_resid")
+            if fr is not None:
+                txt += " · fit %.2f dB" % fr
         else:
             txt = "Measurement attached"
         self.trust_label.set_text(txt)
