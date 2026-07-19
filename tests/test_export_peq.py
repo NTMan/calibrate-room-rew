@@ -788,19 +788,30 @@ def test_audit_target_scores_and_reasons():
     tight = {"writer": "parametric", "gain_range": [-3.0, 3.0]}
     budget = {"writer": "parametric", "max_bands": 1}
 
-    assert ex.audit_target(pa, par, freqs) == (0, [])
-    assert ex.audit_target(ge, par, freqs) == (3, [])
-    assert ex.audit_target(fx, par, freqs) == (4, [])
-    assert ex.audit_target(pt, par, freqs) == (1, [])
-    assert ex.audit_target(pt, par[:1], freqs) == (0, [])
-    s, r = ex.audit_target(tight, par, freqs)
-    assert s == 2 and r == ["gain limit"]
-    s, r = ex.audit_target(budget, par[:1], freqs)
-    assert s == 2 and r == ["band budget 1"]
-    s, r = ex.audit_target(pt, div, freqs)
-    assert s == 2 and r == ["no per-channel EQ"]
-    s, r = ex.audit_target(budget, div, freqs)
-    assert s == 2 and r == ["no per-channel EQ", "band budget 1"]
+    assert ex.audit_target(pa, par, freqs) == (0, "", [])
+    s, f, r = ex.audit_target(ge, par, freqs)
+    assert s == 3 and f == "" and "mean of channels" in r
+    assert any("response projection" in x for x in r)
+    s, f, r = ex.audit_target(ge, par[:1], freqs)
+    assert s == 3 and r == ["response projection, 127-point grid"]
+    fx8 = dict(fx, centers=[1.0] * 8, gain_range=[-6.0, 6.0])
+    s, f, r = ex.audit_target(fx8, par, freqs)
+    assert s == 4 and f == "fit"
+    assert r == ["8 fixed sliders", "gain -6..6 dB",
+                 "mean of channels"]
+    s, f, r = ex.audit_target(pt, par, freqs)
+    assert (s, f) == (1, "")
+    assert r == ["mean of channels -- band average"]
+    assert ex.audit_target(pt, par[:1], freqs) == (0, "", [])
+    s, f, r = ex.audit_target(tight, par, freqs)
+    assert (s, f, r) == (2, "re-fit", ["gain limit"])
+    s, f, r = ex.audit_target(budget, par[:1], freqs)
+    assert (s, f, r) == (2, "re-fit", ["band budget 1"])
+    s, f, r = ex.audit_target(pt, div, freqs)
+    assert (s, f, r) == (2, "re-fit", ["no per-channel EQ"])
+    s, f, r = ex.audit_target(budget, div, freqs)
+    assert (s, f) == (2, "re-fit")
+    assert r == ["no per-channel EQ", "band budget 1"]
 
 
 def test_refit_progress_is_alive_and_bounded():
@@ -813,10 +824,15 @@ def test_refit_progress_is_alive_and_bounded():
               "enabled": True}]
     desired = ex.chain_response(0.0, shape, fg)
     seen = []
-    bands, _rm, _rr = ex.refit_bands(fg, desired, 20.0, 12000.0,
-                                     6, 6.0, progress=seen.append)
+    bands, _rm, _rr = ex.refit_bands(
+        fg, desired, 20.0, 12000.0, 6, 6.0,
+        progress=lambda *a: seen.append(a))
     assert bands and seen
-    assert seen[-1] == 1.0 and seen.count(1.0) == 1
-    assert all(0.0 <= v <= 1.0 for v in seen)
-    assert seen == sorted(seen)          # never walks backwards
-    assert len(seen) >= 5                # alive, not a two-stepper
+    fr = [s[0] for s in seen]
+    assert fr[-1] == 1.0 and fr.count(1.0) == 1
+    assert all(0.0 <= v <= 1.0 for v in fr)
+    assert fr == sorted(fr)              # never walks backwards
+    assert len(fr) >= 5                  # alive, not a two-stepper
+    ev = [s[3] for s in seen]
+    assert ev == sorted(ev) and ev[-1] >= ev[0] + 80
+    assert all(s[2] == 6 and 0 <= s[1] <= 6 for s in seen)

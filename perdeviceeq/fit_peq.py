@@ -221,14 +221,19 @@ def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost,
     and a placement whose natural shelf type the target lacks
     falls back to a peaking band.
 
-    `progress`, when given, is called with a fraction in [0, 1]
-    as the optimizer works: the major steps are band placements,
-    the minor motion inside each step comes from the residual
-    evaluations of the joint refine (the optimizer is global over
-    the spectrum on every iteration, so per-frequency progress
-    does not exist -- per-evaluation is its true heartbeat). The
-    prune's trials keep ticking in the last step; 1.0 is emitted
-    exactly once, at the end.
+    `progress`, when given, is called as progress(frac, band,
+    horizon, evals) while the optimizer works: the major steps are
+    band placements, the minor motion inside each step comes from
+    the residual evaluations of the joint refine (the optimizer is
+    global over the spectrum on every iteration, so per-frequency
+    progress does not exist -- per-evaluation is its true
+    heartbeat). The inner fraction is hyperbolic, fev/(fev+350):
+    it approaches the next step but never saturates, so a long
+    refine keeps the bar creeping instead of pegging it -- and
+    `evals` is the raw counter for a text readout that visibly
+    ticks even when the pixels barely move. The prune's trials
+    keep ticking in the last step; frac 1.0 is emitted exactly
+    once, at the end.
 
     Returns (bands, resid) with bands as (type, f, g, q) tuples."""
     desired = np.asarray(desired, float)
@@ -237,13 +242,16 @@ def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost,
                     or ("PK", "LSC", "HSC"))
     target = np.minimum(desired, g_hi)
     horizon = max(int(n_bands), 1)
-    prog = {"band": 0, "fev": 0}
+    prog = {"band": 0, "fev": 0, "tot": 0}
 
     def tick():
         prog["fev"] += 1
-        if progress is not None and prog["fev"] % 20 == 0:
-            inner = min(prog["fev"] / 350.0, 0.95)
-            progress(min((prog["band"] + inner) / horizon, 1.0))
+        prog["tot"] += 1
+        if progress is not None and prog["tot"] % 20 == 0:
+            inner = prog["fev"] / (prog["fev"] + 350.0)
+            progress(min((prog["band"] + inner) / horizon,
+                         0.999),
+                     prog["band"], horizon, prog["tot"])
 
     bands, anchors = [], []
     for _ in range(n_bands):
@@ -268,7 +276,7 @@ def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost,
     bands = _prune(bands, fg, target, flo, fhi, max_boost,
                    limits=limits, tick=tick)
     if progress is not None:
-        progress(1.0)
+        progress(1.0, prog["band"], horizon, prog["tot"])
     return bands, desired - _response(bands, fg)   # vs TRUE target
 
 

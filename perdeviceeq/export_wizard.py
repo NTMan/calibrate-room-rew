@@ -173,6 +173,8 @@ class ExportDialog(Adw.Dialog):
         audit = {t["id"]: xp.audit_target(
             t, self.chains, xp.log_grid(self.flo, self.fhi, 240))
             for t in targets}
+        dark = Adw.StyleManager.get_default().get_dark()
+        red = "#ff7b63" if dark else "#c01c28"
         groups = (("Import files",
                    "Formats the target application reads in",
                    xp.FILE_WRITERS),
@@ -186,16 +188,22 @@ class ExportDialog(Adw.Dialog):
                     if t.get("writer") in writers]
             rows.sort(key=lambda t: audit[t["id"]][0])
             for t in rows:
-                score, gaps = audit[t["id"]]
-                sub = t.get("note", "")
+                _score, tflag, gaps = audit[t["id"]]
+                sub = GLib.markup_escape_text(t.get("note", ""))
                 if gaps:
-                    sub = ((sub + "\n") if sub else "") + \
-                        "re-fit: " + ", ".join(gaps)
-                row = Adw.ActionRow(title=t["name"], subtitle=sub)
-                row.set_use_markup(False)
+                    line = GLib.markup_escape_text(
+                        ", ".join(gaps))
+                    if tflag:
+                        line = ("<span foreground='%s'>%s:"
+                                " %s</span>"
+                                % (red, tflag, line))
+                    sub = ((sub + "\n") if sub else "") + line
+                row = Adw.ActionRow(title=GLib.markup_escape_text(
+                    t["name"]), subtitle=sub)
+                row.set_use_markup(True)
                 row.set_activatable(True)
-                if score == 2:
-                    flag = Gtk.Label(label="re-fit")
+                if tflag:
+                    flag = Gtk.Label(label=tflag)
                     flag.add_css_class("error")
                     row.add_suffix(flag)
                 row.add_suffix(Gtk.Image.new_from_icon_name(
@@ -526,10 +534,18 @@ class ExportDialog(Adw.Dialog):
             % ("canvas" if self.source == "measurement"
                else "chain", why), None)
 
-        def on_prog(frac):
-            def apply(f=frac):
+        src = ("canvas" if self.source == "measurement"
+               else "chain")
+
+        def on_prog(frac, band, horizon, evals):
+            def apply():
                 if st["gen"] == gen:
-                    st["prog"].set_fraction(f)
+                    st["prog"].set_fraction(frac)
+                    self._set_status(
+                        st, "Source: %s. Re-fitting (%s)... band"
+                        " %d/%d, %d evaluations."
+                        % (src, why, min(band + 1, horizon),
+                           horizon, evals), None)
                 return False
             GLib.idle_add(apply)
 

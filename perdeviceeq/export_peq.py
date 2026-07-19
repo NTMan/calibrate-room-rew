@@ -742,38 +742,59 @@ def _terse_gaps(t, bands):
 
 
 def audit_target(t, chains, freqs):
-    """(score, reasons) for sorting a target picker and annotating
-    its rows BEFORE any page opens: how far from verbatim bands
-    this target sits for these exact chains. 0 -- verbatim (a
-    per-channel destination, or one chain clearing every declared
-    limit); 1 -- mean by parallel band average, as-is grade; 2 --
-    a re-fit will run, and `reasons` names why in row-sized
-    tokens; 3 -- response projection (a graphic line has no
-    bands); 4 -- fixed sliders. Reasons are only present for 2."""
+    """(score, flag, reasons) for sorting a target picker and
+    annotating its rows BEFORE any page opens: how far from
+    verbatim bands this target sits for these exact chains.
+
+    score orders the picker: 0 verbatim (a per-channel
+    destination, or one chain clearing every declared limit);
+    1 mean by parallel band average, as-is grade; 2 a re-fit will
+    run; 3 response projection; 4 fixed sliders. flag is the red
+    chip text -- "re-fit" for 2, "fit" for 4 (a slider solve is
+    always a fit), "" otherwise. reasons are row-sized tokens: red
+    diagnostics next to a flag, plain information without one --
+    every conversion a row implies is written on the row, so a
+    clean-looking worst target cannot happen."""
+    multi = len(chains) > 1
     w = t.get("writer")
     if w == "poweramp":
-        return 0, []
+        return 0, "", []
     if w == "graphiceq":
-        return 3, []
+        r = ["response projection, %d-point grid"
+             % len(AUTOEQ_GEQ_FREQS)]
+        if multi:
+            r.append("mean of channels")
+        return 3, "", r
     if w == "fixed":
-        return 4, []
-    if len(chains) == 1:
+        r = []
+        cs = t.get("centers") or ()
+        if cs:
+            r.append("%d fixed sliders" % len(cs))
+        gr = t.get("gain_range")
+        if gr:
+            r.append("gain %g..%g dB" % (gr[0], gr[1]))
+        if multi:
+            r.append("mean of channels")
+        return 4, "fit", r
+    if not multi:
         _k, g, bands = chains[0]
         _fg, fb, _f = fold_flat(g, bands)
         gaps = _terse_gaps(t, fb)
-        return (2, gaps) if gaps else (0, [])
+        return (2, "re-fit", gaps) if gaps else (0, "", [])
     pm, _why = parallel_mean(chains, freqs)
     if pm:
         _g, fb, _err = pm
         gaps = _terse_gaps(t, fb)
-        return (2, gaps) if gaps else (1, [])
+        if gaps:
+            return 2, "re-fit", gaps
+        return 1, "", ["mean of channels -- band average"]
     gaps = ["no per-channel EQ"]
     mb = t.get("max_bands")
     rich = max(len([b for b in bb if b.get("enabled", True)])
                for _k, _g, bb in chains)
     if mb and rich > mb:
         gaps.append("band budget %d" % mb)
-    return 2, gaps
+    return 2, "re-fit", gaps
 
 
 def center_curve(vals):
