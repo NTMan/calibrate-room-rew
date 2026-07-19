@@ -56,6 +56,11 @@ BUILTIN_TARGETS = [
      "name": "Parametric EQ text",
      "note": "AutoEq style; REW and EqualizerAPO import it",
      "writer": "parametric", "ext": ".txt"},
+    {"id": "qudelix",
+     "name": "Qudelix 5K (PEQ)",
+     "note": "AutoEq parametric text; the app imports it into"
+             " the 10-band PEQ",
+     "writer": "parametric", "ext": ".txt", "max_bands": 10},
     {"id": "jamesdsp",
      "name": "GraphicEQ text (EqualizerAPO)",
      "note": "EqualizerAPO GraphicEQ line; the JamesDSP family"
@@ -121,6 +126,14 @@ def load_targets(extra_dir=None):
                 print("per-device-eq: skipping export target in %s: "
                       "need id, name and a known writer" % path,
                       file=sys.stderr)
+                continue
+            mb = t.get("max_bands")
+            if mb is not None and (not isinstance(mb, int)
+                                   or isinstance(mb, bool)
+                                   or mb < 1):
+                print("per-device-eq: skipping export target in %s:"
+                      " max_bands must be a positive integer"
+                      % path, file=sys.stderr)
                 continue
             t = dict(t, _src=path)
             for i, old in enumerate(out):
@@ -196,16 +209,18 @@ def fold_flat(preamp, bands):
 
 
 def collapse_choices(chains, band_domain):
-    """The policies the wizard may offer, default first. For
-    response-domain writers (graphiceq / fixed) on a per-channel
-    profile the mean leads: the target plays one chain into both
-    ears, so the average response is the least-wrong single answer
-    and exporting a specific channel is the deliberate choice, not
-    the accident of list order. Band-domain writers (parametric /
-    sheet) export one chain's bands verbatim, so mean is not on the
-    menu -- averaging band tables is not a defined operation."""
+    """The policies the wizard may offer, default first. On a
+    per-channel profile the mean leads for every writer: the
+    target plays one chain into both ears, so the average is the
+    least-wrong single answer and exporting a specific channel is
+    the deliberate choice, not the accident of list order. For
+    response-domain writers the mean is the response average; for
+    band-domain writers averaging band tables is not a defined
+    operation, so the mean is realized by re-fitting bands onto
+    the mean curve with the profile's own optimizer (the wizard
+    states the re-fit and its residual)."""
     keys = [k for k, _g, _b in chains]
-    if len(keys) == 1 or band_domain:
+    if len(keys) == 1:
         return keys
     return ["mean"] + keys
 
@@ -537,6 +552,14 @@ def sample_curve(fg, curve, freqs):
     measurement says nothing."""
     gs = list(curve)
     return [_interp_logf(fg, gs, f) for f in freqs]
+
+
+def center_curve(vals):
+    """(centered, mean): split a curve into shape and level. The
+    re-fit paths fit the shape; the level rides in the exported
+    preamp (and under Auto the composed Safe owns it outright)."""
+    off = sum(vals) / float(len(vals))
+    return [v - off for v in vals], off
 
 
 def refit_bands(fg, desired, flo, fhi, n_bands, max_boost):

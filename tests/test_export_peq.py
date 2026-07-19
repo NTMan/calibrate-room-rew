@@ -129,10 +129,40 @@ def test_collapse_choices():
     two = ex.composed_chains(_profile_channels(), None)
     assert ex.collapse_choices(one, band_domain=True) == ["all"]
     assert ex.collapse_choices(one, band_domain=False) == ["all"]
-    assert ex.collapse_choices(two, band_domain=True) == ["FL", "FR"]
-    # mean leads: the shared-channels default (field feedback)
+    # mean leads for every writer: the shared-channels default
+    # (field feedback); band-domain realizes it via the export
+    # re-fit
+    assert ex.collapse_choices(two, band_domain=True) == \
+        ["mean", "FL", "FR"]
     assert ex.collapse_choices(two, band_domain=False) == \
         ["mean", "FL", "FR"]
+
+
+def test_qudelix_builtin_and_max_bands_validator(tmp_path):
+    t = {x["id"]: x for x in ex.load_targets(
+        extra_dir="/nonexistent")}["qudelix"]
+    assert t["writer"] == "parametric" and t["max_bands"] == 10
+    bad1 = {"id": "b1", "name": "b1", "writer": "sheet",
+            "max_bands": 0}
+    bad2 = {"id": "b2", "name": "b2", "writer": "sheet",
+            "max_bands": "5"}
+    bad3 = {"id": "b3", "name": "b3", "writer": "sheet",
+            "max_bands": True}
+    good = {"id": "g1", "name": "g1", "writer": "sheet",
+            "max_bands": 5}
+    import json as _json
+    (tmp_path / "mb.json").write_text(
+        _json.dumps([bad1, bad2, bad3, good]), encoding="utf-8")
+    ids = [t["id"] for t in
+           ex.load_targets(extra_dir=str(tmp_path))]
+    assert "g1" in ids
+    assert not any(i in ids for i in ("b1", "b2", "b3"))
+
+
+def test_center_curve():
+    c, off = ex.center_curve([1.0, 3.0, 5.0])
+    assert off == 3.0 and c == [-2.0, 0.0, 2.0]
+    assert abs(sum(c)) < 1e-12
 
 
 def test_collapse_pick_and_mean():

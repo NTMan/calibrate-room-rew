@@ -14,6 +14,13 @@ Two pages on an Adw.NavigationView:
      also draws the residual curve before anything leaves the app),
      a monospace preview, then Copy / Save.
 
+Response-domain writers and the band-domain re-fits (the mean
+policy, a target with a band budget) feed from the measurement
+canvas when the fit provenance allows -- export_source: a fit that
+exists, was not hand-edited and still matches its canvas -- and
+from the playback chain otherwise. Every artifact header and every
+status line names its source.
+
 All math lives in export_peq (pure, tested); this module is GTK
 plumbing only and stays out of the test run like gui.py.
 """
@@ -49,11 +56,14 @@ class ExportDialog(Adw.Dialog):
         self.body = win._working_body()
         layer = win.pref_layers.active()
         self.taste_name = layer["name"] if layer else None
-        self.chains = xp.composed_chains(
-            self.body, win.pref_layers.active_bands())
+        self.taste_bands = win.pref_layers.active_bands()
+        self.chains = xp.composed_chains(self.body,
+                                         self.taste_bands)
         self.chains_plain = (xp.composed_chains(self.body, None)
                              if self.taste_name else self.chains)
         self.flo, self.fhi = xp.fit_band(self.body)
+        self.source, self.source_why = xp.export_source(self.body)
+        self._canvas = None
         self.nav = Adw.NavigationView()
         self.nav.add(self._targets_page())
         self.set_child(self.nav)
@@ -83,6 +93,67 @@ class ExportDialog(Adw.Dialog):
                 % (__version__, target["name"]),
                 "Source: " + self._chain_summary(taste),
                 "Chain collapse: %s." % note]
+
+    def _source_line(self, canvas_note=None):
+        """The artifact-header statement of what fed the export."""
+        if self.source == "measurement":
+            s = ("Fed from: the measurement canvas -- the desired"
+                 " correction the fit was asked for")
+            if canvas_note:
+                s += " (%s)" % canvas_note
+            return s + "."
+        return ("Fed from: the playback chain (%s)."
+                % self.source_why)
+
+    def _collapse_note(self, policy):
+        """The collapse wording for a canvas-fed bake, matching
+        what collapse()/pick_chain() would say for the chain."""
+        keys = [k for k, _g, _b in self.chains]
+        if policy == "mean":
+            return "mean of %s" % ", ".join(keys)
+        if policy == "all":
+            return "single chain (apply-all)"
+        return "channel %s of %s" % (policy, ", ".join(keys))
+
+    def _canvas_desired(self):
+        """(fg, curves, note) rebuilt once, taste-free; a canvas
+        that refuses flips the whole dialog to the chain source."""
+        if self._canvas is None:
+            from .refit import RefitError
+            try:
+                self._canvas = xp.desired_from_canvas(self.body)
+            except RefitError as e:
+                self.source = "chain"
+                self.source_why = str(e)
+                self._canvas = False
+        return self._canvas or None
+
+    def _measurement_vals(self, st, taste):
+        """(fg, vals, canvas_note) for the current policy under
+        the measurement source, or None -> bake from the chain.
+        The taste overlay is applied here, per bake, so the switch
+        works on this source too."""
+        if self.source != "measurement":
+            return None
+        got = self._canvas_desired()
+        if not got:
+            return None
+        fg, curves, note = got
+        if taste and self.taste_bands:
+            tail = xp.chain_response(0.0, self.taste_bands, fg)
+            curves = {k: [v + d for v, d in zip(c, tail)]
+                      for k, c in curves.items()}
+        pol = st["policy"]
+        if pol == "mean":
+            return fg, xp.mean_curve(curves), note
+        if pol in curves:
+            return fg, curves[pol], note
+        if len(curves) == 1:
+            return fg, next(iter(curves.values())), note
+        self.source = "chain"
+        self.source_why = ("the canvas channels do not match the"
+                           " chain keys")
+        return None
 
     # ---- page 1: where is this going? -----------------------------
 
@@ -149,6 +220,8 @@ class ExportDialog(Adw.Dialog):
         choices = (["stereo"] if stereo
                    else xp.collapse_choices(self.chains,
                                             band_domain))
+        if target["writer"] == "poweramp":
+            choices = [c for c in choices if c != "mean"]
         st = {"target": target, "policy": choices[0]}
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                       spacing=12, margin_top=12, margin_bottom=12,
@@ -227,12 +300,13 @@ class ExportDialog(Adw.Dialog):
 
     # ---- baking + verification --------------------------------------
 
-    def _null_line(self, err):
+    def _null_line(self, err, against="the in-app chain"):
         verdict = ("pass" if err <= xp.NULL_PASS_DB else
                    "CHECK, above the %.1f dB ceiling"
                    % xp.NULL_PASS_DB)
-        return ("Null test vs the in-app chain: max %.2f dB over %s"
-                " -- %s." % (err, self._band_str(), verdict))
+        return ("Null test vs %s: max %.2f dB over %s"
+                " -- %s." % (against, err, self._band_str(),
+                             verdict))
 
     @staticmethod
     def _set_status(st, line, ok):
@@ -286,64 +360,153 @@ class ExportDialog(Adw.Dialog):
                        if moved < 0 and not auto else ""))
             self._set_status(st, line, worst <= xp.NULL_PASS_DB)
         elif writer in ("parametric", "sheet"):
-            g, bands, note = xp.pick_chain(allc, st["policy"])
-            fg, fbands, folded = xp.fold_flat(g, bands)
-            hdr = self._header(t, note, taste)
-            if folded:
-                hdr.append("Flat-gain trim folded into the shared"
-                           " gain (%+.1f dB)." % folded)
-            fg, moved = xp.headroom_preamp(fg, [fbands],
-                                           auto=auto)
-            if moved < 0 and not auto:
-                hdr.append("Shared gain lowered %.1f dB so the"
-                           " composed chain stays under 0 dBFS."
-                           % -moved)
-            ref = xp.chain_response(g + moved, bands, nf)
-            if writer == "parametric":
-                text = xp.parametric_text(fg, fbands, header=hdr)
-                err = xp.null_test_parametric(text, nf, ref)
-                self._set_status(
-                    st, self._null_line(err)
-                    + " Export preamp %+.1f dB." % fg,
-                    err <= xp.NULL_PASS_DB)
+            maxb = t.get("max_bands")
+            refit_why = None
+            if st["policy"] == "mean":
+                refit_why = "mean of channels"
             else:
-                text = xp.sheet_text(t, fg, fbands, header=hdr)
-                rp, rb = xp.rounded_chain(t, fg, fbands)
-                got = xp.chain_response(rp, rb, nf)
-                err = max(abs(a - b) for a, b in zip(got, ref))
-                self._set_status(
-                    st, "Rounding to the target's steps costs max "
-                    "%.2f dB over %s. Export preamp %+.1f dB."
-                    % (err, self._band_str(), fg),
-                    err <= xp.NULL_PASS_DB)
+                g, bands, note = xp.pick_chain(allc, st["policy"])
+                on = [b for b in bands if b.get("enabled", True)]
+                if maxb and len(on) > maxb:
+                    refit_why = ("%d chain bands over the target's"
+                                 " %d" % (len(on), maxb))
+            if refit_why:
+                text, line, ok = self._bake_refit(
+                    st, t, writer, taste, allc, auto, nf, maxb,
+                    refit_why)
+                self._set_status(st, line, ok)
+            else:
+                fg, fbands, folded = xp.fold_flat(g, bands)
+                hdr = self._header(t, note, taste)
+                if folded:
+                    hdr.append("Flat-gain trim folded into the"
+                               " shared gain (%+.1f dB)." % folded)
+                fg, moved = xp.headroom_preamp(fg, [fbands],
+                                               auto=auto)
+                if moved < 0 and not auto:
+                    hdr.append("Shared gain lowered %.1f dB so the"
+                               " composed chain stays under 0 dBFS."
+                               % -moved)
+                ref = xp.chain_response(g + moved, bands, nf)
+                if writer == "parametric":
+                    text = xp.parametric_text(fg, fbands,
+                                              header=hdr)
+                    err = xp.null_test_parametric(text, nf, ref)
+                    self._set_status(
+                        st, self._null_line(err)
+                        + " Export preamp %+.1f dB." % fg,
+                        err <= xp.NULL_PASS_DB)
+                else:
+                    text = xp.sheet_text(t, fg, fbands, header=hdr)
+                    rp, rb = xp.rounded_chain(t, fg, fbands)
+                    got = xp.chain_response(rp, rb, nf)
+                    err = max(abs(a - b) for a, b in zip(got, ref))
+                    self._set_status(
+                        st, "Rounding to the target's steps costs"
+                        " max %.2f dB over %s. Export preamp"
+                        " %+.1f dB."
+                        % (err, self._band_str(), fg),
+                        err <= xp.NULL_PASS_DB)
         elif writer == "graphiceq":
             grid = xp.graphic_grid()
-            resp, note = xp.collapse(allc, st["policy"], grid)
+            mv = self._measurement_vals(st, taste)
+            if mv:
+                fgc, vals, tnote = mv
+                note = self._collapse_note(st["policy"])
+                resp = xp.sample_curve(fgc, vals, grid)
+                ref = xp.sample_curve(fgc, vals, nf)
+            else:
+                tnote = None
+                resp, note = xp.collapse(allc, st["policy"], grid)
+                ref, _n = xp.collapse(allc, st["policy"], nf)
+            hdr = self._header(t, note, taste)
+            hdr.append(self._source_line(tnote))
             text, shift = xp.graphiceq_text(
-                grid, resp, header=self._header(t, note, taste),
-                bare=bool(t.get("bare")))
-            ref, _n = xp.collapse(allc, st["policy"], nf)
+                grid, resp, header=hdr, bare=bool(t.get("bare")))
             err = xp.null_test_graphic(text, nf, ref, shift)
-            line = self._null_line(err)
+            line = "Source: %s. %s" % (
+                "canvas" if mv else "chain",
+                self._null_line(err, "the measured desired" if mv
+                                else "the in-app chain"))
             if shift:
                 line += " Level shifted %+.1f dB." % shift
             self._set_status(st, line, err <= xp.NULL_PASS_DB)
         else:                                   # fixed
             pf = xp.log_grid(self.flo, self.fhi, _PLOT_N)
-            desired, note = xp.collapse(allc, st["policy"],
-                                        pf)
+            mv = self._measurement_vals(st, taste)
+            if mv:
+                fgc, vals, tnote = mv
+                note = self._collapse_note(st["policy"])
+                desired = xp.sample_curve(fgc, vals, pf)
+            else:
+                tnote = None
+                desired, note = xp.collapse(allc, st["policy"],
+                                            pf)
             sol = xp.solve_fixed(t, pf, desired)
             st["sol"] = sol
-            text = xp.fixed_sheet_text(
-                t, sol, header=self._header(t, note, taste))
+            hdr = self._header(t, note, taste)
+            hdr.append(self._source_line(tnote))
+            text = xp.fixed_sheet_text(t, sol, header=hdr)
             self._set_status(
-                st, "Fit over %s: residual max %.1f dB, rms %.1f dB"
-                " across %s; level trim %+.1f dB."
-                % (sol["basis"], sol["resid_max"], sol["resid_rms"],
+                st, "Source: %s. Fit over %s: residual max %.1f"
+                " dB, rms %.1f dB across %s; level trim %+.1f dB."
+                % ("canvas" if mv else "chain", sol["basis"],
+                   sol["resid_max"], sol["resid_rms"],
                    self._band_str(), sol["offset"]), None)
             st["resid"].queue_draw()
         st["text"] = text
         st["view"].get_buffer().set_text(text)
+
+    def _bake_refit(self, st, t, writer, taste, allc, auto, nf,
+                    maxb, why):
+        """A band-domain export through the export-time re-fit: the
+        mean policy, or a chain over the target's band budget. The
+        desired comes from the canvas under the measurement source,
+        from the chain response otherwise; center_curve splits it
+        into shape (the bands realize it) and level (rides in the
+        preamp, and under Auto the composed Safe owns it outright).
+        The format roundtrip governs pass/fail; the re-fit residual
+        is stated as its own number, like the fixed writer's."""
+        mv = self._measurement_vals(st, taste)
+        if mv:
+            fgc, vals, tnote = mv
+            note = self._collapse_note(st["policy"])
+        else:
+            tnote = None
+            fgc = xp.log_grid(self.flo, self.fhi, _NULL_N)
+            vals, note = xp.collapse(allc, st["policy"], fgc)
+        vals0, off = xp.center_curve(vals)
+        params = (self.body.get("fit") or {}).get("params") or {}
+        budget = maxb or max(
+            [len([b for b in bb if b.get("enabled", True)])
+             for _k, _g, bb in allc] or [10])
+        bands, rmax, rrms = xp.refit_bands(
+            fgc, vals0, self.flo, self.fhi, budget,
+            float(params.get("max_boost", 6.0)))
+        base = (float(self.body.get("preamp", 0.0)) + off
+                if mv else off)
+        adj, _moved = xp.headroom_preamp(base, [bands], auto=auto)
+        hdr = self._header(t, note, taste)
+        hdr.append(self._source_line(tnote))
+        hdr.append("Re-fit to %d bands (%s); residual max %.2f,"
+                   " rms %.2f dB." % (len(bands), why, rmax, rrms))
+        ref = xp.chain_response(adj, bands, nf)
+        if writer == "parametric":
+            text = xp.parametric_text(adj, bands, header=hdr)
+            err = xp.null_test_parametric(text, nf, ref)
+        else:
+            text = xp.sheet_text(t, adj, bands, header=hdr)
+            rp, rb = xp.rounded_chain(t, adj, bands)
+            got = xp.chain_response(rp, rb, nf)
+            err = max(abs(a - b) for a, b in zip(got, ref))
+        line = ("Source: %s. Re-fit to %d bands (%s): residual max"
+                " %.2f, rms %.2f dB. Format roundtrip max %.2f dB"
+                " -- %s. Export preamp %+.1f dB."
+                % ("canvas" if mv else "chain", len(bands), why,
+                   rmax, rrms, err,
+                   "pass" if err <= xp.NULL_PASS_DB else "CHECK",
+                   adj))
+        return text, line, err <= xp.NULL_PASS_DB
 
     # ---- the residual plot (fixed-band targets) ---------------------
 
