@@ -296,6 +296,62 @@ class ExportDialog(Adw.Dialog):
                                  model=names)
             rows.add(combo)
             got_rows = True
+        if target["writer"] == "fixed":
+            pres = target.get("presets") or []
+            if pres:
+                pn = Gtk.StringList()
+                for p in pres:
+                    pn.append(p["name"])
+                prow = Adw.ComboRow(title="Device preset",
+                                    model=pn)
+                rows.add(prow)
+            ent = Adw.EntryRow(title="Slider centers, Hz")
+            ent.set_show_apply_button(True)
+            ent.set_text(", ".join(
+                "%g" % c for c in target.get("centers") or []))
+            rows.add(ent)
+            gr = target.get("gain_range") or [-6.0, 6.0]
+            glo = Adw.SpinRow(
+                title="Gain min, dB", digits=1,
+                adjustment=Gtk.Adjustment(
+                    lower=-24, upper=0, step_increment=0.5),
+                value=float(gr[0]))
+            ghi = Adw.SpinRow(
+                title="Gain max, dB", digits=1,
+                adjustment=Gtk.Adjustment(
+                    lower=0, upper=24, step_increment=0.5),
+                value=float(gr[1]))
+            gst = Adw.SpinRow(
+                title="Gain step, dB", digits=1,
+                adjustment=Gtk.Adjustment(
+                    lower=0.1, upper=3.0, step_increment=0.1),
+                value=float(target.get("gain_step") or 1.0))
+            for r in (glo, ghi, gst):
+                rows.add(r)
+            st.update(centers_row=ent, glo=glo, ghi=ghi, gst=gst)
+
+            def rebake(*_a):
+                if not st.get("_fill"):
+                    st["preset_name"] = None    # hand-edited now
+                    self._bake(st)
+            ent.connect("apply", rebake)
+            for r in (glo, ghi, gst):
+                r.connect("notify::value", rebake)
+            if pres:
+                def fill(row, _p):
+                    p = pres[row.get_selected()]
+                    st["_fill"] = True
+                    ent.set_text(", ".join(
+                        "%g" % c for c in p["centers"]))
+                    glo.set_value(float(p["gain_range"][0]))
+                    ghi.set_value(float(p["gain_range"][1]))
+                    gst.set_value(float(p["gain_step"]))
+                    st["_fill"] = False
+                    st["preset_name"] = p["name"]
+                    self._bake(st)
+                prow.connect("notify::selected", fill)
+                st["preset_name"] = pres[0]["name"]
+            got_rows = True
         if target["writer"] in ("parametric", "sheet"):
             spin = Adw.SpinRow(
                 title="Band budget",
@@ -536,6 +592,31 @@ class ExportDialog(Adw.Dialog):
                          % self._boost_cap())
             self._set_status(st, line, err <= xp.NULL_PASS_DB)
         else:                                   # fixed
+            if "centers_row" in st:
+                txt = st["centers_row"].get_text()
+                try:
+                    cs = [float(x) for x in
+                          txt.replace(";", ",").split(",")
+                          if x.strip()]
+                except ValueError:
+                    cs = []
+                lo = st["glo"].get_value()
+                hi = st["ghi"].get_value()
+                step = round(st["gst"].get_value(), 2)
+                terr = None
+                if (len(cs) < 2 or cs[0] <= 0
+                        or any(b <= a
+                               for a, b in zip(cs, cs[1:]))):
+                    terr = ("Slider centers need 2+ ascending"
+                            " positive Hz values.")
+                elif lo >= hi:
+                    terr = "Gain min must sit below gain max."
+                if terr:
+                    st["view"].get_buffer().set_text("")
+                    self._set_status(st, terr, False)
+                    return
+                t = dict(t, centers=cs, gain_range=[lo, hi],
+                         gain_step=step)
             pf = xp.log_grid(self.flo, self.fhi, _PLOT_N)
             mv = self._measurement_vals(st, taste,
                                         cap=self._boost_cap())
@@ -552,6 +633,9 @@ class ExportDialog(Adw.Dialog):
             st["sol"] = sol
             hdr = self._header(t, note, taste)
             hdr.append(self._source_line(tnote))
+            if st.get("preset_name"):
+                hdr.append("Device preset: %s."
+                           % st["preset_name"])
             if capped_by > 0:
                 hdr.append("Boost capped at %+.1f dB (the fit's"
                            " policy, %.2g dB knee): the"

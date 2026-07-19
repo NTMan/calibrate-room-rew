@@ -65,15 +65,33 @@ BUILTIN_TARGETS = [
              " renormalized by the app), the JamesDSP family"
              " reads it too",
      "writer": "graphiceq", "ext": ".txt", "bare": True},
-    {"id": "vendor-8band",
-     "name": "Soundcore Custom EQ (8 bands)",
-     "note": "centers 100-12.8k and +/-6 dB confirmed on the"
-             " Liberty 5 app; slider curves assumed octave bells"
-             " until a measured basis is dropped in",
+    {"id": "vendor-graphic",
+     "name": "Vendor graphic EQ",
+     "note": "hand-set vendor sliders -- a coarse instrument:"
+             " few bands, guessed octave bells, stepped gains."
+             " It exists because iOS offers no system EQ; expect"
+             " residual, the plot shows it honestly",
      "writer": "fixed", "ext": ".txt",
      "centers": [100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0,
                  6400.0, 12800.0],
-     "gain_range": [-6.0, 6.0], "gain_step": 1.0, "basis_q": 1.414},
+     "gain_range": [-6.0, 6.0], "gain_step": 1.0, "basis_q": 1.414,
+     "presets": [
+         {"name": "Soundcore Liberty 5 (8 bands)",
+          "centers": [100.0, 200.0, 400.0, 800.0, 1600.0,
+                      3200.0, 6400.0, 12800.0],
+          "gain_range": [-6.0, 6.0], "gain_step": 1.0},
+         {"name": "Denon (5 bands)",
+          "centers": [200.0, 1000.0, 3000.0, 5000.0, 10000.0],
+          "gain_range": [-6.0, 6.0], "gain_step": 0.1},
+         {"name": "ATVEL S7 (10 bands)",
+          "centers": [31.5, 63.0, 125.0, 250.0, 500.0, 1000.0,
+                      2000.0, 4000.0, 8000.0, 16000.0],
+          "gain_range": [-10.0, 10.0], "gain_step": 1.0},
+         {"name": "JBL Tour Pro 3 (10 bands)",
+          "centers": [32.0, 64.0, 125.0, 250.0, 500.0, 1000.0,
+                      2000.0, 4000.0, 8000.0, 16000.0],
+          "gain_range": [-6.0, 6.0], "gain_step": 1.0},
+     ]},
     {"id": "poweramp",
      "name": "Poweramp Equalizer",
      "note": "Android; parametric preset JSON, per-band left/right"
@@ -87,6 +105,23 @@ BUILTIN_TARGETS = [
      "writer": "sheet", "ext": ".txt",
      "gain_step": 0.1, "q_step": 0.01},
 ]
+
+
+def _preset_ok(p):
+    """A vendor preset must be usable as fixed-writer fields:
+    ascending positive centers (2+), a real gain range, a
+    positive step."""
+    cs = p.get("centers")
+    gr = p.get("gain_range")
+    st = p.get("gain_step")
+    return (isinstance(cs, list) and len(cs) >= 2
+            and all(isinstance(c, (int, float)) and c > 0
+                    for c in cs)
+            and all(b > a for a, b in zip(cs, cs[1:]))
+            and isinstance(gr, list) and len(gr) == 2
+            and all(isinstance(v, (int, float)) for v in gr)
+            and gr[0] < gr[1]
+            and isinstance(st, (int, float)) and st > 0)
 
 
 def load_targets(extra_dir=None):
@@ -129,6 +164,18 @@ def load_targets(extra_dir=None):
                       " max_bands must be a positive integer"
                       % path, file=sys.stderr)
                 continue
+            pres = t.get("presets")
+            if pres is not None:
+                kept = []
+                for pz in (pres if isinstance(pres, list) else []):
+                    if (isinstance(pz, dict) and pz.get("name")
+                            and _preset_ok(pz)):
+                        kept.append(pz)
+                    else:
+                        print("per-device-eq: dropping malformed"
+                              " preset in %s" % path,
+                              file=sys.stderr)
+                t["presets"] = kept
             bad = _limits_invalid(t)
             if bad:
                 print("per-device-eq: skipping export target in"

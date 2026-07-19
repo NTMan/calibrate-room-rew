@@ -47,7 +47,7 @@ def test_builtin_targets_shape():
     ts = ex.load_targets(extra_dir="/nonexistent")
     ids = [t["id"] for t in ts]
     assert "peq-text" in ids and "graphiceq" in ids
-    assert "vendor-8band" in ids and "hand-peq" in ids
+    assert "vendor-graphic" in ids and "hand-peq" in ids
     assert all(t["writer"] in ex.WRITERS for t in ts)
     # every writer is classified for the wizard's first page --
     # an unclassified writer would exist but never show a row
@@ -57,7 +57,7 @@ def test_builtin_targets_shape():
 
 
 def test_targets_dropin_override_and_append(tmp_path):
-    over = {"id": "vendor-8band", "name": "ACME Buds",
+    over = {"id": "vendor-graphic", "name": "ACME Buds",
             "writer": "fixed",
             "centers": [100.0, 1000.0, 10000.0],
             "gain_range": [-4.0, 4.0], "gain_step": 0.5}
@@ -69,12 +69,12 @@ def test_targets_dropin_override_and_append(tmp_path):
     (tmp_path / "junk.json").write_text("{", encoding="utf-8")
     ts = ex.load_targets(extra_dir=str(tmp_path))
     ids = [t["id"] for t in ts]
-    assert ids.count("vendor-8band") == 1
-    got = ts[ids.index("vendor-8band")]
+    assert ids.count("vendor-graphic") == 1
+    got = ts[ids.index("vendor-graphic")]
     assert got["name"] == "ACME Buds" and len(got["centers"]) == 3
     assert got["_src"].endswith("10-acme.json")
     assert "acme-sheet" in ids
-    assert ids.index("vendor-8band") < ids.index("hand-peq")
+    assert ids.index("vendor-graphic") < ids.index("hand-peq")
 
 
 # ---- composition -------------------------------------------------------
@@ -912,3 +912,38 @@ def test_cap_soft_smooths_the_corner_and_ships_clean():
     nh, ns = null_of(hard), null_of(soft)
     assert ns < nh                          # the corner was the cost
     assert ns <= ex.NULL_PASS_DB
+
+
+def test_vendor_presets_shape_and_validator(tmp_path):
+    t = {x["id"]: x for x in ex.load_targets(
+        extra_dir="/nonexistent")}["vendor-graphic"]
+    pres = t["presets"]
+    names = [p["name"] for p in pres]
+    assert any("Soundcore" in n for n in names)
+    assert any("Denon" in n for n in names)
+    assert any("ATVEL" in n for n in names)
+    assert any("JBL" in n for n in names)
+    for p in pres:
+        cs = p["centers"]
+        assert len(cs) >= 2 and all(b > a
+                                    for a, b in zip(cs, cs[1:]))
+        assert p["gain_range"][0] < p["gain_range"][1]
+        assert p["gain_step"] > 0
+    d = next(p for p in pres if "Denon" in p["name"])
+    assert len(d["centers"]) == 5 and d["gain_step"] == 0.1
+    bad = {"id": "vx", "name": "vx", "writer": "fixed",
+           "centers": [100.0, 1000.0],
+           "gain_range": [-6.0, 6.0], "gain_step": 1.0,
+           "presets": [
+               {"name": "ok", "centers": [100.0, 1000.0],
+                "gain_range": [-6.0, 6.0], "gain_step": 1.0},
+               {"name": "descending",
+                "centers": [1000.0, 100.0],
+                "gain_range": [-6.0, 6.0], "gain_step": 1.0},
+               {"name": "no step", "centers": [100.0, 1000.0],
+                "gain_range": [-6.0, 6.0]}]}
+    json_path = tmp_path / "vx.json"
+    json_path.write_text(json.dumps([bad]), encoding="utf-8")
+    got = {x["id"]: x for x in ex.load_targets(
+        extra_dir=str(tmp_path))}["vx"]
+    assert [p["name"] for p in got["presets"]] == ["ok"]
