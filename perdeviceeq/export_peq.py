@@ -135,6 +135,11 @@ def load_targets(extra_dir=None):
                       " max_bands must be a positive integer"
                       % path, file=sys.stderr)
                 continue
+            bad = _limits_invalid(t)
+            if bad:
+                print("per-device-eq: skipping export target in"
+                      " %s: %s" % (path, bad), file=sys.stderr)
+                continue
             t = dict(t, _src=path)
             for i, old in enumerate(out):
                 if old["id"] == t["id"]:
@@ -142,6 +147,104 @@ def load_targets(extra_dir=None):
                     break
             else:
                 out.append(t)
+    return out
+
+
+def _limits_invalid(t):
+    """Why a target's declared parametric limits are malformed, or
+    "" when they are fine. Ranges are 2-lists of numbers with
+    lo < hi; types is a non-empty subset of the band types the app
+    itself renders."""
+    for key in ("gain_range", "q_range", "freq_range"):
+        r = t.get(key)
+        if r is None:
+            continue
+        if (not isinstance(r, (list, tuple)) or len(r) != 2
+                or any(isinstance(v, bool) for v in r)
+                or not all(isinstance(v, (int, float))
+                           for v in r)
+                or not float(r[0]) < float(r[1])):
+            return "%s must be [lo, hi] with lo < hi" % key
+    ty = t.get("types")
+    if ty is not None:
+        if (not isinstance(ty, (list, tuple)) or not ty
+                or not set(ty) <= {"PK", "LSC", "HSC"}):
+            return "types must be a non-empty subset of PK/LSC/HSC"
+    return ""
+
+
+def limits_text(t):
+    """One line naming a target's declared parametric limits, ""
+    when it declares none. Shown on the target page and written
+    into the artifact header: the box the export lives in should
+    be readable next to the export."""
+    parts = []
+    if t.get("max_bands"):
+        parts.append("%d bands" % t["max_bands"])
+    if t.get("gain_range"):
+        parts.append("gain %g..%g dB" % (t["gain_range"][0],
+                                         t["gain_range"][1]))
+    if t.get("q_range"):
+        parts.append("Q %g..%g" % (t["q_range"][0],
+                                   t["q_range"][1]))
+    if t.get("freq_range"):
+        parts.append("%g-%g Hz" % (t["freq_range"][0],
+                                   t["freq_range"][1]))
+    if t.get("types"):
+        parts.append("types " + "/".join(t["types"]))
+    return ", ".join(parts)
+
+
+def fit_limits(t):
+    """A target's declared ranges in fit_to_desired's `limits`
+    shape (freq_range is handled by narrowing the fit band
+    instead)."""
+    lim = {}
+    if t.get("gain_range"):
+        lim["gain"] = (float(t["gain_range"][0]),
+                       float(t["gain_range"][1]))
+    if t.get("q_range"):
+        lim["q"] = (float(t["q_range"][0]),
+                    float(t["q_range"][1]))
+    if t.get("types"):
+        lim["types"] = tuple(t["types"])
+    return lim
+
+
+def chain_violations(t, bands):
+    """Why these exact bands cannot enter this target as-is: one
+    sentence per violated declaration, aggregated over bands;
+    empty means 1:1 is legal. Judge bands AFTER fold_flat so a
+    freq-0 balance-trim shelf (which exports as shared gain, not
+    as a band) cannot false-positive the frequency range."""
+    on = [b for b in bands if b.get("enabled", True)]
+    out = []
+    mb = t.get("max_bands")
+    if mb and len(on) > mb:
+        out.append("%d chain bands over the target's %d"
+                   % (len(on), mb))
+    checks = (("gain_range", "gain", "gain %g..%g dB"),
+              ("q_range", "q", "Q %g..%g"),
+              ("freq_range", "freq", "%g-%g Hz"))
+    for key, field, shape in checks:
+        r = t.get(key)
+        if not r:
+            continue
+        lo, hi = float(r[0]), float(r[1])
+        bad = [str(i) for i, b in enumerate(on, 1)
+               if not lo - 1e-9 <= float(b.get(field, 0.0))
+               <= hi + 1e-9]
+        if bad:
+            out.append("band %s outside the target's %s"
+                       % (", ".join(bad), shape % (lo, hi)))
+    ty = t.get("types")
+    if ty:
+        bad = [str(i) for i, b in enumerate(on, 1)
+               if b.get("type") not in ty]
+        if bad:
+            out.append("band %s of a type the target lacks"
+                       " (%s only)" % (", ".join(bad),
+                                       "/".join(ty)))
     return out
 
 
@@ -562,15 +665,18 @@ def center_curve(vals):
     return [v - off for v in vals], off
 
 
-def refit_bands(fg, desired, flo, fhi, n_bands, max_boost):
+def refit_bands(fg, desired, flo, fhi, n_bands, max_boost,
+                limits=None):
     """Fit up to n_bands onto `desired` over fg; the export-time
-    re-fit behind the mean policy and band-budget-limited targets.
-    Returns (band dicts, resid_max, resid_rms)."""
+    re-fit behind the mean policy and limit-violating chains.
+    `limits` narrows the optimizer to the target's declared
+    gain/Q/type box (fit_limits). Returns (band dicts, resid_max,
+    resid_rms)."""
     from . import fit_peq
     import numpy as np
     bands, resid = fit_peq.fit_to_desired(
         np.asarray(fg, float), desired, flo, fhi, n_bands,
-        max_boost)
+        max_boost, limits=limits)
     out = [{"type": t, "freq": round(f, 1), "gain": round(g, 2),
             "q": round(q, 3), "enabled": True}
            for t, f, g, q in sorted(bands, key=lambda b: b[1])]

@@ -230,6 +230,12 @@ class ExportDialog(Adw.Dialog):
         head.add_css_class("dim-label")
         head.set_text(self._chain_summary(taste=False))
         box.append(head)
+        lim = xp.limits_text(target)
+        if lim:
+            ll = Gtk.Label(xalign=0, wrap=True)
+            ll.add_css_class("dim-label")
+            ll.set_text("Target limits: " + lim)
+            box.append(ll)
         st["taste"] = True
         rows = Adw.PreferencesGroup()
         got_rows = False
@@ -366,18 +372,21 @@ class ExportDialog(Adw.Dialog):
                 refit_why = "mean of channels"
             else:
                 g, bands, note = xp.pick_chain(allc, st["policy"])
-                on = [b for b in bands if b.get("enabled", True)]
-                if maxb and len(on) > maxb:
-                    refit_why = ("%d chain bands over the target's"
-                                 " %d" % (len(on), maxb))
+                fg, fbands, folded = xp.fold_flat(g, bands)
+                viol = xp.chain_violations(t, fbands)
+                if viol:
+                    refit_why = "; ".join(viol)
             if refit_why:
                 text, line, ok = self._bake_refit(
                     st, t, writer, taste, allc, auto, nf, maxb,
                     refit_why)
                 self._set_status(st, line, ok)
             else:
-                fg, fbands, folded = xp.fold_flat(g, bands)
                 hdr = self._header(t, note, taste)
+                tl = xp.limits_text(t)
+                if tl:
+                    hdr.append("Target limits: %s -- the chain"
+                               " fits as-is." % tl)
                 if folded:
                     hdr.append("Flat-gain trim folded into the"
                                " shared gain (%+.1f dB)." % folded)
@@ -469,17 +478,26 @@ class ExportDialog(Adw.Dialog):
         profile's own fit budget (params.bands), else the richest
         chain -- so two unbudgeted parametric targets, or one
         matching the profile's budget, bake identical tables
-        instead of diverging on greedy horizon. The format
-        roundtrip governs pass/fail; the re-fit residual is stated
-        as its own number, like the fixed writer's."""
+        instead of diverging on greedy horizon. The optimizer's
+        box is narrowed to the target's declared gain/Q/type
+        ranges, and a declared freq_range narrows the fit band
+        itself. The format roundtrip governs pass/fail; the re-fit
+        residual is stated as its own number, like the fixed
+        writer's."""
+        flo, fhi = self.flo, self.fhi
+        fr = t.get("freq_range")
+        if fr:
+            flo = max(flo, float(fr[0]))
+            fhi = min(fhi, float(fr[1]))
+        fgrid = xp.log_grid(flo, fhi, _NULL_N)
         mv = self._measurement_vals(st, taste)
         if mv:
-            fgc, vals, tnote = mv
+            fgc, cvals, tnote = mv
             note = self._collapse_note(st["policy"])
+            vals = xp.sample_curve(fgc, cvals, fgrid)
         else:
             tnote = None
-            fgc = xp.log_grid(self.flo, self.fhi, _NULL_N)
-            vals, note = xp.collapse(allc, st["policy"], fgc)
+            vals, note = xp.collapse(allc, st["policy"], fgrid)
         vals0, off = xp.center_curve(vals)
         params = (self.body.get("fit") or {}).get("params") or {}
         rich = max([len([b for b in bb
@@ -487,13 +505,17 @@ class ExportDialog(Adw.Dialog):
                     for _k, _g, bb in allc] or [0])
         budget = maxb or int(params.get("bands", 0)) or rich or 10
         bands, rmax, rrms = xp.refit_bands(
-            fgc, vals0, self.flo, self.fhi, budget,
-            float(params.get("max_boost", 6.0)))
+            fgrid, vals0, flo, fhi, budget,
+            float(params.get("max_boost", 6.0)),
+            limits=xp.fit_limits(t))
         base = (float(self.body.get("preamp", 0.0)) + off
                 if mv else off)
         adj, _moved = xp.headroom_preamp(base, [bands], auto=auto)
         hdr = self._header(t, note, taste)
         hdr.append(self._source_line(tnote))
+        tl = xp.limits_text(t)
+        if tl:
+            hdr.append("Target limits: %s." % tl)
         hdr.append("Re-fit to %d bands (%s); residual max %.2f,"
                    " rms %.2f dB." % (len(bands), why, rmax, rrms))
         ref = xp.chain_response(adj, bands, nf)

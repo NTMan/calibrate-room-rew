@@ -624,3 +624,89 @@ def test_sample_curve_edge_hold_and_mean():
     assert out[0] == 1.0 and out[1] == 3.0 and out[2] == 5.0
     assert ex.mean_curve({"a": [0.0, 2.0], "b": [2.0, 4.0]}) == \
         [1.0, 3.0]
+
+
+# ---- target limits -------------------------------------------------
+
+
+def test_target_limits_validator(tmp_path):
+    import json as _json
+    bads = [{"id": "x1", "name": "x", "writer": "sheet",
+             "gain_range": [5]},
+            {"id": "x2", "name": "x", "writer": "sheet",
+             "gain_range": [3, 3]},
+            {"id": "x3", "name": "x", "writer": "sheet",
+             "q_range": ["a", 2]},
+            {"id": "x4", "name": "x", "writer": "sheet",
+             "freq_range": [True, 100]},
+            {"id": "x5", "name": "x", "writer": "sheet",
+             "types": ["XX"]},
+            {"id": "x6", "name": "x", "writer": "sheet",
+             "types": []}]
+    good = {"id": "ok1", "name": "ok", "writer": "parametric",
+            "gain_range": [-12, 12], "q_range": [0.5, 6],
+            "freq_range": [20, 16000], "types": ["PK"]}
+    (tmp_path / "lim.json").write_text(
+        _json.dumps(bads + [good]), encoding="utf-8")
+    ids = [t["id"] for t in
+           ex.load_targets(extra_dir=str(tmp_path))]
+    assert "ok1" in ids
+    assert not any("x%d" % i in ids for i in range(1, 7))
+
+
+def test_limits_text_and_fit_limits():
+    t = {"max_bands": 10, "gain_range": [-12.0, 12.0],
+         "q_range": [0.5, 6.0], "freq_range": [20.0, 16000.0],
+         "types": ["PK", "LSC"]}
+    s = ex.limits_text(t)
+    assert "10 bands" in s and "gain -12..12 dB" in s
+    assert "Q 0.5..6" in s and "20-16000 Hz" in s
+    assert "types PK/LSC" in s
+    assert ex.limits_text({}) == ""
+    lim = ex.fit_limits(t)
+    assert lim["gain"] == (-12.0, 12.0)
+    assert lim["q"] == (0.5, 6.0)
+    assert lim["types"] == ("PK", "LSC")
+    assert "freq" not in lim and ex.fit_limits({}) == {}
+
+
+def test_chain_violations():
+    t = {"max_bands": 2, "gain_range": [-12, 6],
+         "q_range": [0.3, 8], "types": ["PK"]}
+    bands = [{"type": "PK", "freq": 100.0, "gain": -20.0,
+              "q": 1.0, "enabled": True},
+             {"type": "LSC", "freq": 50.0, "gain": 2.0,
+              "q": 1.0, "enabled": True},
+             {"type": "PK", "freq": 1000.0, "gain": 3.0,
+              "q": 1.0, "enabled": True},
+             {"type": "PK", "freq": 2000.0, "gain": 3.0,
+              "q": 9.0, "enabled": False}]
+    v = " | ".join(ex.chain_violations(t, bands))
+    assert "3 chain bands over the target's 2" in v
+    assert "band 1 outside the target's gain -12..6 dB" in v
+    assert "band 2 of a type the target lacks (PK only)" in v
+    assert "Q" not in v            # the Q 9 band is disabled
+    assert ex.chain_violations({}, bands) == []
+    clean = [{"type": "PK", "freq": 100.0, "gain": -3.0,
+              "q": 1.0, "enabled": True}]
+    assert ex.chain_violations(t, clean) == []
+
+
+def test_fit_to_desired_honors_limits():
+    fg = ex.log_grid(20.0, 12000.0, 240)
+    deep = [{"type": "PK", "freq": 300.0, "gain": -18.0, "q": 1.0,
+             "enabled": True},
+            {"type": "LSC", "freq": 60.0, "gain": 4.0, "q": 0.8,
+             "enabled": True}]
+    desired = ex.chain_response(0.0, deep, fg)
+    lim = {"gain": (-8.0, 8.0), "q": (0.5, 2.0), "types": ("PK",)}
+    bands, rmax, rrms = ex.refit_bands(fg, desired, 20.0, 12000.0,
+                                       6, 6.0, limits=lim)
+    assert bands
+    for b in bands:
+        assert -8.0 - 1e-6 <= b["gain"] <= 6.0 + 1e-6
+        assert 0.5 - 1e-6 <= b["q"] <= 2.0 + 1e-6
+        assert b["type"] == "PK"
+    free, fmax, _r = ex.refit_bands(fg, desired, 20.0, 12000.0,
+                                    6, 6.0)
+    assert fmax <= rmax + 1e-9

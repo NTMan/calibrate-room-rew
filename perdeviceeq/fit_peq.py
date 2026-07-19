@@ -74,17 +74,35 @@ def _response(bands, freqs):
     return out
 
 
+def _bounds(max_boost, limits):
+    """The optimizer's gain/Q box, narrowed by a destination's
+    declared ranges when given. The app's own sanity walls (-24 dB
+    floor, Q 0.3..8) and the max_boost cap always apply; a target
+    looser than the optimizer costs nothing, a tighter one wins."""
+    lim = limits or {}
+    g_lo, g_hi = lim.get("gain", (None, None))
+    q_lo, q_hi = lim.get("q", (None, None))
+    g_lo = -24.0 if g_lo is None else max(-24.0, float(g_lo))
+    g_hi = max_boost if g_hi is None else min(float(g_hi),
+                                              max_boost)
+    q_lo = 0.3 if q_lo is None else max(0.3, float(q_lo))
+    q_hi = 8.0 if q_hi is None else min(float(q_hi), 8.0)
+    return g_lo, g_hi, q_lo, q_hi
+
+
 def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
-            anchors=None):
+            anchors=None, limits=None):
     """Joint least-squares of every band against `desired`. With
     span_oct each band's frequency is leashed to that many octaves
     around its anchor -- the placement frequency in the greedy loop
     (passed via `anchors`), the band's current frequency in the
     prune's one-shot trials (the default). Without span_oct the
-    frequency roams the whole fit range."""
+    frequency roams the whole fit range. `limits` narrows the
+    gain/Q box to a destination's declared ranges (_bounds)."""
     types = [b[0] for b in bands]
     if anchors is None:
         anchors = [b[1] for b in bands]
+    g_lo, g_hi, q_lo, q_hi = _bounds(max_boost, limits)
     x0, lo, hi = [], [], []
     for (_, f, g, q), fa in zip(bands, anchors):
         lf = np.log10(f)
@@ -94,9 +112,11 @@ def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
             s = span_oct * np.log10(2.0)
             f_lo = max(np.log10(flo), np.log10(fa) - s)
             f_hi = min(np.log10(fhi), np.log10(fa) + s)
-        x0 += [min(max(lf, f_lo), f_hi), g, q]
-        lo += [f_lo, -24.0, 0.3]
-        hi += [f_hi, max_boost, 8.0]
+        x0 += [min(max(lf, f_lo), f_hi),
+               min(max(g, g_lo), g_hi),
+               min(max(q, q_lo), q_hi)]
+        lo += [f_lo, g_lo, q_lo]
+        hi += [f_hi, g_hi, q_hi]
 
     def resfun(x):
         bl = [(types[i], 10 ** x[3 * i], x[3 * i + 1], x[3 * i + 2])
@@ -106,11 +126,12 @@ def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
     sol = least_squares(resfun, x0, bounds=(lo, hi), method="trf",
                         max_nfev=3000)
     return [(types[i], float(10 ** sol.x[3 * i]),
-             float(np.clip(sol.x[3 * i + 1], -24.0, max_boost)),
+             float(np.clip(sol.x[3 * i + 1], g_lo, g_hi)),
              float(sol.x[3 * i + 2])) for i in range(len(types))]
 
 
-def _prune(bands, fg, target, flo, fhi, max_boost):
+def _prune(bands, fg, target, flo, fhi, max_boost,
+           limits=None):
     """Drop bands whose work their NEIGHBOURS absorb.
 
     The greedy placement is order-dependent and the joint refine only
@@ -156,7 +177,8 @@ def _prune(bands, fg, target, flo, fhi, max_boost):
                 base = _response(frozen, fg)
                 trial = frozen + _refine(free, fg, target - base,
                                          flo, fhi, max_boost,
-                                         span_oct=PRUNE_SPAN_OCT)
+                                         span_oct=PRUNE_SPAN_OCT,
+                                         limits=limits)
             else:
                 trial = rest
             r = (np.abs(target - _response(trial, fg))
@@ -168,7 +190,8 @@ def _prune(bands, fg, target, flo, fhi, max_boost):
     return bands
 
 
-def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost):
+def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost,
+                   limits=None):
     """The greedy core over a GIVEN desired correction on fg:
     place, leash-refine, prune. Cuts are unbounded; boost is capped
     at max_boost (filling deep nulls wastes headroom and amplifies
@@ -190,9 +213,18 @@ def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost):
     parallel band tables instead of unrecognizable decompositions
     of the same net response.
 
+    `limits`, when given, narrows the box to a destination's
+    declared ranges -- {"gain": (lo, hi), "q": (lo, hi),
+    "types": (...)}; boost stays additionally capped by max_boost
+    and a placement whose natural shelf type the target lacks
+    falls back to a peaking band.
+
     Returns (bands, resid) with bands as (type, f, g, q) tuples."""
     desired = np.asarray(desired, float)
-    target = np.minimum(desired, max_boost)
+    g_lo, g_hi, q_lo, q_hi = _bounds(max_boost, limits)
+    allowed = tuple((limits or {}).get("types")
+                    or ("PK", "LSC", "HSC"))
+    target = np.minimum(desired, g_hi)
     bands, anchors = [], []
     for _ in range(n_bands):
         resid = target - _response(bands, fg)
@@ -202,12 +234,17 @@ def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost):
         f0 = fg[k]
         btype = ("LSC" if f0 <= flo * 2
                  else "HSC" if f0 >= fhi / 2 else "PK")
-        g0 = float(np.clip(resid[k], -24.0, max_boost))
-        bands.append((btype, f0, g0, 2.0))
+        if btype not in allowed:
+            btype = "PK" if "PK" in allowed else allowed[0]
+        g0 = float(np.clip(resid[k], g_lo, g_hi))
+        bands.append((btype, f0, g0,
+                      min(max(2.0, q_lo), q_hi)))
         anchors.append(f0)
         bands = _refine(bands, fg, target, flo, fhi, max_boost,
-                        span_oct=GREEDY_SPAN_OCT, anchors=anchors)
-    bands = _prune(bands, fg, target, flo, fhi, max_boost)
+                        span_oct=GREEDY_SPAN_OCT, anchors=anchors,
+                        limits=limits)
+    bands = _prune(bands, fg, target, flo, fhi, max_boost,
+                   limits=limits)
     return bands, desired - _response(bands, fg)   # vs TRUE target
 
 
