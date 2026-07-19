@@ -274,6 +274,8 @@ class ExportDialog(Adw.Dialog):
             got_rows = True
         if got_rows:
             box.append(rows)
+        st["prog"] = Gtk.ProgressBar(visible=False)
+        box.append(st["prog"])
         st["status"] = Gtk.Label(xalign=0, wrap=True)
         box.append(st["status"])
         if target["writer"] == "fixed":
@@ -298,6 +300,8 @@ class ExportDialog(Adw.Dialog):
         save_btn = Gtk.Button(label="Save\u2026")
         save_btn.add_css_class("suggested-action")
         save_btn.connect("clicked", lambda *_: self._save(st))
+        st["copy"] = copy_btn
+        st["save"] = save_btn
         btns.append(copy_btn)
         btns.append(save_btn)
         box.append(btns)
@@ -344,6 +348,11 @@ class ExportDialog(Adw.Dialog):
         states its truth: the null test, the rounding cost, or the
         fit residual -- nothing is copied or saved unverified."""
         st["gen"] = st.get("gen", 0) + 1
+        for k in ("copy", "save"):
+            if k in st:
+                st[k].set_sensitive(True)
+        if "prog" in st:
+            st["prog"].set_visible(False)
         t = st["target"]
         writer = t["writer"]
         taste = st.get("taste", True)
@@ -505,6 +514,10 @@ class ExportDialog(Adw.Dialog):
         that a newer toggle or policy change has superseded."""
         gen = st["gen"]
         st["text"] = ""
+        for k in ("copy", "save"):
+            st[k].set_sensitive(False)
+        st["prog"].set_fraction(0.0)
+        st["prog"].set_visible(True)
         st["view"].get_buffer().set_text(
             "# re-fitting -- the preview lands when the optimizer"
             " does")
@@ -513,16 +526,27 @@ class ExportDialog(Adw.Dialog):
             % ("canvas" if self.source == "measurement"
                else "chain", why), None)
 
+        def on_prog(frac):
+            def apply(f=frac):
+                if st["gen"] == gen:
+                    st["prog"].set_fraction(f)
+                return False
+            GLib.idle_add(apply)
+
         def work():
             try:
                 res = self._bake_refit(st, t, writer, taste,
-                                       allc, auto, nf, maxb, why)
+                                       allc, auto, nf, maxb, why,
+                                       progress=on_prog)
             except Exception as e:
                 res = e
 
             def land():
                 if st["gen"] != gen:
                     return False
+                st["prog"].set_visible(False)
+                for k in ("copy", "save"):
+                    st[k].set_sensitive(True)
                 if isinstance(res, Exception):
                     self._set_status(st, "Re-fit failed: %s"
                                      % res, False)
@@ -537,7 +561,7 @@ class ExportDialog(Adw.Dialog):
         threading.Thread(target=work, daemon=True).start()
 
     def _bake_refit(self, st, t, writer, taste, allc, auto, nf,
-                    maxb, why):
+                    maxb, why, progress=None):
         """A band-domain export through the export-time re-fit: the
         mean policy, or a chain over the target's band budget. The
         desired comes from the canvas under the measurement source,
@@ -577,7 +601,7 @@ class ExportDialog(Adw.Dialog):
         bands, rmax, rrms = xp.refit_bands(
             fgrid, vals0, flo, fhi, budget,
             float(params.get("max_boost", 6.0)),
-            limits=xp.fit_limits(t))
+            limits=xp.fit_limits(t), progress=progress)
         base = (float(self.body.get("preamp", 0.0)) + off
                 if mv else off)
         adj, _moved = xp.headroom_preamp(base, [bands], auto=auto)

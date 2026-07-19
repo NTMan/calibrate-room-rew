@@ -785,7 +785,7 @@ def center_curve(vals):
 
 
 def refit_bands(fg, desired, flo, fhi, n_bands, max_boost,
-                limits=None):
+                limits=None, progress=None):
     """Fit up to n_bands onto `desired` over fg; the export-time
     re-fit behind the mean policy and limit-violating chains.
     `limits` narrows the optimizer to the target's declared
@@ -795,7 +795,7 @@ def refit_bands(fg, desired, flo, fhi, n_bands, max_boost,
     import numpy as np
     bands, resid = fit_peq.fit_to_desired(
         np.asarray(fg, float), desired, flo, fhi, n_bands,
-        max_boost, limits=limits)
+        max_boost, limits=limits, progress=progress)
     out = [{"type": t, "freq": round(f, 1), "gain": round(g, 2),
             "q": round(q, 3), "enabled": True}
            for t, f, g, q in sorted(bands, key=lambda b: b[1])]

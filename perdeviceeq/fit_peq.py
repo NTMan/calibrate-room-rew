@@ -91,7 +91,7 @@ def _bounds(max_boost, limits):
 
 
 def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
-            anchors=None, limits=None):
+            anchors=None, limits=None, tick=None):
     """Joint least-squares of every band against `desired`. With
     span_oct each band's frequency is leashed to that many octaves
     around its anchor -- the placement frequency in the greedy loop
@@ -119,6 +119,8 @@ def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
         hi += [f_hi, g_hi, q_hi]
 
     def resfun(x):
+        if tick is not None:
+            tick()
         bl = [(types[i], 10 ** x[3 * i], x[3 * i + 1], x[3 * i + 2])
               for i in range(len(types))]
         return _response(bl, fg) - desired
@@ -131,7 +133,7 @@ def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
 
 
 def _prune(bands, fg, target, flo, fhi, max_boost,
-           limits=None):
+           limits=None, tick=None):
     """Drop bands whose work their NEIGHBOURS absorb.
 
     The greedy placement is order-dependent and the joint refine only
@@ -178,7 +180,7 @@ def _prune(bands, fg, target, flo, fhi, max_boost,
                 trial = frozen + _refine(free, fg, target - base,
                                          flo, fhi, max_boost,
                                          span_oct=PRUNE_SPAN_OCT,
-                                         limits=limits)
+                                         limits=limits, tick=tick)
             else:
                 trial = rest
             r = (np.abs(target - _response(trial, fg))
@@ -191,7 +193,7 @@ def _prune(bands, fg, target, flo, fhi, max_boost,
 
 
 def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost,
-                   limits=None):
+                   limits=None, progress=None):
     """The greedy core over a GIVEN desired correction on fg:
     place, leash-refine, prune. Cuts are unbounded; boost is capped
     at max_boost (filling deep nulls wastes headroom and amplifies
@@ -219,12 +221,30 @@ def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost,
     and a placement whose natural shelf type the target lacks
     falls back to a peaking band.
 
+    `progress`, when given, is called with a fraction in [0, 1]
+    as the optimizer works: the major steps are band placements,
+    the minor motion inside each step comes from the residual
+    evaluations of the joint refine (the optimizer is global over
+    the spectrum on every iteration, so per-frequency progress
+    does not exist -- per-evaluation is its true heartbeat). The
+    prune's trials keep ticking in the last step; 1.0 is emitted
+    exactly once, at the end.
+
     Returns (bands, resid) with bands as (type, f, g, q) tuples."""
     desired = np.asarray(desired, float)
     g_lo, g_hi, q_lo, q_hi = _bounds(max_boost, limits)
     allowed = tuple((limits or {}).get("types")
                     or ("PK", "LSC", "HSC"))
     target = np.minimum(desired, g_hi)
+    horizon = max(int(n_bands), 1)
+    prog = {"band": 0, "fev": 0}
+
+    def tick():
+        prog["fev"] += 1
+        if progress is not None and prog["fev"] % 20 == 0:
+            inner = min(prog["fev"] / 350.0, 0.95)
+            progress(min((prog["band"] + inner) / horizon, 1.0))
+
     bands, anchors = [], []
     for _ in range(n_bands):
         resid = target - _response(bands, fg)
@@ -242,9 +262,13 @@ def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost,
         anchors.append(f0)
         bands = _refine(bands, fg, target, flo, fhi, max_boost,
                         span_oct=GREEDY_SPAN_OCT, anchors=anchors,
-                        limits=limits)
+                        limits=limits, tick=tick)
+        prog["band"] = len(bands)
+        prog["fev"] = 0
     bands = _prune(bands, fg, target, flo, fhi, max_boost,
-                   limits=limits)
+                   limits=limits, tick=tick)
+    if progress is not None:
+        progress(1.0)
     return bands, desired - _response(bands, fg)   # vs TRUE target
 
 

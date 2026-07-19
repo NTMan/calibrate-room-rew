@@ -801,3 +801,22 @@ def test_audit_target_scores_and_reasons():
     assert s == 2 and r == ["no per-channel EQ"]
     s, r = ex.audit_target(budget, div, freqs)
     assert s == 2 and r == ["no per-channel EQ", "band budget 1"]
+
+
+def test_refit_progress_is_alive_and_bounded():
+    fg = ex.log_grid(20.0, 12000.0, 240)
+    shape = [{"type": "PK", "freq": 150.0, "gain": 4.0, "q": 1.2,
+              "enabled": True},
+             {"type": "PK", "freq": 900.0, "gain": -5.0, "q": 2.0,
+              "enabled": True},
+             {"type": "PK", "freq": 5200.0, "gain": 3.0, "q": 1.4,
+              "enabled": True}]
+    desired = ex.chain_response(0.0, shape, fg)
+    seen = []
+    bands, _rm, _rr = ex.refit_bands(fg, desired, 20.0, 12000.0,
+                                     6, 6.0, progress=seen.append)
+    assert bands and seen
+    assert seen[-1] == 1.0 and seen.count(1.0) == 1
+    assert all(0.0 <= v <= 1.0 for v in seen)
+    assert seen == sorted(seen)          # never walks backwards
+    assert len(seen) >= 5                # alive, not a two-stepper
