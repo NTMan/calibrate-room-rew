@@ -741,30 +741,51 @@ def _terse_gaps(t, bands):
     return out
 
 
+def _projection_err(chains, freqs):
+    """The measured cost of the graphic projection for these exact
+    chains: the collapsed response sampled onto the AutoEq grid
+    (gains rounded like the writer rounds them), read back the way
+    importers read it -- linear in log f -- against the true
+    response over `freqs`. Smoothed curves on a ~12.7-point-per-
+    octave grid land in the hundredths; the number, not the hope,
+    goes on the row."""
+    pol = "mean" if len(chains) > 1 else chains[0][0]
+    grid = list(AUTOEQ_GEQ_FREQS)
+    on_g, _n = collapse(chains, pol, grid)
+    on_g = [round(v, 1) for v in on_g]
+    true, _n = collapse(chains, pol, freqs)
+    est = [_interp_logf(grid, on_g, f) for f in freqs]
+    return max(abs(a - b) for a, b in zip(est, true))
+
+
 def audit_target(t, chains, freqs):
     """(score, flag, reasons) for sorting a target picker and
-    annotating its rows BEFORE any page opens: how far from
-    verbatim bands this target sits for these exact chains.
+    annotating its rows BEFORE any page opens -- ordered by
+    FIDELITY for these exact chains, not by structural distance
+    from verbatim (field catch: a projection nulling to
+    hundredths must not sit below a re-fit confessing 7 dB).
 
     score orders the picker: 0 verbatim (a per-channel
     destination, or one chain clearing every declared limit);
-    1 mean by parallel band average, as-is grade; 2 a re-fit will
-    run; 3 response projection; 4 fixed sliders. flag is the red
-    chip text -- "re-fit" for 2, "fit" for 4 (a slider solve is
-    always a fit), "" otherwise. reasons are row-sized tokens: red
-    diagnostics next to a flag, plain information without one --
-    every conversion a row implies is written on the row, so a
+    1 mean by parallel band average, as-is grade; 2 response
+    projection, with its measured error on the row; 3 a re-fit
+    will run; 4 fixed sliders. flag is the red chip text --
+    "re-fit" for 3, "fit" for 4 (a slider solve is always a fit),
+    "" otherwise. reasons are row-sized tokens: red diagnostics
+    next to a flag, plain information without one -- every
+    conversion a row implies is written on the row, so a
     clean-looking worst target cannot happen."""
     multi = len(chains) > 1
     w = t.get("writer")
     if w == "poweramp":
         return 0, "", []
     if w == "graphiceq":
-        r = ["response projection, %d-point grid"
-             % len(AUTOEQ_GEQ_FREQS)]
+        r = ["response projection, %d-point grid -- %.2f dB here"
+             % (len(AUTOEQ_GEQ_FREQS),
+                _projection_err(chains, freqs))]
         if multi:
             r.append("mean of channels")
-        return 3, "", r
+        return 2, "", r
     if w == "fixed":
         r = []
         cs = t.get("centers") or ()
@@ -780,13 +801,13 @@ def audit_target(t, chains, freqs):
         _k, g, bands = chains[0]
         _fg, fb, _f = fold_flat(g, bands)
         gaps = _terse_gaps(t, fb)
-        return (2, "re-fit", gaps) if gaps else (0, "", [])
+        return (3, "re-fit", gaps) if gaps else (0, "", [])
     pm, _why = parallel_mean(chains, freqs)
     if pm:
         _g, fb, _err = pm
         gaps = _terse_gaps(t, fb)
         if gaps:
-            return 2, "re-fit", gaps
+            return 3, "re-fit", gaps
         return 1, "", ["mean of channels -- band average"]
     gaps = ["no per-channel EQ"]
     mb = t.get("max_bands")
@@ -794,7 +815,7 @@ def audit_target(t, chains, freqs):
                for _k, _g, bb in chains)
     if mb and rich > mb:
         gaps.append("band budget %d" % mb)
-    return 2, "re-fit", gaps
+    return 3, "re-fit", gaps
 
 
 def center_curve(vals):

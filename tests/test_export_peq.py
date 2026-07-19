@@ -790,10 +790,13 @@ def test_audit_target_scores_and_reasons():
 
     assert ex.audit_target(pa, par, freqs) == (0, "", [])
     s, f, r = ex.audit_target(ge, par, freqs)
-    assert s == 3 and f == "" and "mean of channels" in r
-    assert any("response projection" in x for x in r)
+    assert s == 2 and f == "" and "mean of channels" in r
+    assert r[0].startswith("response projection, 127-point grid")
+    assert "dB here" in r[0]
+    e = float(r[0].split("--")[1].split("dB")[0])
+    assert 0.0 <= e < ex.NULL_PASS_DB
     s, f, r = ex.audit_target(ge, par[:1], freqs)
-    assert s == 3 and r == ["response projection, 127-point grid"]
+    assert s == 2 and len(r) == 1 and "dB here" in r[0]
     fx8 = dict(fx, centers=[1.0] * 8, gain_range=[-6.0, 6.0])
     s, f, r = ex.audit_target(fx8, par, freqs)
     assert s == 4 and f == "fit"
@@ -804,13 +807,13 @@ def test_audit_target_scores_and_reasons():
     assert r == ["mean of channels -- band average"]
     assert ex.audit_target(pt, par[:1], freqs) == (0, "", [])
     s, f, r = ex.audit_target(tight, par, freqs)
-    assert (s, f, r) == (2, "re-fit", ["gain limit"])
+    assert (s, f, r) == (3, "re-fit", ["gain limit"])
     s, f, r = ex.audit_target(budget, par[:1], freqs)
-    assert (s, f, r) == (2, "re-fit", ["band budget 1"])
+    assert (s, f, r) == (3, "re-fit", ["band budget 1"])
     s, f, r = ex.audit_target(pt, div, freqs)
-    assert (s, f, r) == (2, "re-fit", ["no per-channel EQ"])
+    assert (s, f, r) == (3, "re-fit", ["no per-channel EQ"])
     s, f, r = ex.audit_target(budget, div, freqs)
-    assert (s, f) == (2, "re-fit")
+    assert (s, f) == (3, "re-fit")
     assert r == ["no per-channel EQ", "band budget 1"]
 
 
