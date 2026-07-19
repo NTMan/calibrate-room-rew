@@ -710,3 +710,56 @@ def test_fit_to_desired_honors_limits():
     free, fmax, _r = ex.refit_bands(fg, desired, 20.0, 12000.0,
                                     6, 6.0)
     assert fmax <= rmax + 1e-9
+
+
+def test_parallel_mean_average_and_gates():
+    freqs = ex.log_grid(20.0, 12000.0, 240)
+
+    def ch(g1, g2, f2=2000.0, q2=1.6, trim=0.0, junk=False):
+        bands = [{"type": "LSC", "freq": 80.0, "gain": g1,
+                  "q": 0.9, "enabled": True},
+                 {"type": "PK", "freq": f2, "gain": g2,
+                  "q": q2, "enabled": True}]
+        if trim:
+            bands.insert(0, {"type": "HSC", "freq": 0.0,
+                             "gain": trim, "q": 1.0,
+                             "enabled": True})
+        if junk:
+            bands.append({"type": "PK", "freq": 5000.0,
+                          "gain": 3.0, "q": 2.0,
+                          "enabled": False})
+        return bands
+
+    chains = [("FL", -3.0, ch(2.0, -4.0, trim=-0.5, junk=True)),
+              ("FR", -3.0, ch(3.0, -5.0, f2=2100.0))]
+    pm, why = ex.parallel_mean(chains, freqs)
+    assert pm and why == ""
+    g_m, bands_m, err = pm
+    # trims fold and average exactly; disabled bands never count
+    assert abs(g_m - (-3.25)) < 1e-9
+    assert len(bands_m) == 2 and bands_m[0]["type"] == "LSC"
+    assert abs(bands_m[1]["gain"] + 4.5) < 1e-9
+    assert err <= ex.NULL_PASS_DB
+    got = ex.chain_response(g_m, bands_m, freqs)
+    cols = [ex.chain_response(g, b, freqs)
+            for _k, g, b in chains]
+    true = [(a + b) / 2.0 for a, b in zip(*cols)]
+    assert abs(max(abs(x - y) for x, y in zip(got, true))
+               - err) < 1e-9
+
+    # gate: counts
+    pm2, why2 = ex.parallel_mean(
+        [("FL", 0.0, ch(1.0, 1.0)),
+         ("FR", 0.0, ch(1.0, 1.0)[:1])], freqs)
+    assert pm2 is None and "band counts differ" in why2
+    # gate: types
+    other = ch(1.0, 1.0)
+    other[0]["type"] = "PK"
+    pm3, why3 = ex.parallel_mean(
+        [("FL", 0.0, ch(1.0, 1.0)), ("FR", 0.0, other)], freqs)
+    assert pm3 is None and "types are not parallel" in why3
+    # gate: the verification against the true mean
+    pm4, why4 = ex.parallel_mean(
+        [("FL", 0.0, ch(2.0, -4.0)),
+         ("FR", 0.0, ch(2.0, -4.0, f2=4000.0))], freqs)
+    assert pm4 is None and "misses the true mean" in why4

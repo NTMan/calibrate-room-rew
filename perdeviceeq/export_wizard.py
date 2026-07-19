@@ -168,6 +168,27 @@ class ExportDialog(Adw.Dialog):
                      " switch, on by default."
                      % self.taste_name)
         intro.set_description(desc)
+        if len(self.chains) > 1:
+            pm, pwhy = xp.parallel_mean(
+                self.chains,
+                xp.log_grid(self.flo, self.fhi, 240))
+            warn = Gtk.Label(xalign=0, wrap=True)
+            warn.set_margin_top(6)
+            if pm:
+                warn.add_css_class("dim-label")
+                warn.set_text(
+                    "Single-chain targets take the mean of the"
+                    " channels: the band tables are parallel and"
+                    " average within %.2f dB of the true mean --"
+                    " effectively as-is." % pm[2])
+            else:
+                warn.add_css_class("error")
+                warn.set_text(
+                    "Single-chain targets cannot take the bands"
+                    " as-is: the mean of the channels needs a"
+                    " re-fit (%s). Pick a channel on the target"
+                    " page for verbatim bands." % pwhy)
+            intro.add(warn)
         page.add(intro)
         targets = xp.load_targets()
         groups = (("Import files",
@@ -370,10 +391,18 @@ class ExportDialog(Adw.Dialog):
         elif writer in ("parametric", "sheet"):
             maxb = t.get("max_bands")
             refit_why = None
+            perr = None
             if st["policy"] == "mean":
-                refit_why = "mean of channels"
+                pm, pwhy = xp.parallel_mean(allc, nf)
+                if pm:
+                    g, bands, perr = pm
+                    note = ("mean of %s -- pairwise band average"
+                            % ", ".join(k for k, _g, _b in allc))
+                else:
+                    refit_why = "mean of channels -- " + pwhy
             else:
                 g, bands, note = xp.pick_chain(allc, st["policy"])
+            if refit_why is None:
                 fg, fbands, folded = xp.fold_flat(g, bands)
                 viol = xp.chain_violations(t, fbands)
                 if viol:
@@ -385,6 +414,10 @@ class ExportDialog(Adw.Dialog):
                 return
             else:
                 hdr = self._header(t, note, taste)
+                if perr is not None:
+                    hdr.append("Mean by pairwise band average of"
+                               " parallel tables; verified within"
+                               " %.2f dB of the true mean." % perr)
                 tl = xp.limits_text(t)
                 if tl:
                     hdr.append("Target limits: %s -- the chain"
@@ -399,13 +432,16 @@ class ExportDialog(Adw.Dialog):
                                " composed chain stays under 0 dBFS."
                                % -moved)
                 ref = xp.chain_response(g + moved, bands, nf)
+                psuf = ("" if perr is None else
+                        " Mean by band average, %.2f dB vs the"
+                        " true mean." % perr)
                 if writer == "parametric":
                     text = xp.parametric_text(fg, fbands,
                                               header=hdr)
                     err = xp.null_test_parametric(text, nf, ref)
                     self._set_status(
                         st, self._null_line(err)
-                        + " Export preamp %+.1f dB." % fg,
+                        + " Export preamp %+.1f dB." % fg + psuf,
                         err <= xp.NULL_PASS_DB)
                 else:
                     text = xp.sheet_text(t, fg, fbands, header=hdr)
@@ -415,8 +451,8 @@ class ExportDialog(Adw.Dialog):
                     self._set_status(
                         st, "Rounding to the target's steps costs"
                         " max %.2f dB over %s. Export preamp"
-                        " %+.1f dB."
-                        % (err, self._band_str(), fg),
+                        " %+.1f dB." % (err, self._band_str(), fg)
+                        + psuf,
                         err <= xp.NULL_PASS_DB)
         elif writer == "graphiceq":
             grid = xp.graphic_grid()

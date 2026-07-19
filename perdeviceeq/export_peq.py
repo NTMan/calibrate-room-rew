@@ -657,6 +657,61 @@ def sample_curve(fg, curve, freqs):
     return [_interp_logf(fg, gs, f) for f in freqs]
 
 
+def parallel_mean(chains, freqs):
+    """The band-table mean for a single-chain destination, when it
+    is honestly definable: fold each chain, sort by frequency,
+    pair the bands by position, average pairwise -- frequency and
+    Q geometrically (ratio-like quantities), gain and the folded
+    flat trims arithmetically (dB is linear) -- and VERIFY the
+    result against the true per-frequency mean of the chain
+    responses over `freqs`. Parallel topologies are what the fit's
+    placement leash produces on purpose, so this is the common
+    case, and it is as-is grade: the destination gets bands of the
+    profile's own shape, deterministic, no optimizer involved.
+
+    Returns ((preamp, bands, err_db), "") on success, err_db being
+    the verified worst deviation from the true mean (within
+    NULL_PASS_DB), or (None, why) when the tables are not parallel
+    or the pairwise average misses the true mean."""
+    folded = []
+    for _k, g, bands in chains:
+        fg, fb, _f = fold_flat(g, bands)
+        folded.append((fg, sorted(fb, key=lambda b:
+                                  float(b.get("freq", 0.0)))))
+    counts = sorted({len(fb) for _g, fb in folded})
+    if len(counts) != 1:
+        return None, ("the channels' band counts differ (%s)"
+                      % ", ".join(str(c) for c in counts))
+    types = {tuple(b.get("type") for b in fb)
+             for _g, fb in folded}
+    if len(types) != 1:
+        return None, "the channels' band types are not parallel"
+    n = len(folded[0][1])
+    m = float(len(folded))
+    g_m = sum(fg for fg, _fb in folded) / m
+    bands_m = []
+    for i in range(n):
+        col = [fb[i] for _g, fb in folded]
+        f = math.exp(sum(math.log(float(b["freq"]))
+                         for b in col) / m)
+        q = math.exp(sum(math.log(float(b.get("q", 1.0)))
+                         for b in col) / m)
+        gain = sum(float(b.get("gain", 0.0)) for b in col) / m
+        bands_m.append({"type": col[0].get("type"),
+                        "freq": round(f, 1),
+                        "gain": round(gain, 2),
+                        "q": round(q, 3), "enabled": True})
+    got = chain_response(g_m, bands_m, freqs)
+    cols = [chain_response(g, b, freqs) for _k, g, b in chains]
+    true = [sum(c[i] for c in cols) / m
+            for i in range(len(freqs))]
+    err = max(abs(a - b) for a, b in zip(got, true))
+    if err > NULL_PASS_DB:
+        return None, ("the pairwise average misses the true mean"
+                      " by %.2f dB" % err)
+    return (g_m, bands_m, err), ""
+
+
 def center_curve(vals):
     """(centered, mean): split a curve into shape and level. The
     re-fit paths fit the shape; the level rides in the exported
