@@ -168,29 +168,11 @@ class ExportDialog(Adw.Dialog):
                      " switch, on by default."
                      % self.taste_name)
         intro.set_description(desc)
-        if len(self.chains) > 1:
-            pm, pwhy = xp.parallel_mean(
-                self.chains,
-                xp.log_grid(self.flo, self.fhi, 240))
-            warn = Gtk.Label(xalign=0, wrap=True)
-            warn.set_margin_top(6)
-            if pm:
-                warn.add_css_class("dim-label")
-                warn.set_text(
-                    "Single-chain targets take the mean of the"
-                    " channels: the band tables are parallel and"
-                    " average within %.2f dB of the true mean --"
-                    " effectively as-is." % pm[2])
-            else:
-                warn.add_css_class("error")
-                warn.set_text(
-                    "Single-chain targets cannot take the bands"
-                    " as-is: the mean of the channels needs a"
-                    " re-fit (%s). Pick a channel on the target"
-                    " page for verbatim bands." % pwhy)
-            intro.add(warn)
         page.add(intro)
         targets = xp.load_targets()
+        audit = {t["id"]: xp.audit_target(
+            t, self.chains, xp.log_grid(self.flo, self.fhi, 240))
+            for t in targets}
         groups = (("Import files",
                    "Formats the target application reads in",
                    xp.FILE_WRITERS),
@@ -200,13 +182,22 @@ class ExportDialog(Adw.Dialog):
         for title, desc, writers in groups:
             grp = Adw.PreferencesGroup(title=title, description=desc)
             got = False
-            for t in targets:
-                if t.get("writer") not in writers:
-                    continue
-                row = Adw.ActionRow(title=t["name"],
-                                    subtitle=t.get("note", ""))
+            rows = [t for t in targets
+                    if t.get("writer") in writers]
+            rows.sort(key=lambda t: audit[t["id"]][0])
+            for t in rows:
+                score, gaps = audit[t["id"]]
+                sub = t.get("note", "")
+                if gaps:
+                    sub = ((sub + "\n") if sub else "") + \
+                        "re-fit: " + ", ".join(gaps)
+                row = Adw.ActionRow(title=t["name"], subtitle=sub)
                 row.set_use_markup(False)
                 row.set_activatable(True)
+                if score == 2:
+                    flag = Gtk.Label(label="re-fit")
+                    flag.add_css_class("error")
+                    row.add_suffix(flag)
                 row.add_suffix(Gtk.Image.new_from_icon_name(
                     "go-next-symbolic"))
                 row.connect("activated", self._on_target, t)

@@ -763,3 +763,41 @@ def test_parallel_mean_average_and_gates():
         [("FL", 0.0, ch(2.0, -4.0)),
          ("FR", 0.0, ch(2.0, -4.0, f2=4000.0))], freqs)
     assert pm4 is None and "misses the true mean" in why4
+
+
+def test_audit_target_scores_and_reasons():
+    freqs = ex.log_grid(20.0, 12000.0, 240)
+
+    def ch(g2, f2=2000.0, n_extra=0):
+        bands = [{"type": "LSC", "freq": 80.0, "gain": 2.0,
+                  "q": 0.9, "enabled": True},
+                 {"type": "PK", "freq": f2, "gain": g2,
+                  "q": 1.6, "enabled": True}]
+        for i in range(n_extra):
+            bands.append({"type": "PK", "freq": 300.0 + 200 * i,
+                          "gain": 1.0, "q": 2.0, "enabled": True})
+        return bands
+
+    par = [("FL", -3.0, ch(-4.0)), ("FR", -3.0, ch(-5.0))]
+    div = [("FL", -3.0, ch(-4.0)), ("FR", -3.0, ch(-4.0,
+                                                   f2=4000.0))]
+    pa = {"writer": "poweramp"}
+    ge = {"writer": "graphiceq"}
+    fx = {"writer": "fixed"}
+    pt = {"writer": "parametric"}
+    tight = {"writer": "parametric", "gain_range": [-3.0, 3.0]}
+    budget = {"writer": "parametric", "max_bands": 1}
+
+    assert ex.audit_target(pa, par, freqs) == (0, [])
+    assert ex.audit_target(ge, par, freqs) == (3, [])
+    assert ex.audit_target(fx, par, freqs) == (4, [])
+    assert ex.audit_target(pt, par, freqs) == (1, [])
+    assert ex.audit_target(pt, par[:1], freqs) == (0, [])
+    s, r = ex.audit_target(tight, par, freqs)
+    assert s == 2 and r == ["gain limit"]
+    s, r = ex.audit_target(budget, par[:1], freqs)
+    assert s == 2 and r == ["band budget 1"]
+    s, r = ex.audit_target(pt, div, freqs)
+    assert s == 2 and r == ["no per-channel EQ"]
+    s, r = ex.audit_target(budget, div, freqs)
+    assert s == 2 and r == ["no per-channel EQ", "band budget 1"]

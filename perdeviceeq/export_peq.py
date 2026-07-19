@@ -712,6 +712,70 @@ def parallel_mean(chains, freqs):
     return (g_m, bands_m, err), ""
 
 
+def _terse_gaps(t, bands):
+    """Terse tokens for the limit declarations these bands break --
+    row-annotation grade, one token per kind."""
+    out = []
+    on = [b for b in bands if b.get("enabled", True)]
+    mb = t.get("max_bands")
+    if mb and len(on) > mb:
+        out.append("band budget %d" % mb)
+
+    def outside(key, field):
+        r = t.get(key)
+        if not r:
+            return False
+        lo, hi = float(r[0]), float(r[1])
+        return any(not lo - 1e-9 <= float(b.get(field, 0.0))
+                   <= hi + 1e-9 for b in on)
+
+    if outside("gain_range", "gain"):
+        out.append("gain limit")
+    if outside("q_range", "q"):
+        out.append("Q limit")
+    if outside("freq_range", "freq"):
+        out.append("frequency range")
+    ty = t.get("types")
+    if ty and any(b.get("type") not in ty for b in on):
+        out.append("band types")
+    return out
+
+
+def audit_target(t, chains, freqs):
+    """(score, reasons) for sorting a target picker and annotating
+    its rows BEFORE any page opens: how far from verbatim bands
+    this target sits for these exact chains. 0 -- verbatim (a
+    per-channel destination, or one chain clearing every declared
+    limit); 1 -- mean by parallel band average, as-is grade; 2 --
+    a re-fit will run, and `reasons` names why in row-sized
+    tokens; 3 -- response projection (a graphic line has no
+    bands); 4 -- fixed sliders. Reasons are only present for 2."""
+    w = t.get("writer")
+    if w == "poweramp":
+        return 0, []
+    if w == "graphiceq":
+        return 3, []
+    if w == "fixed":
+        return 4, []
+    if len(chains) == 1:
+        _k, g, bands = chains[0]
+        _fg, fb, _f = fold_flat(g, bands)
+        gaps = _terse_gaps(t, fb)
+        return (2, gaps) if gaps else (0, [])
+    pm, _why = parallel_mean(chains, freqs)
+    if pm:
+        _g, fb, _err = pm
+        gaps = _terse_gaps(t, fb)
+        return (2, gaps) if gaps else (1, [])
+    gaps = ["no per-channel EQ"]
+    mb = t.get("max_bands")
+    rich = max(len([b for b in bb if b.get("enabled", True)])
+               for _k, _g, bb in chains)
+    if mb and rich > mb:
+        gaps.append("band budget %d" % mb)
+    return 2, gaps
+
+
 def center_curve(vals):
     """(centered, mean): split a curve into shape and level. The
     re-fit paths fit the shape; the level rides in the exported
