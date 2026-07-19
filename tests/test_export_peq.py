@@ -528,7 +528,9 @@ def test_poweramp_preamp_covers_taste_headroom():
     chains2 = [(k, adj, b) for k, _g, b in chains]
     text = ex.poweramp_json(t, chains2, "hp")
     import json as _json
-    assert _json.loads(text)[0]["preamp"] == adj
+    clamped, spill = ex.preamp_spill(adj, t)
+    assert clamped + spill == adj and clamped >= -12.0
+    assert _json.loads(text)[0]["preamp"] == clamped
     freqs = ex.log_grid(20.0, 12000.0, 480)
     errs = ex.null_test_poweramp(text, chains2, freqs)
     assert max(errs.values()) <= ex.NULL_PASS_DB
@@ -952,3 +954,38 @@ def test_vendor_presets_shape_and_validator(tmp_path):
     got = {x["id"]: x for x in ex.load_targets(
         extra_dir=str(tmp_path))}["vx"]
     assert [p["name"] for p in got["presets"]] == ["ok"]
+
+
+def test_poweramp_preamp_spills_past_the_range():
+    t = {x["id"]: x for x in ex.load_targets()}["poweramp"]
+    assert t["preamp_range"] == [-12.0, 12.0]
+    assert "preamp -12..12 dB" in ex.limits_text(t)
+    fl = [{"type": "PK", "freq": 3000.0, "gain": -14.35,
+           "q": 0.7, "enabled": True}]
+    fr = [{"type": "HSC", "freq": 0.0, "gain": -0.18, "q": 1.0,
+           "enabled": True},
+          {"type": "PK", "freq": 3064.0, "gain": -11.68,
+           "q": 1.0, "enabled": True}]
+    chains = [("FL", -16.2, fl), ("FR", -16.2, fr)]
+    text = ex.poweramp_json(t, chains, "spill")
+    import json as _json
+    preset = _json.loads(text)[0]
+    assert preset["preamp"] == -12.0
+    flats = {b["channels"]: b["gain"]
+             for b in preset["bands"]
+             if b["type"] == ex.PA_TYPE["LSC"]
+             and b["frequency"] == 24000}
+    # FL grows a fresh flat band; FR's trim absorbs the spill
+    assert abs(flats[ex.PA_LEFT] - (-4.2)) < 1e-9
+    assert abs(flats[ex.PA_RIGHT] - (-4.38)) < 1e-9
+    freqs = ex.log_grid(20.0, 12000.0, 480)
+    errs = ex.null_test_poweramp(text, chains, freqs)
+    assert max(errs.values()) <= ex.NULL_PASS_DB, errs
+    # inside the range nothing spills and no flat band appears
+    calm = [("all", -6.0, fl)]
+    t2 = _json.loads(ex.poweramp_json(t, calm, "calm"))[0]
+    assert t2["preamp"] == -6.0
+    assert not [b for b in t2["bands"]
+                if b["frequency"] == 24000]
+    assert "preamp_range" in ex._limits_invalid(
+        {"preamp_range": [5.0, -5.0]})

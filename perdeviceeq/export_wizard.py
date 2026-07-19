@@ -466,6 +466,7 @@ class ExportDialog(Adw.Dialog):
             if moved:
                 chains = [(k, adj, b) for k, _g, b in chains]
             text = xp.poweramp_json(t, chains, name)
+            clamped, spill = xp.preamp_spill(adj, t)
             errs = xp.null_test_poweramp(text, chains, nf)
             worst = max(errs.values())
             per = ", ".join("%s %.2f" % (k, v)
@@ -475,9 +476,13 @@ class ExportDialog(Adw.Dialog):
                        % xp.NULL_PASS_DB)
             line = ("Null test per chain over %s: %s dB -- %s."
                     " Preset preamp %+.1f dB%s."
-                    % (self._band_str(), per, verdict, adj,
+                    % (self._band_str(), per, verdict, clamped,
                        (" (lowered %.1f dB for headroom)" % -moved)
                        if moved < 0 and not auto else ""))
+            if spill:
+                line += (" %+.1f dB beyond the target's preamp"
+                         " range rides as a flat band per"
+                         " channel." % spill)
             self._set_status(st, line, worst <= xp.NULL_PASS_DB)
         elif writer in ("parametric", "sheet"):
             if "budget" in st:

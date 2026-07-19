@@ -98,7 +98,8 @@ BUILTIN_TARGETS = [
              " channels -- true stereo, no collapse",
      "writer": "poweramp", "ext": ".json",
      "gain_range": [-15.0, 15.0], "q_range": [0.1, 12.0],
-     "freq_range": [20.0, 24000.0]},
+     "freq_range": [20.0, 24000.0],
+     "preamp_range": [-12.0, 12.0]},
     {"id": "hand-peq",
      "name": "Hand-transfer sheet",
      "note": "Any parametric EQ entered by hand",
@@ -196,7 +197,8 @@ def _limits_invalid(t):
     "" when they are fine. Ranges are 2-lists of numbers with
     lo < hi; types is a non-empty subset of the band types the app
     itself renders."""
-    for key in ("gain_range", "q_range", "freq_range"):
+    for key in ("gain_range", "q_range", "freq_range",
+                "preamp_range"):
         r = t.get(key)
         if r is None:
             continue
@@ -231,6 +233,10 @@ def limits_text(t):
     if t.get("freq_range"):
         parts.append("%g-%g Hz" % (t["freq_range"][0],
                                    t["freq_range"][1]))
+    if t.get("preamp_range"):
+        parts.append("preamp %g..%g dB"
+                     % (t["preamp_range"][0],
+                        t["preamp_range"][1]))
     if t.get("types"):
         parts.append("types " + "/".join(t["types"]))
     return ", ".join(parts)
@@ -986,6 +992,24 @@ def _pa_band(b, target, channels):
             "color": 0}
 
 
+def preamp_spill(preamp, target):
+    """(clamped, spill): the preset preamp held inside the
+    target's declared preamp_range, and the broadband excess that
+    must ride in the bands instead. The app's slider stops at the
+    range ends and its importer clamps silently -- a -16.2 dB
+    preamp came back -12.0, 4.2 dB of headroom gone and a clip
+    risk shipped with a green checkmark. The spill keeps the
+    composition identical: it lands as flat per-channel gain (the
+    freq-0 trim mechanic), so file preamp + bands still equals
+    intent to the last hundredth, and the null test proves it."""
+    pr = target.get("preamp_range")
+    if not pr:
+        return float(preamp), 0.0
+    lo, hi = float(pr[0]), float(pr[1])
+    clamped = min(max(float(preamp), lo), hi)
+    return clamped, float(preamp) - clamped
+
+
 def poweramp_stereo_keys(chains):
     """True when the chain set maps onto Poweramp's per-band
     channel routing: one shared chain, or exactly FL / FR."""
@@ -1006,14 +1030,23 @@ def poweramp_json(target, chains, name):
     if not poweramp_stereo_keys(chains):
         raise ValueError("chain keys %r do not map onto L/R"
                          % sorted(k for k, _g, _b in chains))
-    preamp = float(chains[0][1])
+    preamp, spill = preamp_spill(chains[0][1], target)
     out_bands = [dict(b) for b in PA_INERT_PAIR]
     for key, _g, bands in chains:
         ch = PA_BOTH if key == "all" else PA_CH[key]
+        poured = False
         for b in bands:
             if not b.get("enabled", True):
                 continue
+            if (spill and not poured and b["type"] == "HSC"
+                    and float(b["freq"]) < 1.0):
+                b = dict(b, gain=float(b["gain"]) + spill)
+                poured = True
             out_bands.append(_pa_band(b, target, ch))
+        if spill and not poured:
+            out_bands.append(_pa_band(
+                {"type": "HSC", "freq": 0.0, "gain": spill,
+                 "q": 1.0, "enabled": True}, target, ch))
     preset = {"name": name, "preamp": preamp,
               "parametric": True, "bands": out_bands}
     # byte shape of the app's own export: tab indent, no trailing
