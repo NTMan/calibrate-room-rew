@@ -129,32 +129,48 @@ class ExportDialog(Adw.Dialog):
                 self._canvas = False
         return self._canvas or None
 
-    def _measurement_vals(self, st, taste):
-        """(fg, vals, canvas_note) for the current policy under
-        the measurement source, or None -> bake from the chain.
-        The taste overlay is applied here, per bake, so the switch
-        works on this source too."""
+    def _boost_cap(self):
+        return float(((self.body.get("fit") or {})
+                      .get("params") or {}).get("max_boost", 6.0))
+
+    def _measurement_vals(self, st, taste, cap=None):
+        """(fg, vals, canvas_note, capped_by) for the current
+        policy under the measurement source, or None -> bake from
+        the chain. Order matters: the policy collapses the raw
+        desired first; `cap`, when given, then clips the boost at
+        the fit's own ceiling -- deep dips are not filled, the
+        same doctrine the band fits obey -- and capped_by reports
+        how far the ask exceeded it; the taste overlay lands LAST,
+        uncapped, because a taste layer is intent, not a
+        measurement artifact."""
         if self.source != "measurement":
             return None
         got = self._canvas_desired()
         if not got:
             return None
         fg, curves, note = got
-        if taste and self.taste_bands:
-            tail = xp.chain_response(0.0, self.taste_bands, fg)
-            curves = {k: [v + d for v, d in zip(c, tail)]
-                      for k, c in curves.items()}
         pol = st["policy"]
         if pol == "mean":
-            return fg, xp.mean_curve(curves), note
-        if pol in curves:
-            return fg, curves[pol], note
-        if len(curves) == 1:
-            return fg, next(iter(curves.values())), note
-        self.source = "chain"
-        self.source_why = ("the canvas channels do not match the"
-                           " chain keys")
-        return None
+            vals = xp.mean_curve(curves)
+        elif pol in curves:
+            vals = list(curves[pol])
+        elif len(curves) == 1:
+            vals = list(next(iter(curves.values())))
+        else:
+            self.source = "chain"
+            self.source_why = ("the canvas channels do not match"
+                               " the chain keys")
+            return None
+        capped_by = 0.0
+        if cap is not None:
+            over = max(vals) - cap
+            if over > 0:
+                capped_by = over
+                vals = [min(v, cap) for v in vals]
+        if taste and self.taste_bands:
+            tail = xp.chain_response(0.0, self.taste_bands, fg)
+            vals = [v + d for v, d in zip(vals, tail)]
+        return fg, vals, note, capped_by
 
     # ---- page 1: where is this going? -----------------------------
 
@@ -464,9 +480,11 @@ class ExportDialog(Adw.Dialog):
                         err <= xp.NULL_PASS_DB)
         elif writer == "graphiceq":
             grid = xp.graphic_grid()
-            mv = self._measurement_vals(st, taste)
+            mv = self._measurement_vals(st, taste,
+                                        cap=self._boost_cap())
+            capped_by = 0.0
             if mv:
-                fgc, vals, tnote = mv
+                fgc, vals, tnote, capped_by = mv
                 note = self._collapse_note(st["policy"])
                 resp = xp.sample_curve(fgc, vals, grid)
                 ref = xp.sample_curve(fgc, vals, nf)
@@ -476,6 +494,11 @@ class ExportDialog(Adw.Dialog):
                 ref, _n = xp.collapse(allc, st["policy"], nf)
             hdr = self._header(t, note, taste)
             hdr.append(self._source_line(tnote))
+            if capped_by > 0:
+                hdr.append("Boost capped at %+.1f dB (the fit's"
+                           " policy): the measurement asked %.2f"
+                           " dB more to fill deep dips."
+                           % (self._boost_cap(), capped_by))
             text, shift = xp.graphiceq_text(
                 grid, resp, header=hdr, bare=bool(t.get("bare")))
             err = xp.null_test_graphic(text, nf, ref, shift)
@@ -485,12 +508,17 @@ class ExportDialog(Adw.Dialog):
                                 else "the in-app chain"))
             if shift:
                 line += " Level shifted %+.1f dB." % shift
+            if capped_by > 0:
+                line += (" Boost capped at %+.1f dB."
+                         % self._boost_cap())
             self._set_status(st, line, err <= xp.NULL_PASS_DB)
         else:                                   # fixed
             pf = xp.log_grid(self.flo, self.fhi, _PLOT_N)
-            mv = self._measurement_vals(st, taste)
+            mv = self._measurement_vals(st, taste,
+                                        cap=self._boost_cap())
+            capped_by = 0.0
             if mv:
-                fgc, vals, tnote = mv
+                fgc, vals, tnote, capped_by = mv
                 note = self._collapse_note(st["policy"])
                 desired = xp.sample_curve(fgc, vals, pf)
             else:
@@ -501,6 +529,11 @@ class ExportDialog(Adw.Dialog):
             st["sol"] = sol
             hdr = self._header(t, note, taste)
             hdr.append(self._source_line(tnote))
+            if capped_by > 0:
+                hdr.append("Boost capped at %+.1f dB (the fit's"
+                           " policy): the measurement asked %.2f"
+                           " dB more to fill deep dips."
+                           % (self._boost_cap(), capped_by))
             text = xp.fixed_sheet_text(t, sol, header=hdr)
             self._set_status(
                 st, "Source: %s. Fit over %s: residual max %.1f"
@@ -602,7 +635,7 @@ class ExportDialog(Adw.Dialog):
         fgrid = xp.log_grid(flo, fhi, _NULL_N)
         mv = self._measurement_vals(st, taste)
         if mv:
-            fgc, cvals, tnote = mv
+            fgc, cvals, tnote, _cb = mv
             note = self._collapse_note(st["policy"])
             vals = xp.sample_curve(fgc, cvals, fgrid)
         else:
@@ -614,10 +647,18 @@ class ExportDialog(Adw.Dialog):
                          if b.get("enabled", True)])
                     for _k, _g, bb in allc] or [0])
         budget = maxb or int(params.get("bands", 0)) or rich or 10
+        gcap = float(params.get("max_boost", 6.0))
+        glim = xp.fit_limits(t).get("gain")
+        ghi = min(gcap, glim[1]) if glim else gcap
         bands, rmax, rrms = xp.refit_bands(
-            fgrid, vals0, flo, fhi, budget,
-            float(params.get("max_boost", 6.0)),
+            fgrid, vals0, flo, fhi, budget, gcap,
             limits=xp.fit_limits(t), progress=progress)
+        got = xp.chain_response(0.0, bands, fgrid)
+        ct = [min(v, ghi) for v in vals0]
+        ce = [abs(a - b) for a, b in zip(got, ct)]
+        cmax = max(ce)
+        crms = (sum(e * e for e in ce) / len(ce)) ** 0.5
+        ask = rmax - cmax
         base = (float(self.body.get("preamp", 0.0)) + off
                 if mv else off)
         adj, _moved = xp.headroom_preamp(base, [bands], auto=auto)
@@ -627,7 +668,12 @@ class ExportDialog(Adw.Dialog):
         if tl:
             hdr.append("Target limits: %s." % tl)
         hdr.append("Re-fit to %d bands (%s); residual max %.2f,"
-                   " rms %.2f dB." % (len(bands), why, rmax, rrms))
+                   " rms %.2f dB vs the capped target."
+                   % (len(bands), why, cmax, crms))
+        if ask > 0.3:
+            hdr.append("The uncapped ask exceeds the %+.1f dB"
+                       " boost cap by up to %.2f dB: deep dips"
+                       " stay unfilled." % (ghi, rmax))
         ref = xp.chain_response(adj, bands, nf)
         if writer == "parametric":
             text = xp.parametric_text(adj, bands, header=hdr)
@@ -637,11 +683,14 @@ class ExportDialog(Adw.Dialog):
             rp, rb = xp.rounded_chain(t, adj, bands)
             got = xp.chain_response(rp, rb, nf)
             err = max(abs(a - b) for a, b in zip(got, ref))
+        unf = ("" if ask <= 0.3 else
+               " Unfillable ask %.2f dB above the cap." % rmax)
         line = ("Source: %s. Re-fit to %d bands (%s): residual max"
-                " %.2f, rms %.2f dB. Format roundtrip max %.2f dB"
-                " -- %s. Export preamp %+.1f dB."
+                " %.2f, rms %.2f dB vs the capped target.%s Format"
+                " roundtrip max %.2f dB -- %s. Export preamp"
+                " %+.1f dB."
                 % ("canvas" if mv else "chain", len(bands), why,
-                   rmax, rrms, err,
+                   cmax, crms, unf, err,
                    "pass" if err <= xp.NULL_PASS_DB else "CHECK",
                    adj))
         return text, line, err <= xp.NULL_PASS_DB
