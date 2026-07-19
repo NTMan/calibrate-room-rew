@@ -301,12 +301,14 @@ def desired_curve(freq, mag, flo, fhi):
     return fg, yg.mean() - yg, float(yg.mean())
 
 
-def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
+def fit_channel(freq, mag, flo, fhi, n_bands, max_boost,
+                progress=None):
     """Return (bands, fg, desired, resid): the flat-target desired
-    from desired_curve, fit by fit_to_desired."""
+    from desired_curve, fit by fit_to_desired. `progress` is
+    fit_to_desired's per-band heartbeat, forwarded as-is."""
     fg, desired, _mean = desired_curve(freq, mag, flo, fhi)
     bands, resid = fit_to_desired(fg, desired, flo, fhi, n_bands,
-                                  max_boost)
+                                  max_boost, progress=progress)
     return bands, fg, desired, resid
 
 
@@ -440,18 +442,36 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
     channel's balance trim is prepended -- an ordinary, editable band
     that PipeWire renders as flat gain, exactly like the preamp.
     Returns the profile body (preamp 0.0: the app derives
-    Safe/Session)."""
+    Safe/Session).
+
+    `progress`, when given, is the export re-fit's per-band
+    heartbeat composed across channels: progress(frac, key, band,
+    horizon, evals), frac monotone in [0, 1], the channel fits
+    mapped onto (i + channel_frac) / n and held below 1.0 until
+    the single final progress(1.0, None, 0, 0, 0). `evals` is the
+    current channel's residual-evaluation counter -- the number
+    that visibly ticks while the bar creeps."""
     name = name or "Measured %s" % datetime.date.today().isoformat()
     prof = {"name": name, "version": SCHEMA_VERSION, "preamp": 0.0,
             "all": {"bands": []}, "channels": {}, "ch_keys": []}
-    if progress:                # (done, total, key-being-fit | None)
-        progress(0, max(1, len(results)),
-                 next(iter(results), None))
+    n_ch = max(1, len(results))
+
+    def chan_prog(i, key):
+        if not progress:
+            return None
+
+        def cb(cf, band, horizon, evals):
+            progress(min((i + cf) / n_ch, 0.999),
+                     key, band, horizon, evals)
+        return cb
+    if progress:
+        progress(0.0, next(iter(results), None), 0, 0, 0)
     if mono:
         (_key, result), = results.items()
         freq, mag = _curve(result)
-        bnds, fg, _desired, resid = fit_channel(freq, mag, f_lo, f_hi,
-                                                bands, max_boost)
+        bnds, fg, _desired, resid = fit_channel(
+            freq, mag, f_lo, f_hi, bands, max_boost,
+            progress=chan_prog(0, _key))
         if report:
             _report("all", bnds, fg, resid, f_lo, f_hi)
         prof["apply_all"] = True
@@ -462,12 +482,11 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
         fits, means = {}, {}
         keys = list(results.keys())
         for i, key in enumerate(keys):
-            if progress and i:
-                progress(i, len(keys), key)
             result = results[key]
             freq, mag = _curve(result)
             fits[key] = fit_channel(freq, mag, f_lo, f_hi, bands,
-                                    max_boost)
+                                    max_boost,
+                                    progress=chan_prog(i, key))
             _fg, yg = _grid_interp(freq, mag, f_lo, f_hi)
             means[key] = float(yg.mean())
         trims, why = balance_trims(results, means)
@@ -491,7 +510,7 @@ def fit_profiles(results, name=None, bands=10, f_lo=20.0, f_hi=12000.0,
                       "-- reseat and remeasure rather than EQ it away"
                       % TRIM_WARN_DB)
     if progress:
-        progress(max(1, len(results)), max(1, len(results)), None)
+        progress(1.0, None, 0, 0, 0)
     return prof
 
 

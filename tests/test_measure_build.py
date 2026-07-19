@@ -154,7 +154,7 @@ def test_commit_take_builds_the_canvas(shim_state, store, tmp_path):
     events = []
     measure_build.refit_and_save(
         store, pid,
-        progress=lambda d, t2, k: events.append((d, t2, k)))
+        progress=lambda *a: events.append(a))
     p = store.get(pid)
     fit = p["fit"]
     assert not refit.fit_is_stale(p)
@@ -164,9 +164,10 @@ def test_commit_take_builds_the_canvas(shim_state, store, tmp_path):
     assert fit["output_sha256"] == profiles.playback_sha256(p)
     for key in ("FL", "FR"):
         assert p["channels"][key]["bands"]
-    assert [e[0] for e in events] == [0, 1, 2]
-    assert events[-1][2] is None
-    assert {e[2] for e in events[:-1]} == {"FL", "FR"}
+    fr = [e[0] for e in events]
+    assert fr == sorted(fr) and fr.count(1.0) == 1
+    assert events[-1][:2] == (1.0, None)
+    assert {e[1] for e in events[:-1]} == {"FL", "FR"}
 
 
 def test_commit_take_respects_the_rig_gate(shim_state, store,

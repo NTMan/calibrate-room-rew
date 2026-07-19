@@ -245,8 +245,9 @@ def refit_and_save(store, pid, bands=None, f_lo=None, f_hi=None,
                    allow_edited=False, progress=None):
     """refit.refit_profile over the stored canvas + save under the
     same id. The measurement window's close-time auto-fit and the
-    editor's Re-fit button both land here; `progress` (done, total,
-    key) is forwarded into the per-channel fit loop."""
+    editor's Re-fit button both land here; `progress` is
+    fit_profiles' per-band heartbeat -- progress(frac, key, band,
+    horizon, evals) -- forwarded into the fit as-is."""
     prof = store.get(pid)
     if prof is None:
         raise KeyError("no profile %s" % pid)

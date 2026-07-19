@@ -273,3 +273,35 @@ def test_greedy_does_not_grow_a_cancelling_stack():
     # solution carried -18.7 for a -12 feature
     assert float(np.max(np.abs(resid))) < 2.0
     assert max(abs(g) for _, _, g, _ in bands) <= 14.0
+
+
+def test_fit_profiles_progress_is_the_perband_heartbeat():
+    from perdeviceeq import fit_peq, measure_core as mc
+    from perdeviceeq.pde_audit import DEMO_PROFILE, chain_curve
+    freqs = mc.log_grid()
+
+    def result_for(ch_key):
+        mag = chain_curve(DEMO_PROFILE["channels"][ch_key],
+                          48000, freqs)
+        return {"data": {"freq_hz": freqs.tolist(),
+                         "mag_db_smoothed": mag.tolist(),
+                         "mag_db_raw": mag.tolist()}}
+
+    seen = []
+    fit_peq.fit_profiles(
+        {"FL": result_for("FL"), "FR": result_for("FR")},
+        bands=6, f_lo=20.0, f_hi=12000.0,
+        progress=lambda *a: seen.append(a))
+    fr = [s[0] for s in seen]
+    assert fr == sorted(fr)              # never walks backwards
+    assert all(0.0 <= v <= 1.0 for v in fr)
+    assert fr.count(1.0) == 1 and seen[-1][0] == 1.0
+    assert seen[-1][1] is None           # the single final tick
+    keys = [s[1] for s in seen if s[1]]
+    assert keys == sorted(keys, key=["FL", "FR"].index)
+    assert set(keys) == {"FL", "FR"}
+    for k in ("FL", "FR"):
+        ev = [s[4] for s in seen if s[1] == k and s[4]]
+        assert ev == sorted(ev) and ev   # the counter climbs
+    mid = [s for s in seen if s[1] == "FL"]
+    assert all(v[0] <= 0.5 for v in mid)  # FL lives in its half

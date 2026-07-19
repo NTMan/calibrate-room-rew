@@ -551,11 +551,19 @@ class EqWindow(Adw.ApplicationWindow):
         self.refit_btn.set_sensitive(False)
         res = {}
 
-        def tick(done_n, total, key):
+        def tick(frac, key, band, horizon, evals):
             def ui():
-                self.fit_bar.set_fraction(done_n / max(1, total))
-                self.fit_bar.set_text(
-                    "Fitting %s\u2026" % key if key else "Done")
+                self.fit_bar.set_fraction(frac)
+                if key and horizon:
+                    self.fit_bar.set_text(
+                        "Fitting %s -- band %d/%d,"
+                        " %d evaluations"
+                        % (key, min(band + 1, horizon), horizon,
+                           evals))
+                else:
+                    self.fit_bar.set_text(
+                        "Fitting %s\u2026" % key if key
+                        else "Done")
                 return False
             GLib.idle_add(ui)
 
