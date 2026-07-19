@@ -626,39 +626,71 @@ class ExportDialog(Adw.Dialog):
         ranges, and a declared freq_range narrows the fit band
         itself. The format roundtrip governs pass/fail; the re-fit
         residual is stated as its own number, like the fixed
-        writer's."""
+        writer's.
+
+        The taste layer never enters the optimizer: band-domain
+        doctrine says taste bands ride verbatim, so the fit chases
+        the taste-free desired on a budget shrunk by the taste
+        band count, and the taste bands are appended to the result
+        as-is -- outside the fit and outside its boost cap (a +12
+        dB taste shelf is intent, not a dip to refuse). Only a
+        taste band that violates the target's declared ranges is
+        folded into the desired instead, and the header says so.
+        The composed headroom then sees the real peak, so Auto
+        preamp moves when the taste does."""
         flo, fhi = self.flo, self.fhi
         fr = t.get("freq_range")
         if fr:
             flo = max(flo, float(fr[0]))
             fhi = min(fhi, float(fr[1]))
         fgrid = xp.log_grid(flo, fhi, _NULL_N)
-        mv = self._measurement_vals(st, taste)
+        lim = xp.fit_limits(t)
+        tb = ([dict(b) for b in self.taste_bands
+               if b.get("enabled", True)]
+              if taste and self.taste_name else [])
+        ok, fold = [], []
+        for b in tb:
+            g, q = float(b["gain"]), float(b["q"])
+            gl, ql = lim.get("gain"), lim.get("q")
+            tys = lim.get("types")
+            bad = ((fr and not flo <= float(b["freq"]) <= fhi)
+                   or (tys and b["type"] not in tys)
+                   or (gl and not gl[0] <= g <= gl[1])
+                   or (ql and not ql[0] <= q <= ql[1]))
+            (fold if bad else ok).append(b)
+        plainc = self.chains_plain if taste else allc
+        mv = self._measurement_vals(st, False)
         if mv:
             fgc, cvals, tnote, _cb = mv
             note = self._collapse_note(st["policy"])
             vals = xp.sample_curve(fgc, cvals, fgrid)
         else:
             tnote = None
-            vals, note = xp.collapse(allc, st["policy"], fgrid)
+            vals, note = xp.collapse(plainc, st["policy"], fgrid)
+        if fold:
+            tail = xp.chain_response(0.0, fold, fgrid)
+            vals = [v + d for v, d in zip(vals, tail)]
         vals0, off = xp.center_curve(vals)
         params = (self.body.get("fit") or {}).get("params") or {}
         rich = max([len([b for b in bb
                          if b.get("enabled", True)])
-                    for _k, _g, bb in allc] or [0])
+                    for _k, _g, bb in plainc] or [0])
         budget = maxb or int(params.get("bands", 0)) or rich or 10
+        fit_budget = max(1, budget - len(ok)) if ok else budget
         gcap = float(params.get("max_boost", 6.0))
-        glim = xp.fit_limits(t).get("gain")
+        glim = lim.get("gain")
         ghi = min(gcap, glim[1]) if glim else gcap
         bands, rmax, rrms = xp.refit_bands(
-            fgrid, vals0, flo, fhi, budget, gcap,
-            limits=xp.fit_limits(t), progress=progress)
+            fgrid, vals0, flo, fhi, fit_budget, gcap,
+            limits=lim, progress=progress)
         got = xp.chain_response(0.0, bands, fgrid)
         ct = [min(v, ghi) for v in vals0]
         ce = [abs(a - b) for a, b in zip(got, ct)]
         cmax = max(ce)
         crms = (sum(e * e for e in ce) / len(ce)) ** 0.5
         ask = rmax - cmax
+        nfit = len(bands)
+        bands = bands + ok
         base = (float(self.body.get("preamp", 0.0)) + off
                 if mv else off)
         adj, _moved = xp.headroom_preamp(base, [bands], auto=auto)
@@ -669,11 +701,21 @@ class ExportDialog(Adw.Dialog):
             hdr.append("Target limits: %s." % tl)
         hdr.append("Re-fit to %d bands (%s); residual max %.2f,"
                    " rms %.2f dB vs the capped target."
-                   % (len(bands), why, cmax, crms))
+                   % (nfit, why, cmax, crms))
         if ask > 0.3:
             hdr.append("The uncapped ask exceeds the %+.1f dB"
                        " boost cap by up to %.2f dB: deep dips"
                        " stay unfilled." % (ghi, rmax))
+        if ok:
+            hdr.append("Taste layer: %d band%s appended verbatim"
+                       " -- outside the fit and its boost cap."
+                       % (len(ok), "" if len(ok) == 1 else "s"))
+        if fold:
+            hdr.append("%d taste band%s outside the target's"
+                       " declared ranges: folded into the desired"
+                       " and re-fit." % (len(fold),
+                                         "" if len(fold) == 1
+                                         else "s"))
         ref = xp.chain_response(adj, bands, nf)
         if writer == "parametric":
             text = xp.parametric_text(adj, bands, header=hdr)
@@ -685,11 +727,12 @@ class ExportDialog(Adw.Dialog):
             err = max(abs(a - b) for a, b in zip(got, ref))
         unf = ("" if ask <= 0.3 else
                " Unfillable ask %.2f dB above the cap." % rmax)
-        line = ("Source: %s. Re-fit to %d bands (%s): residual max"
-                " %.2f, rms %.2f dB vs the capped target.%s Format"
-                " roundtrip max %.2f dB -- %s. Export preamp"
-                " %+.1f dB."
-                % ("canvas" if mv else "chain", len(bands), why,
+        ts = " + %d taste" % len(ok) if ok else ""
+        line = ("Source: %s. Re-fit to %d bands%s (%s): residual"
+                " max %.2f, rms %.2f dB vs the capped target.%s"
+                " Format roundtrip max %.2f dB -- %s. Export"
+                " preamp %+.1f dB."
+                % ("canvas" if mv else "chain", nfit, ts, why,
                    cmax, crms, unf, err,
                    "pass" if err <= xp.NULL_PASS_DB else "CHECK",
                    adj))
