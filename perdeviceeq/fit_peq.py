@@ -41,7 +41,13 @@ from .config import FS, SCHEMA_VERSION
 
 RESID_TARGET_DB = 0.5
 GRID = 400
-GREEDY_SPAN_OCT = 1.0       # a band may retune this far from placement
+GREEDY_SPAN_OCT = 1.0
+# A resonant shelf is almost never a request: past Q ~1 the RBJ
+# shelves grow an overshoot horn, and unleashed the optimizer was
+# observed polishing the 20 Hz grid edge with a stack of four
+# cancelling +/-24 dB resonant shelves worth 0.07 dB of residual.
+# Peaking bands keep the full Q range; shelves stop here.
+SHELF_Q_MAX = 1.0       # a band may retune this far from placement
 PRUNE_EPS_DB = 0.25         # pruning may cost at most this much, anywhere
 PRUNE_OVERLAP_DB = 0.25     # a drop frees only bands it reaches this far
 PRUNE_SPAN_OCT = 0.5        # a trial may retune a freed band this far
@@ -98,13 +104,18 @@ def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
     (passed via `anchors`), the band's current frequency in the
     prune's one-shot trials (the default). Without span_oct the
     frequency roams the whole fit range. `limits` narrows the
-    gain/Q box to a destination's declared ranges (_bounds)."""
+    gain/Q box to a destination's declared ranges (_bounds);
+    shelf bands are additionally capped at SHELF_Q_MAX -- a
+    resonant shelf is an edge-polishing artifact, not a shape
+    anyone asks for."""
     types = [b[0] for b in bands]
     if anchors is None:
         anchors = [b[1] for b in bands]
     g_lo, g_hi, q_lo, q_hi = _bounds(max_boost, limits)
     x0, lo, hi = [], [], []
-    for (_, f, g, q), fa in zip(bands, anchors):
+    for i, ((_, f, g, q), fa) in enumerate(zip(bands, anchors)):
+        qh = (q_hi if types[i] == "PK"
+              else min(q_hi, SHELF_Q_MAX))
         lf = np.log10(f)
         if span_oct is None:
             f_lo, f_hi = np.log10(flo), np.log10(fhi)
@@ -114,9 +125,9 @@ def _refine(bands, fg, desired, flo, fhi, max_boost, span_oct=None,
             f_hi = min(np.log10(fhi), np.log10(fa) + s)
         x0 += [min(max(lf, f_lo), f_hi),
                min(max(g, g_lo), g_hi),
-               min(max(q, q_lo), q_hi)]
+               min(max(q, q_lo), qh)]
         lo += [f_lo, g_lo, q_lo]
-        hi += [f_hi, g_hi, q_hi]
+        hi += [f_hi, g_hi, qh]
 
     def resfun(x):
         if tick is not None:
@@ -265,8 +276,9 @@ def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost,
         if btype not in allowed:
             btype = "PK" if "PK" in allowed else allowed[0]
         g0 = float(np.clip(resid[k], g_lo, g_hi))
+        q0h = q_hi if btype == "PK" else min(q_hi, SHELF_Q_MAX)
         bands.append((btype, f0, g0,
-                      min(max(2.0, q_lo), q_hi)))
+                      min(max(2.0, q_lo), q0h)))
         anchors.append(f0)
         bands = _refine(bands, fg, target, flo, fhi, max_boost,
                         span_oct=GREEDY_SPAN_OCT, anchors=anchors,

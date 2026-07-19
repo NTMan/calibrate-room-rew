@@ -839,3 +839,23 @@ def test_refit_progress_is_alive_and_bounded():
     ev = [s[3] for s in seen]
     assert ev == sorted(ev) and ev[-1] >= ev[0] + 80
     assert all(s[2] == 6 and 0 <= s[1] <= 6 for s in seen)
+
+
+def test_shelf_q_ceiling_dissolves_edge_stacks():
+    from perdeviceeq.fit_peq import SHELF_Q_MAX
+    fg = ex.log_grid(20.0, 12000.0, 240)
+    base = [{"type": "LSC", "freq": 35.0, "gain": 4.5, "q": 0.4,
+             "enabled": True},
+            {"type": "PK", "freq": 3000.0, "gain": -12.0,
+             "q": 0.7, "enabled": True}]
+    desired = list(ex.chain_response(0.0, base, fg))
+    desired[0] += 1.5           # the edge kink that bred a stack
+    desired[1] += 0.8           # of four resonant +/-24 shelves
+    bands, _rm, _rr = ex.refit_bands(fg, desired, 20.0, 12000.0,
+                                     10, 6.0)
+    assert bands
+    for b in bands:
+        if b["type"] in ("LSC", "HSC"):
+            assert b["q"] <= SHELF_Q_MAX + 1e-6
+            assert b["gain"] > -12.0    # no cancelling-stack limbs
+    assert len([b for b in bands if b["freq"] < 150.0]) <= 3
