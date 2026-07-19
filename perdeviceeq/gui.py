@@ -479,8 +479,11 @@ class EqWindow(Adw.ApplicationWindow):
         else:
             txt = "Measurement attached"
         self.trust_label.set_text(txt)
-        tip = "\n".join((rep or {}).get("reasons") or [])
-        self.device_hdr.set_tooltip_text(tip or None)
+        tips = list((rep or {}).get("reasons") or [])
+        if cache.get("fit_resid") is not None:
+            tips.append("fit: the worst channel's tracking error"
+                        " vs the capped desired correction")
+        self.device_hdr.set_tooltip_text("\n".join(tips) or None)
         chips = [t for t, on in (("stale", stale),
                                  ("incomplete", incomplete),
                                  ("edited", edited)) if on]
