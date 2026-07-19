@@ -26,6 +26,7 @@ plumbing only and stays out of the test run like gui.py.
 """
 
 import math
+import threading
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -330,6 +331,7 @@ class ExportDialog(Adw.Dialog):
         run its verification and refresh the page. Every branch
         states its truth: the null test, the rounding cost, or the
         fit residual -- nothing is copied or saved unverified."""
+        st["gen"] = st.get("gen", 0) + 1
         t = st["target"]
         writer = t["writer"]
         taste = st.get("taste", True)
@@ -377,10 +379,10 @@ class ExportDialog(Adw.Dialog):
                 if viol:
                     refit_why = "; ".join(viol)
             if refit_why:
-                text, line, ok = self._bake_refit(
-                    st, t, writer, taste, allc, auto, nf, maxb,
-                    refit_why)
-                self._set_status(st, line, ok)
+                self._bake_refit_async(st, t, writer, taste,
+                                       allc, auto, nf, maxb,
+                                       refit_why)
+                return
             else:
                 hdr = self._header(t, note, taste)
                 tl = xp.limits_text(t)
@@ -465,6 +467,47 @@ class ExportDialog(Adw.Dialog):
             st["resid"].queue_draw()
         st["text"] = text
         st["view"].get_buffer().set_text(text)
+
+    def _bake_refit_async(self, st, t, writer, taste, allc,
+                          auto, nf, maxb, why):
+        """The optimizer takes seconds on a real profile; freezing
+        the main loop until GNOME offers Force Quit is not a
+        progress report. The math runs on a worker thread -- pure
+        export_peq calls, no GTK objects touched -- and lands via
+        idle_add. A generation stamp on the page drops any result
+        that a newer toggle or policy change has superseded."""
+        gen = st["gen"]
+        st["text"] = ""
+        st["view"].get_buffer().set_text(
+            "# re-fitting -- the preview lands when the optimizer"
+            " does")
+        self._set_status(
+            st, "Source: %s. Re-fitting (%s)..."
+            % ("canvas" if self.source == "measurement"
+               else "chain", why), None)
+
+        def work():
+            try:
+                res = self._bake_refit(st, t, writer, taste,
+                                       allc, auto, nf, maxb, why)
+            except Exception as e:
+                res = e
+
+            def land():
+                if st["gen"] != gen:
+                    return False
+                if isinstance(res, Exception):
+                    self._set_status(st, "Re-fit failed: %s"
+                                     % res, False)
+                    return False
+                text, line, ok = res
+                st["text"] = text
+                st["view"].get_buffer().set_text(text)
+                self._set_status(st, line, ok)
+                return False
+            GLib.idle_add(land)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _bake_refit(self, st, t, writer, taste, allc, auto, nf,
                     maxb, why):
