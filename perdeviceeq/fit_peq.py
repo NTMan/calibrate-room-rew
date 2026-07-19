@@ -168,26 +168,31 @@ def _prune(bands, fg, target, flo, fhi, max_boost):
     return bands
 
 
-def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
-    """Return (bands, fg, desired, resid). bands: list of (type,f,g,q).
-    Cuts are unbounded; boost is capped at max_boost (filling deep nulls
-    wastes headroom and amplifies noise), so the fit targets the desired
-    correction clipped from above, while the residual is reported against
-    the true (uncapped) target so unfillable dips stay visible.
+def fit_to_desired(fg, desired, flo, fhi, n_bands, max_boost):
+    """The greedy core over a GIVEN desired correction on fg:
+    place, leash-refine, prune. Cuts are unbounded; boost is capped
+    at max_boost (filling deep nulls wastes headroom and amplifies
+    noise), so the fit targets the desired clipped from above while
+    the residual is reported against the true (uncapped) curve so
+    unfillable dips stay visible. Exposed for export-time re-fits
+    (a mean of channels, a band-budget-limited destination); the
+    measurement fit path goes through fit_channel below.
 
     The joint refine after each placement may retune a band at most
-    GREEDY_SPAN_OCT octaves from where it was PLACED (the anchor, not
-    the band's latest position, or it would creep an octave per
-    iteration). Placement picked that spot because the residual peaked
-    there and chose the type by it; unleashed, the refine used to slide
-    a high-shelf placed above fhi/2 down under a mid dip, growing a
-    cancelling -18 dB partner to carve the dip back out. The leash also
-    makes the topology a function of the argmax sequence, so channels
-    with similar curves come out with parallel band tables instead of
-    unrecognizable decompositions of the same net response."""
-    fg, yg = _grid_interp(freq, mag, flo, fhi)
-    desired = yg.mean() - yg                       # flat target correction
-    target = np.minimum(desired, max_boost)        # never ask beyond the cap
+    GREEDY_SPAN_OCT octaves from where it was PLACED (the anchor,
+    not the band's latest position, or it would creep an octave per
+    iteration). Placement picked that spot because the residual
+    peaked there and chose the type by it; unleashed, the refine
+    used to slide a high-shelf placed above fhi/2 down under a mid
+    dip, growing a cancelling -18 dB partner to carve the dip back
+    out. The leash also makes the topology a function of the argmax
+    sequence, so channels with similar curves come out with
+    parallel band tables instead of unrecognizable decompositions
+    of the same net response.
+
+    Returns (bands, resid) with bands as (type, f, g, q) tuples."""
+    desired = np.asarray(desired, float)
+    target = np.minimum(desired, max_boost)
     bands, anchors = [], []
     for _ in range(n_bands):
         resid = target - _response(bands, fg)
@@ -195,14 +200,32 @@ def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
         if abs(resid[k]) < RESID_TARGET_DB:
             break
         f0 = fg[k]
-        btype = "LSC" if f0 <= flo * 2 else "HSC" if f0 >= fhi / 2 else "PK"
+        btype = ("LSC" if f0 <= flo * 2
+                 else "HSC" if f0 >= fhi / 2 else "PK")
         g0 = float(np.clip(resid[k], -24.0, max_boost))
         bands.append((btype, f0, g0, 2.0))
         anchors.append(f0)
         bands = _refine(bands, fg, target, flo, fhi, max_boost,
                         span_oct=GREEDY_SPAN_OCT, anchors=anchors)
     bands = _prune(bands, fg, target, flo, fhi, max_boost)
-    resid = desired - _response(bands, fg)         # vs TRUE target
+    return bands, desired - _response(bands, fg)   # vs TRUE target
+
+
+def desired_curve(freq, mag, flo, fhi):
+    """(fg, desired, mean_db): the flat-target correction
+    fit_channel derives -- mean minus smoothed magnitude over the
+    fit band -- exposed so export-time re-fits ask for exactly what
+    the fit was asked for."""
+    fg, yg = _grid_interp(freq, mag, flo, fhi)
+    return fg, yg.mean() - yg, float(yg.mean())
+
+
+def fit_channel(freq, mag, flo, fhi, n_bands, max_boost):
+    """Return (bands, fg, desired, resid): the flat-target desired
+    from desired_curve, fit by fit_to_desired."""
+    fg, desired, _mean = desired_curve(freq, mag, flo, fhi)
+    bands, resid = fit_to_desired(fg, desired, flo, fhi, n_bands,
+                                  max_boost)
     return bands, fg, desired, resid
 
 

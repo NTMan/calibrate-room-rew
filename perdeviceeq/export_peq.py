@@ -455,6 +455,107 @@ def headroom_preamp(preamp, chain_bands, auto=False, n=480):
     return adj, adj - float(preamp)
 
 
+# ---- the measurement source --------------------------------------------
+#
+# Response-domain writers (and any re-fit) can be fed from two
+# sources. The playback chain is what the person hears; the canvas
+# is what the fit was ASKED for -- the desired correction rebuilt
+# from the stored takes by the fit's own pipeline. Under Auto
+# (fit not edited by hand, canvas unchanged) the canvas is the
+# higher-fidelity source: projecting the chain would inherit the
+# PEQ fit's residual choices as if they were the target. Hand
+# edits flip the answer: they live in chain space and are intent.
+
+
+def export_source(profile):
+    """("measurement", "") when the canvas may feed the export:
+    a fit exists, was not edited by hand, and still matches the
+    canvas it claims to come from. Otherwise ("chain", why)."""
+    fit = profile.get("fit") or {}
+    if not profile.get("measurement") or not fit:
+        return "chain", "no measurement provenance"
+    if fit.get("edited"):
+        return "chain", "the bands were edited by hand after the fit"
+    from . import refit
+    if refit.fit_is_stale(profile):
+        return "chain", "the canvas changed since the fit"
+    return "measurement", ""
+
+
+def desired_from_canvas(profile, taste_bands=None):
+    """(freqs, {key: desired_db}, trim_note): the correction the
+    fit was asked for, rebuilt from the canvas by the fit's own
+    pipeline -- channel_results over fit.takes with the fit's
+    smoothing, the flat target per channel over the fit band, the
+    balance trim added as the flat offset it is, and the taste
+    layer, when given, as a response overlay on every channel.
+    Uncapped: max_boost is the fit's confession, not the desire.
+    Raises refit.RefitError when the canvas cannot be rebuilt."""
+    from . import fit_peq, refit
+    fit = profile.get("fit") or {}
+    params = fit.get("params") or {}
+    flo = float(params.get("f_lo", 20.0))
+    fhi = float(params.get("f_hi", 12000.0))
+    results, _used = refit.channel_results(
+        profile["measurement"], take_ids=fit.get("takes"),
+        smoothing=params.get("smoothing", 6))
+    fg = None
+    curves, means = {}, {}
+    for key, result in results.items():
+        d = result["data"]
+        fg, desired, means[key] = fit_peq.desired_curve(
+            d["freq_hz"], d["mag_db_smoothed"], flo, fhi)
+        curves[key] = desired
+    trims, why = (fit_peq.balance_trims(results, means)
+                  if len(results) > 1 else (None, "single channel"))
+    if trims:
+        for key in curves:
+            curves[key] = curves[key] + trims.get(key, 0.0)
+        note = "balance trims included"
+    else:
+        note = "no balance trim (%s)" % why
+    if taste_bands:
+        tail = chain_response(0.0, taste_bands, fg)
+        for key in curves:
+            curves[key] = curves[key] + tail
+    return list(map(float, fg)), \
+        {k: [float(v) for v in c] for k, c in curves.items()}, note
+
+
+def mean_curve(curves):
+    """The dB mean of a mapping of equal-length curves."""
+    vals = list(curves.values())
+    n = len(vals)
+    return [sum(c[i] for c in vals) / n
+            for i in range(len(vals[0]))]
+
+
+def sample_curve(fg, curve, freqs):
+    """`curve` over fg resampled onto `freqs`, linear in log f and
+    edge-held outside fg (_interp_logf clamps at the ends) -- the
+    least-claim extension beyond the fit band, where the
+    measurement says nothing."""
+    gs = list(curve)
+    return [_interp_logf(fg, gs, f) for f in freqs]
+
+
+def refit_bands(fg, desired, flo, fhi, n_bands, max_boost):
+    """Fit up to n_bands onto `desired` over fg; the export-time
+    re-fit behind the mean policy and band-budget-limited targets.
+    Returns (band dicts, resid_max, resid_rms)."""
+    from . import fit_peq
+    import numpy as np
+    bands, resid = fit_peq.fit_to_desired(
+        np.asarray(fg, float), desired, flo, fhi, n_bands,
+        max_boost)
+    out = [{"type": t, "freq": round(f, 1), "gain": round(g, 2),
+            "q": round(q, 3), "enabled": True}
+           for t, f, g, q in sorted(bands, key=lambda b: b[1])]
+    rmax = float(max(abs(v) for v in resid))
+    rrms = float((sum(v * v for v in resid) / len(resid)) ** 0.5)
+    return out, rmax, rrms
+
+
 # ---- Poweramp Equalizer (parametric preset JSON) -----------------------
 #
 # The integer enums are not documented anywhere; this table was

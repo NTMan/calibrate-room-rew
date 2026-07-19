@@ -493,3 +493,104 @@ def test_poweramp_preamp_covers_taste_headroom():
     freqs = ex.log_grid(20.0, 12000.0, 480)
     errs = ex.null_test_poweramp(text, chains2, freqs)
     assert max(errs.values()) <= ex.NULL_PASS_DB
+
+
+# ---- the measurement source --------------------------------------
+
+
+def _canvas_profile(fl_tilt=6.0, fr_tilt=6.0, fl_lift=3.0):
+    """A synthetic v3 profile: two channels, one take each, on the
+    canvas grid; FL sits fl_lift dB above FR at equal recorded
+    drives, so the balance trim gate opens and pulls FL down."""
+    from perdeviceeq import measure_core as mc
+    from perdeviceeq.measure_build import fit_fingerprint
+    import math as m
+    grid = {"ppo": 12, "f_lo": 20.0, "f_hi": 20000.0}
+    freqs = mc.log_grid(grid["f_lo"], grid["f_hi"], grid["ppo"])
+    lo, hi = m.log10(freqs[0]), m.log10(freqs[-1])
+
+    def curve(tilt, lift):
+        return [lift + tilt * (m.log10(f) - lo) / (hi - lo)
+                for f in freqs]
+
+    def take(tid, ch, mags):
+        return {"id": tid, "channel": ch, "mag_db_uncal": mags,
+                "soft_vol": 1.0, "chan_vol": 1.0,
+                "capture_channel": 0, "snr_db": 40.0,
+                "delay_ms": 1.0}
+
+    meas = {"grid": grid, "source": {"cal": {}},
+            "takes": [take("t1", "FL", curve(fl_tilt, fl_lift)),
+                      take("t2", "FR", curve(fr_tilt, 0.0))]}
+    params = {"bands": 10, "f_lo": 20.0, "f_hi": 12000.0,
+              "max_boost": 6.0, "smoothing": 6, "mono": False}
+    fit = {"at": "2026-07-19T00:00:00+00:00", "algo": "greedy",
+           "params": params, "target": {"kind": "flat"},
+           "takes": ["t1", "t2"], "edited": False,
+           "inputs_sha256": fit_fingerprint(meas, ["t1", "t2"],
+                                            params)}
+    return {"name": "synth", "preamp": 0.0, "apply_all": False,
+            "ch_keys": ["FL", "FR"], "all": {"bands": []},
+            "channels": {"FL": {"bands": []},
+                         "FR": {"bands": []}},
+            "measurement": meas, "fit": fit}
+
+
+def test_export_source_gate():
+    p = _canvas_profile()
+    assert ex.export_source(p) == ("measurement", "")
+    edited = dict(p, fit=dict(p["fit"], edited=True))
+    mode, why = ex.export_source(edited)
+    assert mode == "chain" and "edited" in why
+    stale = dict(p, fit=dict(p["fit"], params=dict(
+        p["fit"]["params"], bands=4)))
+    mode, why = ex.export_source(stale)
+    assert mode == "chain" and "changed" in why
+    bare_p = {k: v for k, v in p.items() if k != "measurement"}
+    mode, why = ex.export_source(bare_p)
+    assert mode == "chain" and "provenance" in why
+
+
+def test_desired_from_canvas_trims_and_taste():
+    p = _canvas_profile(fl_lift=3.0)
+    fg, curves, note = ex.desired_from_canvas(p)
+    assert set(curves) == {"FL", "FR"}
+    assert 19.9 < fg[0] < 25.0 and 11000.0 < fg[-1] < 12000.1
+    # each desired is mean-flat before the trim; FL carries the
+    # -3 dB trim as a flat offset, FR stays at zero mean
+    n = len(fg)
+    m_fl = sum(curves["FL"]) / n
+    m_fr = sum(curves["FR"]) / n
+    assert "trims included" in note
+    assert abs(m_fr) < 0.05 and abs(m_fl + 3.0) < 0.1
+    taste = [{"type": "PK", "freq": 1000.0, "gain": 4.0, "q": 1.0,
+              "enabled": True}]
+    _fg2, tcurves, _n2 = ex.desired_from_canvas(p, taste)
+    tail = ex.chain_response(0.0, taste, fg)
+    k = max(range(n), key=lambda i: tail[i])
+    assert abs((tcurves["FR"][k] - curves["FR"][k]) - tail[k]) \
+        < 1e-6
+
+
+def test_refit_bands_budget_and_residual():
+    fg = ex.log_grid(20.0, 12000.0, 240)
+    shape = [{"type": "PK", "freq": 200.0, "gain": 4.0, "q": 1.4,
+              "enabled": True},
+             {"type": "PK", "freq": 3000.0, "gain": -5.0, "q": 2.0,
+              "enabled": True}]
+    desired = ex.chain_response(0.0, shape, fg)
+    bands, rmax, rrms = ex.refit_bands(fg, desired, 20.0, 12000.0,
+                                       6, 6.0)
+    assert len(bands) <= 6 and rmax < 0.75 and rrms <= rmax
+    one, rmax1, _r = ex.refit_bands(fg, desired, 20.0, 12000.0,
+                                    1, 6.0)
+    assert len(one) <= 1 and rmax1 > rmax
+
+
+def test_sample_curve_edge_hold_and_mean():
+    fg = [100.0, 1000.0, 10000.0]
+    c = [1.0, 3.0, 5.0]
+    out = ex.sample_curve(fg, c, [20.0, 1000.0, 19871.0])
+    assert out[0] == 1.0 and out[1] == 3.0 and out[2] == 5.0
+    assert ex.mean_curve({"a": [0.0, 2.0], "b": [2.0, 4.0]}) == \
+        [1.0, 3.0]
