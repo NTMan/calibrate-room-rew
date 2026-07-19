@@ -880,3 +880,31 @@ def test_chain_fit_residual_is_level_free_and_capped():
     big = ex.chain_fit_residual(fg, spiked, bands)
     capped = ex.chain_fit_residual(fg, spiked, bands, cap=6.0)
     assert capped < big
+
+
+def test_cap_soft_smooths_the_corner_and_ships_clean():
+    cap = 6.0
+    import math as m
+    fg = ex.log_grid(20.0, 18000.0, 480)
+    lo, hi = m.log10(fg[0]), m.log10(fg[-1])
+    raw = [-2.0 + 14.0 * (m.log10(f) - lo) / (hi - lo)
+           for f in fg]                     # crosses the cap
+    soft = ex.cap_soft(raw, cap)
+    hard = [min(v, cap) for v in raw]
+    assert all(s <= min(v, cap) + 1e-9
+               for s, v in zip(soft, raw))
+    assert all(abs(s - v) < 0.02 for s, v in zip(soft, raw)
+               if v < cap - 4.0)            # untouched far below
+    assert all(cap - s < 0.02 for s, v in zip(soft, raw)
+               if v > cap + 4.0)            # asymptotic above
+    grid = list(ex.AUTOEQ_GEQ_FREQS)
+
+    def null_of(vals):
+        resp = ex.sample_curve(fg, vals, grid)
+        ref = ex.sample_curve(fg, vals, fg)
+        text, shift = ex.graphiceq_text(grid, resp)
+        return ex.null_test_graphic(text, fg, ref, shift)
+
+    nh, ns = null_of(hard), null_of(soft)
+    assert ns < nh                          # the corner was the cost
+    assert ns <= ex.NULL_PASS_DB

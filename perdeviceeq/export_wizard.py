@@ -166,7 +166,7 @@ class ExportDialog(Adw.Dialog):
             over = max(vals) - cap
             if over > 0:
                 capped_by = over
-                vals = [min(v, cap) for v in vals]
+            vals = xp.cap_soft(vals, cap)
         if taste and self.taste_bands:
             tail = xp.chain_response(0.0, self.taste_bands, fg)
             vals = [v + d for v, d in zip(vals, tail)]
@@ -496,9 +496,11 @@ class ExportDialog(Adw.Dialog):
             hdr.append(self._source_line(tnote))
             if capped_by > 0:
                 hdr.append("Boost capped at %+.1f dB (the fit's"
-                           " policy): the measurement asked %.2f"
-                           " dB more to fill deep dips."
-                           % (self._boost_cap(), capped_by))
+                           " policy, %.2g dB knee): the"
+                           " measurement asked %.2f dB more to"
+                           " fill deep dips."
+                           % (self._boost_cap(), xp.CAP_KNEE_DB,
+                              capped_by))
             text, shift = xp.graphiceq_text(
                 grid, resp, header=hdr, bare=bool(t.get("bare")))
             err = xp.null_test_graphic(text, nf, ref, shift)
@@ -531,9 +533,11 @@ class ExportDialog(Adw.Dialog):
             hdr.append(self._source_line(tnote))
             if capped_by > 0:
                 hdr.append("Boost capped at %+.1f dB (the fit's"
-                           " policy): the measurement asked %.2f"
-                           " dB more to fill deep dips."
-                           % (self._boost_cap(), capped_by))
+                           " policy, %.2g dB knee): the"
+                           " measurement asked %.2f dB more to"
+                           " fill deep dips."
+                           % (self._boost_cap(), xp.CAP_KNEE_DB,
+                              capped_by))
             text = xp.fixed_sheet_text(t, sol, header=hdr)
             self._set_status(
                 st, "Source: %s. Fit over %s: residual max %.1f"

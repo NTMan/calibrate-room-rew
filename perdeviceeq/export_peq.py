@@ -758,6 +758,29 @@ def _projection_err(chains, freqs):
     return max(abs(a - b) for a, b in zip(est, true))
 
 
+# The response-domain boost cap is a curve, not a bound: a hard
+# min(v, cap) plants a corner exactly where the desired crosses
+# the ceiling, and a 127-point log grid interpolates corners
+# worst -- a field profile's Wavelet roundtrip failed its 0.1 dB
+# null on the corner alone (0.113). The knee rounds the crossing
+# with a softplus so the shipped curve stays smooth: identical
+# far below, asymptotic to the cap above, never past it.
+CAP_KNEE_DB = 0.75
+
+
+def cap_soft(vals, cap, knee=CAP_KNEE_DB):
+    """The boost cap with a soft knee: v below, cap above, a
+    smooth softplus crossing in between; always <= min(v, cap).
+    Deep dips still go unfilled -- the doctrine is untouched, only
+    the corner is gone, so grid transports null clean again."""
+    out = []
+    for v in vals:
+        x = (v - cap) / knee
+        sp = x if x > 30.0 else math.log1p(math.exp(x))
+        out.append(v - knee * sp)
+    return out
+
+
 def chain_fit_residual(fg, desired, bands, cap=None):
     """Level-free tracking error of a band chain against the
     desired correction, for the device strip: how well the CURRENT
