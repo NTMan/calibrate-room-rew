@@ -942,6 +942,20 @@ def refit_bands(fg, desired, flo, fhi, n_bands, max_boost,
 # 0 both, 1 left, 2 right. Frequency tops out at 24000; the preset
 # preamp is plain dB (UI -12.0 exports as -12.0).
 
+# The app injects an inert LP/HP pair (channels 0, gain 0) into
+# every parametric preset, and its importer assumes that pair
+# leads the band list: a field import WITHOUT it ate the file's
+# first two bands -- one gain leaked into the phantom HP slot,
+# both bands vanished from their channel. Emit the pair exactly
+# as the app's own exports carry it; at gain 0 the pass slots are
+# inert (every native preset carries them and plays full-range).
+PA_INERT_PAIR = (
+    {"type": 0, "channels": 0, "frequency": 90,
+     "q": 0.8, "gain": 0.0, "color": 0},
+    {"type": 1, "channels": 0, "frequency": 10000,
+     "q": 0.6, "gain": 0.0, "color": 0},
+)
+
 PA_TYPE = {"PK": 3, "LSC": 4, "HSC": 5}
 PA_TYPE_BACK = {3: "PK", 4: "LSC", 5: "HSC"}
 PA_BOTH, PA_LEFT, PA_RIGHT = 0, 1, 2
@@ -984,14 +998,16 @@ def poweramp_json(target, chains, name):
     the first writer that does not collapse. Every enabled band is
     routed with the app's own channels field (FL left, FR right,
     a single chain to both); the shared preamp lands in the preset
-    preamp. JSON has no comment channel, so provenance travels in
-    the preset name and the wizard page, not in header lines.
+    preamp, and the app's own inert LP/HP pair leads the band list
+    -- its importer eats the first two bands of a file without it.
+    JSON has no comment channel, so provenance travels in the
+    preset name and the wizard page, not in header lines.
     Returns the JSON text."""
     if not poweramp_stereo_keys(chains):
         raise ValueError("chain keys %r do not map onto L/R"
                          % sorted(k for k, _g, _b in chains))
     preamp = float(chains[0][1])
-    out_bands = []
+    out_bands = [dict(b) for b in PA_INERT_PAIR]
     for key, _g, bands in chains:
         ch = PA_BOTH if key == "all" else PA_CH[key]
         for b in bands:
@@ -1018,6 +1034,9 @@ def parse_poweramp(text, side):
             continue
         btype = PA_TYPE_BACK.get(b["type"])
         if btype is None:
+            if b["type"] in (0, 1) and not float(b.get("gain",
+                                                       0.0)):
+                continue      # the app's inert LP/HP pair
             raise ValueError("unexpected Poweramp band type %r"
                              % b["type"])
         bands.append(eq.Band(btype, float(b["frequency"]),

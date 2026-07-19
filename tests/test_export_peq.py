@@ -449,7 +449,12 @@ def test_poweramp_stereo_roundtrip_with_trim_and_taste():
     assert preset["parametric"] is True
     assert preset["preamp"] == -1.0
     chans = {b["channels"] for b in preset["bands"]}
-    assert chans == {ex.PA_LEFT, ex.PA_RIGHT}
+    assert chans == {ex.PA_BOTH, ex.PA_LEFT, ex.PA_RIGHT}
+    # the app's inert pair leads, exactly as native exports have
+    # it -- the importer eats the first two bands without it
+    assert preset["bands"][0] == dict(ex.PA_INERT_PAIR[0])
+    assert preset["bands"][1] == dict(ex.PA_INERT_PAIR[1])
+    assert all(b["gain"] == 0.0 for b in preset["bands"][:2])
     # the FL balance trim became a Low Shelf at the Nyquist ceiling
     trims = [b for b in preset["bands"]
              if b["type"] == ex.PA_TYPE["LSC"]
