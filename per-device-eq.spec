@@ -2,7 +2,7 @@
 %global reponame per-device-eq
 
 Name:           per-device-eq
-Version:        3.1.0
+Version:        3.2.0
 Release:        %autorelease
 Summary:        Per-output-device parametric EQ for PipeWire
 
