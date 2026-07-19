@@ -465,8 +465,13 @@ class ExportDialog(Adw.Dialog):
         from the chain response otherwise; center_curve splits it
         into shape (the bands realize it) and level (rides in the
         preamp, and under Auto the composed Safe owns it outright).
-        The format roundtrip governs pass/fail; the re-fit residual
-        is stated as its own number, like the fixed writer's."""
+        The band budget is the target's max_bands, else the
+        profile's own fit budget (params.bands), else the richest
+        chain -- so two unbudgeted parametric targets, or one
+        matching the profile's budget, bake identical tables
+        instead of diverging on greedy horizon. The format
+        roundtrip governs pass/fail; the re-fit residual is stated
+        as its own number, like the fixed writer's."""
         mv = self._measurement_vals(st, taste)
         if mv:
             fgc, vals, tnote = mv
@@ -477,9 +482,10 @@ class ExportDialog(Adw.Dialog):
             vals, note = xp.collapse(allc, st["policy"], fgc)
         vals0, off = xp.center_curve(vals)
         params = (self.body.get("fit") or {}).get("params") or {}
-        budget = maxb or max(
-            [len([b for b in bb if b.get("enabled", True)])
-             for _k, _g, bb in allc] or [10])
+        rich = max([len([b for b in bb
+                         if b.get("enabled", True)])
+                    for _k, _g, bb in allc] or [0])
+        budget = maxb or int(params.get("bands", 0)) or rich or 10
         bands, rmax, rrms = xp.refit_bands(
             fgc, vals0, self.flo, self.fhi, budget,
             float(params.get("max_boost", 6.0)))
