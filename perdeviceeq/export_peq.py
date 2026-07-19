@@ -1040,12 +1040,14 @@ def poweramp_json(target, chains, name):
                 continue
             if (spill and not poured and b["type"] == "HSC"
                     and float(b["freq"]) < 1.0):
-                b = dict(b, gain=float(b["gain"]) + spill)
+                b = dict(b, gain=round(float(b["gain"]) + spill,
+                                       2))
                 poured = True
             out_bands.append(_pa_band(b, target, ch))
         if spill and not poured:
             out_bands.append(_pa_band(
-                {"type": "HSC", "freq": 0.0, "gain": spill,
+                {"type": "HSC", "freq": 0.0,
+                 "gain": round(spill, 2),
                  "q": 1.0, "enabled": True}, target, ch))
     preset = {"name": name, "preamp": preamp,
               "parametric": True, "bands": out_bands}

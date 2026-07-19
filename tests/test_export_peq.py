@@ -975,9 +975,11 @@ def test_poweramp_preamp_spills_past_the_range():
              for b in preset["bands"]
              if b["type"] == ex.PA_TYPE["LSC"]
              and b["frequency"] == 24000}
-    # FL grows a fresh flat band; FR's trim absorbs the spill
-    assert abs(flats[ex.PA_LEFT] - (-4.2)) < 1e-9
-    assert abs(flats[ex.PA_RIGHT] - (-4.38)) < 1e-9
+    # FL grows a fresh flat band; FR's trim absorbs the spill --
+    # clean two-decimal gains, no float64 dust in the artifact
+    assert flats[ex.PA_LEFT] == -4.2
+    assert flats[ex.PA_RIGHT] == -4.38
+    assert '"gain": -4.2,' in text
     freqs = ex.log_grid(20.0, 12000.0, 480)
     errs = ex.null_test_poweramp(text, chains, freqs)
     assert max(errs.values()) <= ex.NULL_PASS_DB, errs
