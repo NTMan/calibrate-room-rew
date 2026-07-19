@@ -296,6 +296,20 @@ class ExportDialog(Adw.Dialog):
                                  model=names)
             rows.add(combo)
             got_rows = True
+        if target["writer"] in ("parametric", "sheet"):
+            spin = Adw.SpinRow(
+                title="Band budget",
+                subtitle="0 -- follow the chain / profile",
+                adjustment=Gtk.Adjustment(
+                    lower=0, upper=32, step_increment=1),
+                value=float(target.get("max_bands") or 0))
+
+            def on_budget(_r, _p):
+                self._bake(st)
+            spin.connect("notify::value", on_budget)
+            st["budget"] = spin
+            rows.add(spin)
+            got_rows = True
         if got_rows:
             box.append(rows)
         st["prog"] = Gtk.ProgressBar(visible=False)
@@ -413,6 +427,13 @@ class ExportDialog(Adw.Dialog):
                        if moved < 0 and not auto else ""))
             self._set_status(st, line, worst <= xp.NULL_PASS_DB)
         elif writer in ("parametric", "sheet"):
+            if "budget" in st:
+                b = int(st["budget"].get_value())
+                if b:
+                    t = dict(t, max_bands=b)
+                elif "max_bands" in t:
+                    t = {k: v for k, v in t.items()
+                         if k != "max_bands"}
             maxb = t.get("max_bands")
             refit_why = None
             perr = None

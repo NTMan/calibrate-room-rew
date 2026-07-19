@@ -46,7 +46,7 @@ _TASTE = [{"type": "PK", "freq": 3000.0, "gain": -2.0, "q": 1.0,
 def test_builtin_targets_shape():
     ts = ex.load_targets(extra_dir="/nonexistent")
     ids = [t["id"] for t in ts]
-    assert "peq-text" in ids and "wavelet" in ids
+    assert "peq-text" in ids and "graphiceq" in ids
     assert "vendor-8band" in ids and "hand-peq" in ids
     assert all(t["writer"] in ex.WRITERS for t in ts)
     # every writer is classified for the wizard's first page --
@@ -138,10 +138,11 @@ def test_collapse_choices():
         ["mean", "FL", "FR"]
 
 
-def test_qudelix_builtin_and_max_bands_validator(tmp_path):
+def test_merged_parametric_and_max_bands_validator(tmp_path):
     t = {x["id"]: x for x in ex.load_targets(
-        extra_dir="/nonexistent")}["qudelix"]
-    assert t["writer"] == "parametric" and t["max_bands"] == 10
+        extra_dir="/nonexistent")}["peq-text"]
+    assert t["writer"] == "parametric"
+    assert "max_bands" not in t      # the budget is a page dial
     bad1 = {"id": "b1", "name": "b1", "writer": "sheet",
             "max_bands": 0}
     bad2 = {"id": "b2", "name": "b2", "writer": "sheet",
@@ -230,10 +231,13 @@ def test_graphic_grid_is_the_autoeq_contract():
     assert ex.graphic_grid() == [float(f) for f in _AUTOEQ_FREQS]
 
 
-def test_registry_jamesdsp_is_graphiceq():
+def test_registry_graphiceq_is_one_bare_row():
     t = {x["id"]: x for x in ex.load_targets()}
-    assert t["jamesdsp"]["writer"] == "graphiceq"
-    assert t["wavelet"].get("bare") is True
+    assert t["graphiceq"]["writer"] == "graphiceq"
+    assert t["graphiceq"].get("bare") is True
+    ids = [x["id"] for x in ex.load_targets()]
+    assert "wavelet" not in ids and "jamesdsp" not in ids
+    assert "qudelix" not in ids      # merged into peq-text
 
 
 def test_graphiceq_bare_is_the_naked_line():

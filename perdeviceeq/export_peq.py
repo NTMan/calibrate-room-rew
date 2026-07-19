@@ -54,22 +54,16 @@ WRITERS = FILE_WRITERS + HAND_WRITERS
 BUILTIN_TARGETS = [
     {"id": "peq-text",
      "name": "Parametric EQ text",
-     "note": "AutoEq style; REW and EqualizerAPO import it",
+     "note": "AutoEq style; REW, EqualizerAPO and device apps"
+             " import it (Qudelix 5K takes 10 bands) -- set the"
+             " band budget below",
      "writer": "parametric", "ext": ".txt"},
-    {"id": "qudelix",
-     "name": "Qudelix 5K (PEQ)",
-     "note": "AutoEq parametric text; the app imports it into"
-             " the 10-band PEQ",
-     "writer": "parametric", "ext": ".txt", "max_bands": 10},
-    {"id": "jamesdsp",
-     "name": "GraphicEQ text (EqualizerAPO)",
-     "note": "EqualizerAPO GraphicEQ line; the JamesDSP family"
-             " (Arbitrary response EQ) reads it too",
-     "writer": "graphiceq", "ext": ".txt"},
-    {"id": "wavelet",
-     "name": "Wavelet",
-     "note": "Android; imports the exact AutoEq GraphicEQ file"
-             " (level is renormalized by the app)",
+    {"id": "graphiceq",
+     "name": "GraphicEQ text (EqualizerAPO / Wavelet)",
+     "note": "the exact AutoEq GraphicEQ line: EqualizerAPO"
+             " includes it, Wavelet imports the file as-is (level"
+             " renormalized by the app), the JamesDSP family"
+             " reads it too",
      "writer": "graphiceq", "ext": ".txt", "bare": True},
     {"id": "vendor-8band",
      "name": "Soundcore Custom EQ (8 bands)",
