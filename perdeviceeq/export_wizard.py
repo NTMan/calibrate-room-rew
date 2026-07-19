@@ -64,6 +64,10 @@ class ExportDialog(Adw.Dialog):
                              if self.taste_name else self.chains)
         self.flo, self.fhi = xp.fit_band(self.body)
         self.source, self.source_why = xp.export_source(self.body)
+        n = len(self.chains)
+        self._subtitle = ("\u201c%s\u201d -- %d channel chain%s"
+                          % (self.body.get("name", "profile"), n,
+                             "" if n == 1 else "s"))
         self._canvas = None
         self.nav = Adw.NavigationView()
         self.nav.add(self._targets_page())
@@ -176,15 +180,6 @@ class ExportDialog(Adw.Dialog):
 
     def _targets_page(self):
         page = Adw.PreferencesPage()
-        intro = Adw.PreferencesGroup()
-        desc = self._chain_summary(taste=False)
-        if self.taste_name:
-            desc += ("\nTaste layer \u201c%s\u201d is active;"
-                     " every target page carries the include"
-                     " switch, on by default."
-                     % self.taste_name)
-        intro.set_description(desc)
-        page.add(intro)
         targets = xp.load_targets()
         audit = {t["id"]: xp.audit_target(
             t, self.chains, xp.log_grid(self.flo, self.fhi, 240))
@@ -230,7 +225,10 @@ class ExportDialog(Adw.Dialog):
             if got:
                 page.add(grp)
         tv = Adw.ToolbarView()
-        tv.add_top_bar(Adw.HeaderBar())
+        hb = Adw.HeaderBar()
+        hb.set_title_widget(Adw.WindowTitle(
+            title="Export EQ", subtitle=self._subtitle))
+        tv.add_top_bar(hb)
         tv.set_content(page)
         return Adw.NavigationPage(title="Export EQ", child=tv)
 
@@ -263,10 +261,6 @@ class ExportDialog(Adw.Dialog):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                       spacing=12, margin_top=12, margin_bottom=12,
                       margin_start=12, margin_end=12)
-        head = Gtk.Label(xalign=0, wrap=True)
-        head.add_css_class("dim-label")
-        head.set_text(self._chain_summary(taste=False))
-        box.append(head)
         lim = xp.limits_text(target)
         if lim:
             ll = Gtk.Label(xalign=0, wrap=True)
@@ -411,7 +405,10 @@ class ExportDialog(Adw.Dialog):
         st["overlay"] = Adw.ToastOverlay()
         st["overlay"].set_child(outer)
         tv = Adw.ToolbarView()
-        tv.add_top_bar(Adw.HeaderBar())
+        hb = Adw.HeaderBar()
+        hb.set_title_widget(Adw.WindowTitle(
+            title=target["name"], subtitle=self._subtitle))
+        tv.add_top_bar(hb)
         tv.set_content(st["overlay"])
         return Adw.NavigationPage(title=target["name"], child=tv)
 
