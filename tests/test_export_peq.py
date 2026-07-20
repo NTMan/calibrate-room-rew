@@ -991,3 +991,21 @@ def test_poweramp_preamp_spills_past_the_range():
                 if b["frequency"] == 24000]
     assert "preamp_range" in ex._limits_invalid(
         {"preamp_range": [5.0, -5.0]})
+
+
+def test_native_package_row_takes_rank_zero():
+    """The native .pdeq row: first in the registry, verbatim
+    rank in the audit, no limits to declare -- and the taste
+    doctrine written on the page note."""
+    targets = ex.load_targets()
+    t = targets[0]
+    assert t["id"] == "pdeq" and t["ext"] == ".pdeq"
+    assert t["writer"] in ex.FILE_WRITERS
+    assert "taste layer stays" in t["note"]
+    chains = [("FL", -6.0, []), ("FR", -6.0, [])]
+    score, flag, reasons = ex.audit_target(
+        t, chains, ex.log_grid(20.0, 20000.0, 60))
+    assert score == 0 and flag == ""
+    assert any("canvas" in r for r in reasons)
+    assert ex.limits_text(t) == ""
+    assert not ex._limits_invalid(t)

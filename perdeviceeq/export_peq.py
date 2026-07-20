@@ -47,11 +47,20 @@ USER_TARGET_DIR = os.path.join(CONFIG_DIR, "export-targets")
 # first page is built from these two tuples, so a writer outside
 # both would never get a row -- the tests assert the classification
 # stays complete.
-FILE_WRITERS = ("parametric", "graphiceq", "poweramp")
+FILE_WRITERS = ("pdeq", "parametric", "graphiceq",
+                "poweramp")
 HAND_WRITERS = ("fixed", "sheet")
 WRITERS = FILE_WRITERS + HAND_WRITERS
 
 BUILTIN_TARGETS = [
+    {"id": "pdeq", "name": "per-device-eq package",
+     "writer": "pdeq", "ext": ".pdeq",
+     "note": "Device correction only. The taste layer stays "
+             "separate -- baking it in would falsify the "
+             "package's own fit provenance, and the receiving "
+             "per-device-eq has a taste layer of its own. "
+             "Foreign targets get taste baked in precisely "
+             "because they cannot reconstruct it."},
     {"id": "peq-text",
      "name": "Parametric EQ text",
      "note": "AutoEq style; REW, EqualizerAPO and device apps"
@@ -864,6 +873,10 @@ def audit_target(t, chains, freqs):
     clean-looking worst target cannot happen."""
     multi = len(chains) > 1
     w = t.get("writer")
+    if w == "pdeq":
+        return 0, "", ["the profile itself -- canvas, fit "
+                       "provenance and rig fingerprint travel "
+                       "whole"]
     if w == "poweramp":
         return 0, "", []
     if w == "graphiceq":
