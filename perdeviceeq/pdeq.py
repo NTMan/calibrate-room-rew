@@ -180,8 +180,8 @@ def package_report(profile, sha):
                 rig += " (cal %s)" % ", ".join(shas)
             lines.append(rig)
     elif not profile.get("measurement"):
-        lines.append("No measurement canvas: an import or a "
-                     "hand-made profile.")
+        lines.append("No measurement canvas travelled with "
+                     "this profile -- bands only.")
     lines.append("Package sha256 %s" % sha[:16])
     return lines
 

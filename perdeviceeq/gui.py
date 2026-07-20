@@ -1987,12 +1987,15 @@ class EqWindow(Adw.ApplicationWindow):
     def _clone_profile(self, p):
         """Deep-copy a profile into a new user profile and switch to it."""
         src = self.store.get(p["id"])
-        body = {"name": self._unique_name(self._display_name(p) + " copy"),
-                "apply_all": bool(src.get("apply_all", True)),
-                "preamp": float(src.get("preamp", 0.0)),
-                "ch_keys": list(src.get("ch_keys") or []),
-                "channels": json.loads(json.dumps(src.get("channels") or {})),
-                "all": json.loads(json.dumps(src.get("all") or {"preamp": 0.0, "bands": []}))}
+        # the store's canonical body carries the v3 blocks
+        # (provenance, device, fit, measurement) verbatim -- a
+        # copy of a measured profile stays a measured profile.
+        # The json round-trip keeps the copy deep, sharing
+        # nothing with the original's live record.
+        body = json.loads(json.dumps(self.store._body(src)))
+        body.pop("id", None)
+        body["name"] = self._unique_name(
+            self._display_name(p) + " copy")
         pid = self.store.save_user(body)
         self.favorites.add(pid)
         _save_favorites(self.favorites)

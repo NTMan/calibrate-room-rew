@@ -150,7 +150,7 @@ def test_report_names_the_provenance():
             "all": {"bands": []}, "channels": {}}
     blines = "\n".join(pdeq.package_report(
         bare, pdeq.payload_sha256(bare)))
-    assert "hand-made" in blines
+    assert "bands only" in blines
 
 
 def test_package_text_is_not_eq_text():
