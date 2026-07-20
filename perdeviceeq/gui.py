@@ -2061,6 +2061,17 @@ class EqWindow(Adw.ApplicationWindow):
         """Import a mono REW/AutoEQ text file into the CURRENT slot."""
         dialog = Gtk.FileDialog()
         dialog.set_title("Import EQ text")
+        txt = Gtk.FileFilter()
+        txt.set_name("Parametric EQ text (*.txt)")
+        txt.add_pattern("*.txt")
+        allf = Gtk.FileFilter()
+        allf.set_name("All files")
+        allf.add_pattern("*")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(txt)
+        filters.append(allf)
+        dialog.set_filters(filters)
+        dialog.set_default_filter(txt)
 
         def done(d, res):
             try:
@@ -2076,6 +2087,27 @@ class EqWindow(Adw.ApplicationWindow):
             except OSError:
                 return
             preamp, bands = eq.parse_autoeq(text)     # REW/AutoEQ is mono
+            if not bands:
+                looks = False
+                try:
+                    j = json.loads(text)
+                    looks = (isinstance(j, dict)
+                             and "version" in j and "channels" in j)
+                except Exception:
+                    pass
+                msg = ("This is a per-device-eq profile package. "
+                       "Use Import profile in the profile menu; "
+                       "this button replaces the bands of the "
+                       "current channel from a parametric-EQ "
+                       "text file."
+                       if looks else
+                       "No parametric-EQ bands found in the "
+                       "file. Nothing was changed.")
+                err = Adw.AlertDialog(heading="Cannot import",
+                                      body=msg)
+                err.add_response("ok", "OK")
+                err.present(self)
+                return
             self._apply_rew_import(preamp, bands)
         dialog.open(self, None, done)
 

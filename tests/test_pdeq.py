@@ -151,3 +151,12 @@ def test_report_names_the_provenance():
     blines = "\n".join(pdeq.package_report(
         bare, pdeq.payload_sha256(bare)))
     assert "hand-made" in blines
+
+
+def test_package_text_is_not_eq_text():
+    """The wrong-import field incident: a .pdeq fed to the EQ-text
+    parser must yield zero bands, so the GUI guard refuses instead
+    of applying emptiness to the current slot."""
+    from perdeviceeq import eq
+    pre, bands = eq.parse_autoeq(pdeq.pdeq_pack(_profile()))
+    assert bands == [] and pre == 0.0
