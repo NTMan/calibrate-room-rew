@@ -65,6 +65,10 @@ def editor_body(body, stored):
     sticky rule: any divergence sets the mark, only a re-fit clears
     it."""
     out = dict(body)
+    # an editor-assembled body is a v3 body and says so: the
+    # native package export packs it directly, and its schema
+    # gate must not refuse the app's own working profile
+    out.setdefault("version", SCHEMA_VERSION)
     for key in V3_BLOCKS:
         block = (stored or {}).get(key)
         if isinstance(block, dict) and block and key not in out:

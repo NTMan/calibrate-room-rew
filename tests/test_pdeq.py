@@ -160,3 +160,19 @@ def test_package_text_is_not_eq_text():
     from perdeviceeq import eq
     pre, bands = eq.parse_autoeq(pdeq.pdeq_pack(_profile()))
     assert bands == [] and pre == 0.0
+
+
+def test_working_body_packs():
+    """Field crash: the wizard packs the EDITOR-assembled body,
+    which never passes ProfileStore._body -- editor_body must
+    stamp the schema version so the native export row does not
+    refuse the app's own working profile."""
+    from perdeviceeq.profiles import editor_body
+    p = _profile()
+    playback = {k: p[k] for k in ("id", "name", "apply_all",
+                                  "preamp", "ch_keys", "all",
+                                  "channels")}
+    body = editor_body(playback, p)
+    assert body["version"] == SCHEMA_VERSION
+    text = pdeq.pdeq_pack(body)
+    assert json.loads(text)["measurement"]   # canvas reattached

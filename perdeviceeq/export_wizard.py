@@ -453,14 +453,23 @@ class ExportDialog(Adw.Dialog):
         nf = xp.log_grid(self.flo, self.fhi, _NULL_N)
         if writer == "pdeq":
             # the native row: no chains, no taste, no bake --
-            # the working profile itself, canvas and all
-            text = pdeq.pdeq_pack(self.body)
-            self._set_status(
-                st, "Packs the working profile verbatim -- "
-                "canvas, fit provenance and rig fingerprint "
-                "travel whole; the import on the other side "
-                "validates and shows them. sha256 %s."
-                % pdeq.payload_sha256(self.body)[:16], True)
+            # the working profile itself, canvas and all. A
+            # refusal lands in the status, never in a traceback
+            try:
+                text = pdeq.pdeq_pack(self.body)
+            except ValueError as e:
+                text = ""
+                for k in ("copy", "save"):
+                    st[k].set_sensitive(False)
+                self._set_status(st, "Cannot pack: %s." % e,
+                                 False)
+            else:
+                self._set_status(
+                    st, "Packs the working profile verbatim -- "
+                    "canvas, fit provenance and rig fingerprint "
+                    "travel whole; the import on the other side "
+                    "validates and shows them. sha256 %s."
+                    % pdeq.payload_sha256(self.body)[:16], True)
         elif writer == "poweramp":
             name = self.body.get("name", "profile")
             if self.taste_name and taste:
