@@ -392,15 +392,25 @@ class PeqView(Gtk.Box):
         shown = sorted(self._bands, key=lambda b: b.freq)
         for i, b in enumerate(shown):
             self._attach_band(i, b)
+        def _action(icon, label):
+            # flat buttons carry their affordance in hover alone;
+            # an icon restores it at rest (the GNOME list-action
+            # idiom), without the visual weight of a border
+            b = Gtk.Button()
+            b.add_css_class("flat")
+            box = Gtk.Box(spacing=6)
+            box.append(Gtk.Image.new_from_icon_name(icon))
+            box.append(Gtk.Label(label=label))
+            b.set_child(box)
+            return b
         acts = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
                        spacing=6, halign=Gtk.Align.START)
-        addb = Gtk.Button(label="Add band")
-        addb.add_css_class("flat")
+        addb = _action("list-add-symbolic", "Add band")
         addb.connect("clicked", self._on_add)
         acts.append(addb)
         if self._on_import_file is not None:
-            repl = Gtk.Button(label="Replace bands from file\u2026")
-            repl.add_css_class("flat")
+            repl = _action("document-open-symbolic",
+                           "Replace bands from file\u2026")
             repl.set_tooltip_text(
                 "Replace this channel's bands from a "
                 "parametric-EQ text file (REW / AutoEq)")
