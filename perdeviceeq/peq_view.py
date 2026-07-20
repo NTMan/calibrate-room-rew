@@ -65,10 +65,16 @@ class PeqView(Gtk.Box):
     expensive follow-ups only on final ones.
     """
 
-    def __init__(self, on_changed, preamp=0.0, compact=False):
+    def __init__(self, on_changed, preamp=0.0, compact=False,
+                 on_import_file=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL,
                          spacing=6)
         self._on_changed = on_changed
+        # an editor verb, not an "import": replaces THIS view's
+        # bands from a parametric-EQ text file. Rendered only
+        # where the owner wires it (the device channel card) --
+        # a document-level import lives in the profile menu.
+        self._on_import_file = on_import_file
         self._preamp = float(preamp)
         self._bands = []
         self._curves = None         # (freqs, measured, spread, band)
@@ -386,11 +392,22 @@ class PeqView(Gtk.Box):
         shown = sorted(self._bands, key=lambda b: b.freq)
         for i, b in enumerate(shown):
             self._attach_band(i, b)
+        acts = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                       spacing=6, halign=Gtk.Align.START)
         addb = Gtk.Button(label="Add band")
         addb.add_css_class("flat")
-        addb.set_halign(Gtk.Align.START)
         addb.connect("clicked", self._on_add)
-        self.grid.attach(addb, 1, len(self._bands) + 1, 2, 1)
+        acts.append(addb)
+        if self._on_import_file is not None:
+            repl = Gtk.Button(label="Replace bands from file\u2026")
+            repl.add_css_class("flat")
+            repl.set_tooltip_text(
+                "Replace this channel's bands from a "
+                "parametric-EQ text file (REW / AutoEq)")
+            repl.connect("clicked",
+                         lambda *_: self._on_import_file())
+            acts.append(repl)
+        self.grid.attach(acts, 1, len(self._bands) + 1, 6, 1)
 
     def _attach_band(self, i, b):
         row = i + 1

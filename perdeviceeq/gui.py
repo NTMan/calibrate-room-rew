@@ -314,7 +314,8 @@ class EqWindow(Adw.ApplicationWindow):
         """Create the response plot (DrawingArea) with drag + right-click gestures."""
         # The one EQ editor -- graph over band table, shared with
         # the taste layers. Edits return through _on_view_changed.
-        self.view = PeqView(self._on_view_changed)
+        self.view = PeqView(self._on_view_changed,
+                            on_import_file=self._import_rew)
         self.view.graph.set_content_height(240)
 
         self._canvas = None          # measurement overlay cache
@@ -716,12 +717,6 @@ class EqWindow(Adw.ApplicationWindow):
         row.append(spacer)
         pair = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
         pair.add_css_class("linked")
-        imp_btn = Gtk.Button.new_from_icon_name(
-            "document-open-symbolic")
-        imp_btn.set_tooltip_text(
-            "Import EQ text: replace the bands shown here from a "
-            "parametric-EQ text file")
-        imp_btn.connect("clicked", lambda *_: self._import_rew())
         exp = Gtk.Button.new_from_icon_name("document-save-symbolic")
         exp.set_tooltip_text("Export this profile to a file to share")
         exp.connect("clicked", lambda *_: self._export_current())
@@ -731,7 +726,6 @@ class EqWindow(Adw.ApplicationWindow):
             "this; pressing it re-fits from the stored takes and "
             "returns the scientific correction")
         self.refit_btn.connect("toggled", self._on_autofit_toggled)
-        pair.append(imp_btn)
         pair.append(exp)
         pair.append(self.refit_btn)
         row.append(pair)
