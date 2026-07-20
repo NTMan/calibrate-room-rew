@@ -715,20 +715,13 @@ class EqWindow(Adw.ApplicationWindow):
         spacer = Gtk.Box()
         spacer.set_hexpand(True)
         row.append(spacer)
-        pair = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
-        pair.add_css_class("linked")
-        exp = Gtk.Button.new_from_icon_name("document-save-symbolic")
-        exp.set_tooltip_text("Export this profile to a file to share")
-        exp.connect("clicked", lambda *_: self._export_current())
         self.refit_btn = Gtk.ToggleButton(label="Auto")
         self.refit_btn.set_tooltip_text(
             "The EQ follows the measurement. Hand edits un-press "
             "this; pressing it re-fits from the stored takes and "
             "returns the scientific correction")
         self.refit_btn.connect("toggled", self._on_autofit_toggled)
-        pair.append(exp)
-        pair.append(self.refit_btn)
-        row.append(pair)
+        row.append(self.refit_btn)
         self._device_body.insert_child_after(row, self.channel_row)
 
     def _ask_integration(self):
@@ -2196,46 +2189,6 @@ class EqWindow(Adw.ApplicationWindow):
             dlg.connect("response", picked)
             dlg.present(self)
         dialog.open(self, None, done)
-
-    def _export_current(self):
-        """Write the current profile as a .pdeq package: the
-        store's canonical bytes, one file, sha-addressable."""
-        self.profile_popover.popdown()
-        from . import pdeq
-        p = self.store.get(self.current_pid)
-        try:
-            text = pdeq.pdeq_pack(p)
-        except ValueError as e:
-            err = Adw.AlertDialog(heading="Export failed",
-                                  body=str(e))
-            err.add_response("ok", "OK")
-            err.present(self)
-            return
-        dialog = Gtk.FileDialog()
-        dialog.set_title("Export profile")
-        dialog.set_initial_name(
-            self._safe_filename(str(p.get("name") or "profile"))
-            + ".pdeq")
-
-        def done(d, res):
-            try:
-                gfile = d.save_finish(res)
-            except GLib.Error:
-                return
-            path = gfile.get_path() if gfile else None
-            if not path:
-                return
-            if not path.endswith(".pdeq"):
-                path += ".pdeq"
-            try:
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(text)
-            except OSError as e:
-                err = Adw.AlertDialog(heading="Export failed",
-                                      body=str(e))
-                err.add_response("ok", "OK")
-                err.present(self)
-        dialog.save(self, None, done)
 
     @staticmethod
     def _safe_filename(name):

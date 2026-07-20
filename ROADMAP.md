@@ -60,6 +60,8 @@ listener, headroom that never lies.
    fit provenance + rig fingerprint + content sha. Import validates and
    shows provenance. Accept when export→import roundtrips byte-stable.
    This is the foundation the exchange service stands on.
+   Taste presets become their own shareable artifacts later, on
+   demand -- the ideal world where both layers travel separately.
 3. **GNOME HIG pass.** A written checklist in-repo (spacing scale, focus
    order, keyboard mnemonics, symbolic icons, header-bar patterns,
    dialog vs popover usage, About window), every deviation fixed or

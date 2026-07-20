@@ -34,6 +34,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw
 
 from . import export_peq as xp
+from . import pdeq
 
 _NULL_N = 480          # null-test grid density over the fit band
 _PLOT_N = 240          # fixed-band fit / residual plot grid
@@ -270,7 +271,7 @@ class ExportDialog(Adw.Dialog):
         st["taste"] = True
         rows = Adw.PreferencesGroup()
         got_rows = False
-        if self.taste_name:
+        if self.taste_name and target["writer"] != "pdeq":
             sw = Adw.SwitchRow(
                 title="Include taste layer \u201c%s\u201d"
                       % self.taste_name, active=True)
@@ -450,7 +451,17 @@ class ExportDialog(Adw.Dialog):
         allc = self.chains if taste else self.chains_plain
         auto = bool(self.body.get("preamp_auto", True))
         nf = xp.log_grid(self.flo, self.fhi, _NULL_N)
-        if writer == "poweramp":
+        if writer == "pdeq":
+            # the native row: no chains, no taste, no bake --
+            # the working profile itself, canvas and all
+            text = pdeq.pdeq_pack(self.body)
+            self._set_status(
+                st, "Packs the working profile verbatim -- "
+                "canvas, fit provenance and rig fingerprint "
+                "travel whole; the import on the other side "
+                "validates and shows them. sha256 %s."
+                % pdeq.payload_sha256(self.body)[:16], True)
+        elif writer == "poweramp":
             name = self.body.get("name", "profile")
             if self.taste_name and taste:
                 name = "%s + %s" % (name, self.taste_name)
