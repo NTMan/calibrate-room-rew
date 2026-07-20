@@ -2098,10 +2098,19 @@ class EqWindow(Adw.ApplicationWindow):
         self._on_edit()
 
     def _import_profile(self):
-        """Import a per-device-eq profile (our JSON, may be per-channel)."""
+        """Import a .pdeq package (or an older raw-JSON export):
+        validate, show the package's own claims for confirmation,
+        then land it without destroying anything in the store."""
         self.profile_popover.popdown()
         dialog = Gtk.FileDialog()
         dialog.set_title("Import profile")
+        flt = Gtk.FileFilter()
+        flt.set_name("per-device-eq profiles (*.pdeq, *.json)")
+        flt.add_pattern("*.pdeq")
+        flt.add_pattern("*.json")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(flt)
+        dialog.set_filters(filters)
 
         def done(d, res):
             try:
@@ -2111,54 +2120,73 @@ class EqWindow(Adw.ApplicationWindow):
             path = gfile.get_path() if gfile else None
             if not path:
                 return
+            from . import pdeq
             try:
                 with open(path, encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception:
+                    text = f.read()
+                prof, sha = pdeq.pdeq_unpack(text)
+            except (OSError, ValueError) as e:
+                err = Adw.AlertDialog(heading="Import failed",
+                                      body=str(e))
+                err.add_response("ok", "OK")
+                err.present(self)
                 return
-            if not isinstance(data, dict):
-                return
-            if data.get("version") != config.SCHEMA_VERSION:
-                print("per-device-eq: not importing %s (profile schema v%s; "
-                      "run tools/migrate_profiles_v2_to_v3.py once to "
-                      "convert)" % (path, data.get("version", 1)),
-                      file=sys.stderr)
-                return
-            fallback = os.path.splitext(os.path.basename(path))[0] or "Imported"
-            body = {"name": self._unique_name(str(data.get("name") or fallback)),
-                    "apply_all": bool(data.get("apply_all", True)),
-                    "preamp": float(data.get("preamp", 0.0)),
-                    "ch_keys": list(data.get("ch_keys") or []),
-                    "channels": data.get("channels") or {},
-                    "all": data.get("all") or {"bands": []}}
-            for key in config.V3_BLOCKS:  # measurement canvas travels too
-                block = data.get(key)
-                if isinstance(block, dict) and block:
-                    body[key] = block
-            pid = self.store.save_user(body)
-            self.favorites.add(pid)
-            _save_favorites(self.favorites)
-            self._load_profile(pid, born=True)
+            taken = str(prof.get("name") or "") in {
+                pp.get("name")
+                for pp in self.store.profiles.values()}
+            dlg = Adw.AlertDialog(
+                heading="Import profile?",
+                body="\n".join(pdeq.package_report(prof, sha)))
+            dlg.add_response("cancel", "Cancel")
+            dlg.add_response("import", "Import")
+            dlg.set_response_appearance(
+                "import", Adw.ResponseAppearance.SUGGESTED)
+            dlg.set_default_response("import")
+
+            def picked(_d, resp):
+                if resp != "import":
+                    return
+                pid, lines = pdeq.absorb(self.store, text)
+                if any("nothing imported" in ln for ln in lines):
+                    info = Adw.AlertDialog(
+                        heading="Already in the store",
+                        body="An identical copy of this package "
+                             "is already here.")
+                    info.add_response("ok", "OK")
+                    info.present(self)
+                    self._load_profile(pid)
+                    return
+                rec = self.store.get(pid)
+                if taken:
+                    fresh = self._unique_name(
+                        str(rec.get("name") or "Imported"))
+                    self.store.save_user(dict(rec, name=fresh))
+                self.favorites.add(pid)
+                _save_favorites(self.favorites)
+                self._load_profile(pid, born=True)
+            dlg.connect("response", picked)
+            dlg.present(self)
         dialog.open(self, None, done)
 
     def _export_current(self):
-        """Write the current profile (our JSON, per-channel) to a file to share."""
+        """Write the current profile as a .pdeq package: the
+        store's canonical bytes, one file, sha-addressable."""
         self.profile_popover.popdown()
+        from . import pdeq
         p = self.store.get(self.current_pid)
-        body = {"name": self._display_name(p),
-                "version": config.SCHEMA_VERSION,
-                "apply_all": bool(p.get("apply_all", True)),
-                "preamp": float(p.get("preamp", 0.0)),
-                "ch_keys": list(p.get("ch_keys") or []),
-                "channels": p.get("channels") or {},
-                "all": p.get("all") or {"bands": []}}
-        for key in config.V3_BLOCKS:      # measurement canvas travels too
-            block = p.get(key)
-            if isinstance(block, dict) and block:
-                body[key] = block
+        try:
+            text = pdeq.pdeq_pack(p)
+        except ValueError as e:
+            err = Adw.AlertDialog(heading="Export failed",
+                                  body=str(e))
+            err.add_response("ok", "OK")
+            err.present(self)
+            return
         dialog = Gtk.FileDialog()
         dialog.set_title("Export profile")
-        dialog.set_initial_name(self._safe_filename(body["name"]) + ".json")
+        dialog.set_initial_name(
+            self._safe_filename(str(p.get("name") or "profile"))
+            + ".pdeq")
 
         def done(d, res):
             try:
@@ -2168,13 +2196,16 @@ class EqWindow(Adw.ApplicationWindow):
             path = gfile.get_path() if gfile else None
             if not path:
                 return
-            if not path.endswith(".json"):
-                path += ".json"
+            if not path.endswith(".pdeq"):
+                path += ".pdeq"
             try:
                 with open(path, "w", encoding="utf-8") as f:
-                    json.dump(body, f, indent=2, ensure_ascii=False)
-            except OSError:
-                return
+                    f.write(text)
+            except OSError as e:
+                err = Adw.AlertDialog(heading="Export failed",
+                                      body=str(e))
+                err.add_response("ok", "OK")
+                err.present(self)
         dialog.save(self, None, done)
 
     @staticmethod
