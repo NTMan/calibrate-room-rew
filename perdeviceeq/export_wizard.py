@@ -283,7 +283,10 @@ class ExportDialog(Adw.Dialog):
             rows.add(sw)
             got_rows = True
         combo = None
-        if len(choices) > 1:
+        if len(choices) > 1 and target["writer"] != "pdeq":
+            # a package does not collapse chains -- it carries
+            # every channel verbatim; offering a policy would
+            # imply it could
             names = Gtk.StringList()
             for c in choices:
                 names.append(self._policy_label(c))
