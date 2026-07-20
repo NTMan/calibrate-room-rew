@@ -397,7 +397,6 @@ class PeqView(Gtk.Box):
             # an icon restores it at rest (the GNOME list-action
             # idiom), without the visual weight of a border
             b = Gtk.Button()
-            b.add_css_class("flat")
             box = Gtk.Box(spacing=6)
             box.append(Gtk.Image.new_from_icon_name(icon))
             box.append(Gtk.Label(label=label))
