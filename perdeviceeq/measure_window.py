@@ -400,23 +400,6 @@ class MeasureWindow(Adw.Window):
         center_box.append(self._center_grid)
         self.ring.put(center_box, SPEAKER, int(RING / 2 - 56))
         self._center_box = center_box
-        # The gone note lives in the disc's EMPTY top arc, so its
-        # appearance moves nothing (Gtk.Fixed never reflows) and the
-        # controls stay put, merely insensitive.
-        self.ring_gone = Gtk.Label()
-        self.ring_gone.set_markup(
-            "<span size='large'>Unavailable</span>")
-        self.ring_gone.add_css_class("error")
-        # CenterBox centers by construction: hexpand on the label
-        # would PROPAGATE up through the Fixed into the column and
-        # make the left side split width with the right one -- the
-        # exact lurch this note exists to avoid.
-        gone_holder = Gtk.CenterBox()
-        gone_holder.set_size_request(RING, -1)
-        gone_holder.set_center_widget(self.ring_gone)
-        gone_holder.set_visible(False)
-        self._gone_holder = gone_holder
-        self.ring.put(gone_holder, 0, 26)
 
         # The volume is a fader now, on the ring's left; auto-level
         # sits under it -- the two speak the same language, and the
@@ -801,12 +784,6 @@ class MeasureWindow(Adw.Window):
         cr.set_source_rgba(0.5, 0.5, 0.5, 0.16)
         cr.arc(w / 2.0, h / 2.0, min(w, h) / 2.0 - 1, 0, 2 * math.pi)
         cr.fill()
-        if self._sink_gone:              # attention: the device left
-            cr.set_source_rgb(0.87, 0.19, 0.19)
-            cr.set_line_width(3)
-            cr.arc(w / 2.0, h / 2.0, min(w, h) / 2.0 - 2,
-                   0, 2 * math.pi)
-            cr.stroke()
 
     # ---- prefill / refresh ------------------------------------------------
     def _prefill_from_memory(self):
@@ -1280,21 +1257,14 @@ class MeasureWindow(Adw.Window):
             return
         self._sink_gone = gone
         self._center_box.set_sensitive(not gone)
-        self._gone_holder.set_visible(gone)
         self.vol_spin.set_sensitive(not gone)
         self.relevel_btn.set_sensitive(not gone)
         self._set_ring_sensitive(not gone)
-        self._disc.queue_draw()          # the red edge follows
-        # the banner names the state (the main window's words);
-        # the warning keeps only what the banner cannot carry
+        # field verdict: the banner names the state and the
+        # insensitivity shows where it bites -- no homebrew
+        # badges, no loose prose outside a card
         self.gone_banner.set_revealed(gone)
-        if gone:
-            self._warn(
-                "Its channel configuration changed, or it was "
-                "unplugged. Bring it back to keep measuring; you "
-                "can still save what you have measured.")
-        else:
-            self._warn("")
+        if not gone:
             self._refresh_all()
 
     def _on_source_changed(self, *_):

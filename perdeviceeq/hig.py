@@ -35,7 +35,9 @@ responses
 four ints).
 
 Ratchet provenance: H1-H3 were earned in the .pdeq sprint's
-design rounds (see HIG.md); H4-H6 are the HIG's own letter.
+design rounds (see HIG.md); H4-H6 are the HIG's own letter;
+H7 was minted in the gone-state round (loose prose and a
+homebrew badge lost to the banner and plain insensitivity).
 
 No GTK. Pure dicts in, findings out.
 """
@@ -153,8 +155,37 @@ def _findings_h6(node, path, out):
                        "editing -- the HIG bans Yes/No pairs"})
 
 
+def _findings_h7(node, path, out):
+    """H7: prose belongs to a card, a banner, or a toast --
+    never loose in a bare column."""
+    if not node.get("class", "").endswith("Box"):
+        return
+    props = node.get("props", {})
+    css = props.get("css") or []
+    if props.get("in_bar") or "card" in css \
+            or "boxed-list" in css:
+        return
+    for k in node.get("children") or []:
+        if k.get("class") != "GtkLabel":
+            continue
+        kp = k.get("props", {})
+        text = kp.get("label") or ""
+        kcss = set(kp.get("css") or [])
+        if len(text) > 40 and not kcss & {"heading", "title-1",
+                                          "title-2", "title-3",
+                                          "title-4"}:
+            out.append({
+                "rule": "H7", "path": path,
+                "msg": "loose prose in a bare column: %r"
+                       % (text[:40] + "..."),
+                "fix": "house it in a card or boxed list, or "
+                       "promote the state to a banner / the "
+                       "event to a toast"})
+
+
 _RULES = (_findings_h1, _findings_h2, _findings_h3,
-          _findings_h4, _findings_h5, _findings_h6)
+          _findings_h4, _findings_h5, _findings_h6,
+          _findings_h7)
 
 
 def lint(tree):

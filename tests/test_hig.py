@@ -135,3 +135,29 @@ def test_report_carries_rule_path_and_fix():
     lines = hig.report(got)
     assert lines[0].startswith("H4 GtkButton")
     assert lines[1].startswith("   fix: ")
+
+
+def _label(text, css=()):
+    return {"class": "GtkLabel",
+            "props": {"label": text, "css": list(css)},
+            "children": []}
+
+
+def test_h7_prose_needs_a_house():
+    """Minted in the gone-state round: a free paragraph under
+    the measuring card lost to the banner; the rule keeps loose
+    prose from creeping back into bare columns."""
+    prose = ("Its channel configuration changed, or it was "
+             "unplugged.")
+    loose = _box([_label(prose)])
+    assert _rules(hig.lint(loose)) == ["H7"]
+    housed = _box([_label(prose)], css=["card"])
+    assert hig.lint(housed) == []
+    listed = _box([_label(prose)], css=["boxed-list"])
+    assert hig.lint(listed) == []
+    caption = _box([_label("SNR 43.1 dB")])
+    assert hig.lint(caption) == []
+    heading = _box([_label(prose, css=["heading"])])
+    assert hig.lint(heading) == []
+    in_bar = _box([_label(prose)], in_bar=True)
+    assert hig.lint(in_bar) == []
