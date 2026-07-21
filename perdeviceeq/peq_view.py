@@ -381,7 +381,8 @@ class PeqView(Gtk.Box):
             nxt = child.get_next_sibling()
             self.grid.remove(child)
             child = nxt
-        heads = ("", "Type", "Freq (Hz)", "Gain (dB)", "Q", "On", "")
+        heads = ("", "Type", "Freq (Hz)", "Gain (dB)", "Q",
+                 "On", "", "")
         for c, t in enumerate(heads):
             lbl = Gtk.Label(label=t, xalign=0.0)
             lbl.add_css_class("dim-label")
@@ -416,7 +417,7 @@ class PeqView(Gtk.Box):
             repl.connect("clicked",
                          lambda *_: self._on_import_file())
             acts.append(repl)
-        self.grid.attach(acts, 1, len(self._bands) + 1, 6, 1)
+        self.grid.attach(acts, 1, len(self._bands) + 1, 7, 1)
 
     def _attach_band(self, i, b):
         row = i + 1
@@ -460,11 +461,14 @@ class PeqView(Gtk.Box):
                    lambda swb, b=b:
                    self._write(b, "enabled", swb.get_active()))
         self.grid.attach(sw, 5, row, 1, 1)
+        sep = Gtk.Separator(
+            orientation=Gtk.Orientation.VERTICAL)
+        self.grid.attach(sep, 6, row, 1, 1)
         tr = Gtk.Button.new_from_icon_name("user-trash-symbolic")
         tr.add_css_class("flat")
         tr.set_tooltip_text("Delete this band")
         tr.connect("clicked", lambda *_a, b=b: self._on_del(b))
-        self.grid.attach(tr, 6, row, 1, 1)
+        self.grid.attach(tr, 7, row, 1, 1)
 
     def _make_dot_draw(self, b):
         def draw(_a, cr, w, h, *_):
