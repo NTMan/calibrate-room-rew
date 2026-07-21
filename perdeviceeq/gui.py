@@ -1939,11 +1939,15 @@ class EqWindow(Adw.ApplicationWindow):
     def _edit_profile(self, p):
         """The profile's Edit: the measurement window carries the
         name field, take appends and channel re-measures. It aims
-        at the profile's OWN sink -- the current output is picked
-        up only when creating a NEW profile. If the profile's sink
-        is bound but not connected, a dialog offers the current
-        output or cancels: the computer may be playing one device
-        while another is being measured, and stealing is rude."""
+        at the profile's OWN sink, present or not -- the current
+        output is picked up only when creating a NEW profile, and
+        stealing it is still rude. An absent home is a livable
+        state now, not a question: the window opens under the
+        gone banner, the takes browse, the biquads refit on a
+        bigger budget, the header picker retargets deliberately,
+        and plugging the device back in revives the sitting. The
+        Device-not-connected dialog that used to stand here was a
+        relic of the days when that state was unrepresentable."""
         if not self.live or not self.node:
             return
         self.profile_popover.popdown()
@@ -1953,25 +1957,8 @@ class EqWindow(Adw.ApplicationWindow):
         homes = [n for n, x in self.store.bindings.items()
                  if x == p["id"]]
         here = {s["name"] for s in self.sinks}
-        node = next((n for n in homes if n in here), None)
-        if node is None and homes:
-            dlg = Adw.AlertDialog(
-                heading="Device not connected",
-                body="\u201c%s\u201d belongs to %s, which is not "
-                     "connected.\nMeasure on the current output "
-                     "instead?" % (p.get("name") or "This profile",
-                                   ", ".join(homes)))
-            dlg.add_response("cancel", "Cancel")
-            dlg.add_response("current", "Use current output")
-            dlg.set_default_response("current")
-            dlg.set_close_response("cancel")
-
-            def done(_d, resp, pid=p["id"]):
-                if resp == "current":
-                    self._open_measure_for(self.node, pid)
-            dlg.connect("response", done)
-            dlg.present(self)
-            return
+        node = next((n for n in homes if n in here),
+                    homes[0] if homes else None)
         self._open_measure_for(node or self.node, p["id"])
 
     def _open_measure_for(self, node, pid):
@@ -1985,8 +1972,11 @@ class EqWindow(Adw.ApplicationWindow):
             dlg.add_response("ok", "OK")
             dlg.present(self)
             return
+        p = self.store.get(pid) or {}
         desc = next((s["desc"] for s in self.sinks
-                     if s["name"] == node), node)
+                     if s["name"] == node),
+                    ((p.get("device") or {}).get("label")
+                     or p.get("name") or node))
         self._measure_win = MeasureWindow(self, node, desc,
                                           edit_pid=pid)
         self._measure_win.connect("close-request",

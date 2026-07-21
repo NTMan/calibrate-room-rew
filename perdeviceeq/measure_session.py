@@ -1038,7 +1038,7 @@ class MeasureSession:
     texts as `notes`.
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, resolve=True):
         if cfg.channels < 1:
             raise RefusalError("channels must be >= 1")
         tools = ["pw-dump", "pw-metadata", "pw-play", "pw-record"]
@@ -1050,41 +1050,26 @@ class MeasureSession:
         self.cfg = cfg
         self.precondition_notes = []
 
-        dump = pw_dump()
-        self.sink = resolve_node(dump, cfg.sink, "Audio/Sink")
-        check_sink_identity(self.sink)
-        self.source = resolve_node(dump, cfg.source, "Audio/Source")
-        src_p = _props(self.source)
-        if src_p.get("media.class") != "Audio/Source":
-            raise RefusalError(
-                "capture target %r is %r, expected Audio/Source"
-                % (cfg.source, src_p.get("media.class")))
-        if not (src_p.get("device.api") or "").startswith("alsa"):
-            self.precondition_notes.append(
-                "WARNING: mic source device.api is %r; measurement mics "
-                "are expected on USB/ALSA" % src_p.get("device.api"))
-        self.sink_ident = node_ident(self.sink)
-        self.source_ident = node_ident(self.source)
-        self.sink_layout = sink_channels(self.sink_ident["name"], dump)
-
-        v0, raw0, muted = sink_volume_state(dump, self.sink["id"])
-        if muted:
-            raise RefusalError("sink is muted; unmute it and set the "
-                               "working listening level first")
-        if v0 is None:
-            self.precondition_notes.append(
-                "WARNING: could not read the sink volume from pw-dump")
-        self.volume_start = v0
-        self._raw0 = raw0
-
-        self.foreign = foreign_streams(dump, self.sink["id"])
-        if self.foreign and not cfg.mute_others:
-            raise RefusalError(
-                "other streams are playing into this sink (a sweep on top "
-                "of them is not a measurement):\n  %s\nstop them or re-run "
-                "with --mute-others" % "\n  ".join(
-                    "id %(id)s  %(node_name)s  app=%(app)s" % s
-                    for s in self.foreign))
+        # The unresolved skeleton: enough for adopting canvas
+        # takes, statistics and parking -- a session for an
+        # absent sink is livable (the gone Measure window browses
+        # and refits offline). The graph is consulted at resolve
+        # time: at construction by default, or at __enter__ for a
+        # deferred birth -- which also means the live
+        # preconditions are FRESH at arming instead of stale from
+        # open time.
+        self.sink = None
+        self.source = None
+        self.sink_ident = {"name": cfg.sink,
+                           "description": cfg.device or cfg.sink}
+        self.source_ident = {"name": cfg.source}
+        self.sink_layout = []
+        self.volume_start = None
+        self._raw0 = None
+        self.foreign = []
+        self._resolved = False
+        if resolve:
+            self._resolve(pw_dump())
 
         self.sweep = mc.generate_sweep(cfg.samples, cfg.fs, cfg.f_start,
                                        cfg.f_end)
@@ -1110,7 +1095,7 @@ class MeasureSession:
         self.eq_state = None
         self._stack = None
         self._cancel = threading.Event()    # set by cancel() to abort a sweep
-        self._v_cur = v0
+        self._v_cur = self.volume_start
         self._leveled = not cfg.auto_level
         self._auto_ctl = AutoLevel()
         # where the current sweep level came from: "remembered" (a
@@ -1127,9 +1112,57 @@ class MeasureSession:
         self._takes = {}                    # channel -> [(record, samples)]
         self._pending = None                # capture awaiting accept_level
 
+    def _resolve(self, dump):
+        """Consult the live graph: identities, layout, volume,
+        foreign streams. All RefusalErrors of the old
+        construction-time preconditions live here; a deferred
+        birth meets them at __enter__ instead."""
+        self.sink = resolve_node(dump, self.cfg.sink, "Audio/Sink")
+        check_sink_identity(self.sink)
+        self.source = resolve_node(dump, self.cfg.source,
+                                   "Audio/Source")
+        src_p = _props(self.source)
+        if src_p.get("media.class") != "Audio/Source":
+            raise RefusalError(
+                "capture target %r is %r, expected Audio/Source"
+                % (self.cfg.source, src_p.get("media.class")))
+        if not (src_p.get("device.api") or "").startswith("alsa"):
+            self.precondition_notes.append(
+                "WARNING: mic source device.api is %r; measurement "
+                "mics are expected on USB/ALSA"
+                % src_p.get("device.api"))
+        self.sink_ident = node_ident(self.sink)
+        self.source_ident = node_ident(self.source)
+        self.sink_layout = sink_channels(self.sink_ident["name"],
+                                         dump)
+
+        v0, raw0, muted = sink_volume_state(dump, self.sink["id"])
+        if muted:
+            raise RefusalError("sink is muted; unmute it and set "
+                               "the working listening level first")
+        if v0 is None:
+            self.precondition_notes.append(
+                "WARNING: could not read the sink volume from "
+                "pw-dump")
+        self.volume_start = v0
+        self._raw0 = raw0
+
+        self.foreign = foreign_streams(dump, self.sink["id"])
+        if self.foreign and not self.cfg.mute_others:
+            raise RefusalError(
+                "other streams are playing into this sink (a sweep "
+                "on top of them is not a measurement):\n  %s\nstop "
+                "them or re-run with --mute-others" % "\n  ".join(
+                    "id %(id)s  %(node_name)s  app=%(app)s" % s
+                    for s in self.foreign))
+        self._resolved = True
+
     # -- lifecycle ----------------------------------------------------------
 
     def __enter__(self):
+        if not self._resolved:
+            self._resolve(pw_dump())
+            self._v_cur = self.volume_start
         if self.outdir is None:             # ephemeral working dir
             self.outdir = tempfile.mkdtemp(
                 prefix="per-device-eq-%s-" % self._slug)

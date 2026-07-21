@@ -759,3 +759,44 @@ def test_adopt_take_joins_the_statistics(shim_state, tmp_path):
         ses.discard(0, "abc123def456")
         assert len(ses.takes_of(0)) == 1
         ses.finalize(0)                  # pure live takes: fine again
+
+
+def test_offline_birth_carries_the_canvas(shim_state, tmp_path):
+    """A session for an absent sink constructs unresolved (the
+    gone Measure window is livable -- field verdict): adoption,
+    statistics and discard all work; __enter__ consults the
+    graph and refuses while the sink is still away."""
+    cfg = ms.SessionConfig(sink="no_such_sink",
+                           source="test_source", channels=1,
+                           samples=131072,
+                           save_dir=str(tmp_path / "takes"))
+    ses = ms.MeasureSession(cfg, resolve=False)
+    assert ses.sink is None and ses.volume_start is None
+    assert ses.sink_ident["name"] == "no_such_sink"
+    freqs = ms.mc.log_grid()
+    ghost = ms.TakeRecord(
+        "abc123def456", 0, freqs,
+        [0.0 for _ in freqs],
+        5.0, 45.0, -6.0, 0, 0, None,
+        noise_dbfs=-80.0, capture_channel=0,
+        created_utc="2026-07-10T00:00:00+00:00")
+    ses.adopt_take(0, ghost)
+    assert len(ses.takes_of(0)) == 1
+    mean, spread = ses.average_and_spread(0)
+    assert mean is not None
+    with pytest.raises(ms.RefusalError):
+        ses.__enter__()
+    ses.discard(0, "abc123def456")
+    assert ses.takes_of(0) == []
+
+
+def test_enter_resolves_a_deferred_birth(shim_state, tmp_path):
+    """resolve=False defers the graph to __enter__: the live
+    preconditions run FRESH at arming and the session fills its
+    identities there."""
+    ses = ms.MeasureSession(make_cfg(tmp_path), resolve=False)
+    assert ses.sink is None and not ses._resolved
+    with ses:
+        assert ses._resolved and ses.sink is not None
+        assert ses.sink_ident["name"] == "test_sink"
+        assert ses.volume_start is not None

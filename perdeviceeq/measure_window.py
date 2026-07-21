@@ -1503,14 +1503,6 @@ class MeasureWindow(Adw.Window):
         suppresses the dialogs for the opportunistic open-time
         attempt -- no mic picked yet is not an error there."""
         if self.session is None:
-            if not self._sink_present():
-                if not quiet:
-                    self._error(
-                        "This output no longer exists -- the "
-                        "device's channel configuration changed and "
-                        "renamed its sink. Close and reopen the "
-                        "measurement for the current device.")
-                return False
             src = self._selected_source()
             if not src:
                 if not quiet:
@@ -1526,7 +1518,12 @@ class MeasureWindow(Adw.Window):
                 start_volume=(None if use_auto else remembered))
             self._relevel_pending = False
             try:
-                self.session = ms.MeasureSession(cfg)
+                # an absent home births the session unresolved:
+                # the canvas adopts, statistics and refits run,
+                # parking works; the graph (and every live
+                # precondition, now FRESH) waits for arming
+                self.session = ms.MeasureSession(
+                    cfg, resolve=self._sink_present())
             except ms.RefusalError as e:
                 self.session = None
                 if not quiet:
