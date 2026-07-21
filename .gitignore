@@ -9,6 +9,8 @@
 /*.spec.rpmlintrc
 
 # test data: generated fixtures and local (never-committed) captures
+/bridge-out
+/cal
 /tests/fixtures/
 /tests/fixtures-local/*
 !/tests/fixtures-local/README.md
