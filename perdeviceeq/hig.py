@@ -27,8 +27,10 @@ Props the rules read (all optional; absent means unknown, and
 unknown never fires a rule -- the floor accuses only on
 evidence): label (str), icon_only (bool), tooltip (str), css
 (list of style classes), spacing (int), halign (one of fill,
-start, center, end), in_bar (bool -- inside a header bar or
-toolbar, where flat is the container's own idiom), responses
+start, center, end), in_bar (bool -- inside a
+header bar, toolbar, or an expander-style card header, css
+class card-header, where flat is the container's own idiom),
+responses
 (list of {"id", "label"} for alert dialogs), margins (list of
 four ints).
 

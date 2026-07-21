@@ -184,6 +184,10 @@ class EqWindow(Adw.ApplicationWindow):
         self.header_bar = b.get_object("header_bar")
         self.header_note = b.get_object("header_note")
         self.profile_button = b.get_object("profile_button")
+        # the header picker is a suffix in an expander-style
+        # row: flat in-row chrome, not a raised pill (HIG
+        # ruling: the container was the fix, not the button)
+        self.profile_button.add_css_class("flat")
         self.profile_popover = b.get_object("profile_popover")
         self.search_entry = b.get_object("search_entry")
         self.profile_list = b.get_object("profile_list")
@@ -235,6 +239,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.taste_button = Gtk.MenuButton()
         self.taste_button.set_valign(Gtk.Align.CENTER)
         self.taste_button.set_always_show_arrow(True)
+        self.taste_button.add_css_class("flat")
         self.taste_button.set_popover(self._build_taste_popover())
         self.taste_card.add_header(self.taste_button)
         tbody = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,

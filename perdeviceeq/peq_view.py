@@ -540,6 +540,9 @@ class CollapsibleCard(Gtk.Box):
         self._last = None
         self._header = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        # the expander-row header is a structured container:
+        # rule H3 treats it like a bar (see tools/hig_audit.py)
+        self._header.add_css_class("card-header")
         for side in ("top", "bottom"):
             getattr(self._header, "set_margin_" + side)(8)
         for side in ("start", "end"):

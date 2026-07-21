@@ -72,8 +72,9 @@ def describe(w, in_bar=False):
     the rules read, children. Unknown stays absent -- the floor
     accuses only on evidence."""
     t = _gtype(w)
-    in_bar = in_bar or t in _BARS
-    props = {"css": list(w.get_css_classes()),
+    css = list(w.get_css_classes())
+    in_bar = in_bar or t in _BARS or "card-header" in css
+    props = {"css": css,
              "in_bar": in_bar,
              "tooltip": w.get_tooltip_text(),
              "halign": _ALIGN.get(w.get_halign()),
