@@ -233,7 +233,21 @@ class MeasureWindow(Adw.Window):
         bp.add_setter(mlv, "layout-name", "wide")
         self.add_breakpoint(bp)
 
-        b.get_object("window_title").set_subtitle(self.sink_desc)
+        # the sink is a choice, not a sentence, and it IS the
+        # window's title -- the same centered picker grammar as
+        # the main window's device picker, minus following. New
+        # profiles arrive with the main window's sink; edits
+        # arrive with the profile's own home; this switches to
+        # any other route without losing the sitting.
+        self.sink_dd = b.get_object("sink_dd")
+        self._sink_choices = []
+        # connect BEFORE the first refresh: handler_block_by_func
+        # raises on a handler that was never connected (field
+        # crash), and the refresh blocks it around the initial
+        # set_model/set_selected anyway, so nothing fires early
+        self.sink_dd.connect("notify::selected", self._on_sink_dd)
+        self._tame_scroll(self.sink_dd)
+        self._refresh_sinks_from(self._pw)
         self.center = b.get_object("status")
         self.warning = b.get_object("warning")
 
@@ -1175,15 +1189,77 @@ class MeasureWindow(Adw.Window):
         input list current, then reconcile the target sink against the
         graph. One pipewire poll feeds this instead of a window timer."""
         self._refresh_sources_from(st.sources)
+        self._refresh_sinks_from(st)
         self._reconcile_sink(st)
         return False
 
+    def _refresh_sinks_from(self, st):
+        """The header picker mirrors the graph. The target sink is
+        always listed -- marked gone when the graph lost it -- so
+        the selection never dangles and Unavailable stays
+        readable in the picker too."""
+        choices = [(s["name"], s["desc"]) for s in st.sinks]
+        if all(n != self.sink_node for n, _ in choices):
+            choices.insert(0, (self.sink_node,
+                               "%s -- gone" % self.sink_desc))
+        if choices == self._sink_choices:
+            return
+        self._sink_choices = choices
+        names = [(d if len(d) <= 34 else d[:33] + "\u2026")
+                 for _, d in choices]
+        self.sink_dd.handler_block_by_func(self._on_sink_dd)
+        self.sink_dd.set_model(Gtk.StringList.new(names))
+        idx = next((i for i, (n, _) in enumerate(choices)
+                    if n == self.sink_node), 0)
+        self.sink_dd.set_selected(idx)
+        self.sink_dd.handler_unblock_by_func(self._on_sink_dd)
+
+    def _on_sink_dd(self, *_):
+        i = self.sink_dd.get_selected()
+        if not (0 <= i < len(self._sink_choices)):
+            return
+        node, desc = self._sink_choices[i]
+        self._retarget(node, desc)
+
+    def _retarget(self, node, desc):
+        """Move the sitting to another output, keeping everything
+        that is the sitting's: the profile, its takes, the rig and
+        the cals. The park-then-rebuild is _on_close's own
+        sequence -- the canvas is persisted first, the session
+        torn down, then reconstructed on the new sink, which
+        re-adopts the stored takes. Volume memory and the mic
+        home are per-sink and follow the switch."""
+        if node == self.sink_node or self._busy:
+            return
+        pid = self._ensure_pid()
+        self._apply_name(pid)
+        if self.session is not None and self._entered:
+            try:
+                self.session.__exit__(None, None, None)
+            except Exception:
+                pass
+            self._entered = False
+        self.session = None
+        self.sink_node = node
+        self.sink_desc = desc.replace(" -- gone", "")
+        try:
+            self._persist_mic()          # the new home learns the rig
+        except Exception:
+            pass
+        self._ensure_session(arm=False, quiet=True)
+        self._refresh_volume()
+        self._on_pw_state(self._pw)
+        self._refresh_all()
+        self._update_pult()
+
     def _reconcile_sink(self, st):
-        """The session belongs to its sink: alive or Unavailable,
-        nothing else. Chasing the default and asking stay-or-go made
-        sense when the wizard owned unsaved takes; with takes
-        persisted per profile a retarget mid-session is a category
-        error, so the machinery is gone."""
+        """The session belongs to its sink: alive or Unavailable.
+        Auto-chasing the default stays dead -- stay-or-go prompts
+        made sense only when the wizard owned unsaved takes. A
+        USER retarget is different (field verdict): the profile
+        is the headphones, the sink is merely the route, so the
+        header picker moves the sitting deliberately -- parked
+        first, rebuilt on the new sink, takes re-adopted."""
         alive = any(s["name"] == self.sink_node for s in st.sinks)
         self._set_sink_gone(not alive)
 
@@ -1450,6 +1526,9 @@ class MeasureWindow(Adw.Window):
         live = self._sink_present() and not self._sink_gone
         self.play_btn.set_sensitive(not self._busy and live)
         self.stop_btn.set_sensitive(self._busy)
+        if getattr(self, "sink_dd", None) is not None:
+            # mid-sweep the route is not a choice
+            self.sink_dd.set_sensitive(not self._busy)
 
     def _ensure_session(self, arm=True, quiet=False):
         """Construct the session separately from ARMING it.

@@ -29,8 +29,8 @@
     <child type="top">
       <object class="AdwHeaderBar" id="header_bar">
         <child type="title">
-          <object class="AdwWindowTitle" id="window_title">
-            <property name="title" translatable="yes">Measure speakers</property>
+          <object class="GtkDropDown" id="sink_dd">
+            <property name="tooltip-text" translatable="yes">The output the sweep plays into; switching parks this sitting and continues it there</property>
           </object>
         </child>
       </object>
