@@ -137,6 +137,9 @@ class EqWindow(Adw.ApplicationWindow):
         self._loading = False
         self.sinks = []
         self._dev_guard = False
+        self._dev_choices = None
+        self._node_desc = ""
+        self._node_gone = False
         self._pw = pipewire.app_state()
         self._pw_unsub = None
         self._measure_win = None
@@ -888,43 +891,83 @@ class EqWindow(Adw.ApplicationWindow):
         self.sinks = pipewire.list_sinks(dump)
         default = next((s["name"] for s in self.sinks if s["default"]), None)
         self.node = default or (self.sinks[0]["name"] if self.sinks else None)
+        self._node_desc = next((s["desc"] for s in self.sinks
+                                if s["name"] == self.node), "")
         self._refresh_device_model()
         self.device_dd.set_sensitive(not self.follow_btn.get_active())
 
     def _refresh_device_model(self):
-        """Rebuild the dropdown model after the sink set changed."""
-        self._dev_guard = True
-        try:
-            model = Gtk.StringList()
-            for s in self.sinks:
-                model.append(s["desc"])
-            self.device_dd.set_model(model)
-            idx = next((i for i, s in enumerate(self.sinks) if s["name"] == self.node), -1)
-            if idx >= 0:
+        """The header picker mirrors the graph, but the current
+        node is always listed -- marked gone when the graph lost
+        it -- so the selection never dangles (the measure
+        picker's doctrine). The model is rebuilt only when the
+        choices changed; the PLACEMENT is unconditional, so a
+        caller that moved self.node gets its row restored even
+        when the list is the same. Letting GtkDropDown default
+        to row 0 is what painted a foreign sink over the panel
+        when the pinned sink died. Never called from inside the
+        picker's own notify::selected emission -- set_model
+        there tears the model the widget still walks (field
+        segfault); the pick handler defers to idle instead."""
+        choices = [(s["name"], s["desc"]) for s in self.sinks]
+        if self.node and all(n != self.node for n, _ in choices):
+            choices.insert(0, (self.node,
+                               "%s -- gone" % self._node_desc))
+        if choices != self._dev_choices:
+            self._dev_choices = choices
+            self._dev_guard = True
+            try:
+                model = Gtk.StringList()
+                for _, d in choices:
+                    model.append(d)
+                self.device_dd.set_model(model)
+            finally:
+                self._dev_guard = False
+        idx = next((i for i, (n, _) in enumerate(choices)
+                    if n == self.node), -1)
+        if idx >= 0 and self.device_dd.get_selected() != idx:
+            self._dev_guard = True
+            try:
                 self.device_dd.set_selected(idx)
-        finally:
-            self._dev_guard = False
+            finally:
+                self._dev_guard = False
 
     def _select_device(self, name, load=True):
-        """Programmatically select a sink; optionally load its bound profile."""
-        idx = next((i for i, s in enumerate(self.sinks) if s["name"] == name), -1)
-        if idx < 0:
-            return
-        self._dev_guard = True
-        self.device_dd.set_selected(idx)
-        self._dev_guard = False
+        """Programmatically select a sink; optionally load its
+        bound profile. The single door for moving the selection
+        from code: a rebuild restores, only this moves."""
         self.node = name
+        self._node_desc = next((s["desc"] for s in self.sinks
+                                if s["name"] == name),
+                               self._node_desc)
+        self._refresh_device_model()
+        self._reconcile_node()
         if load:
             self._load_profile(self.store.binding_for(name) or CLEAN_ID)
 
     def _on_device_changed(self, *_):
-        """Manual sink pick from the dropdown (ignored while following default)."""
+        """Manual sink pick from the dropdown (ignored while
+        following default). Rows map through _dev_choices: the
+        graph sinks plus, possibly, the gone row of the current
+        node (picking that one is a no-op, it IS the choice).
+        No model surgery here: this runs INSIDE the dropdown's
+        own notify::selected emission, and set_model there tears
+        the model the widget still walks -- a segfault in the
+        field. A stale gone row is reconciled at idle, after the
+        emission unwinds."""
         if self._dev_guard or self.follow_btn.get_active():
             return
         i = self.device_dd.get_selected()
-        if 0 <= i < len(self.sinks):
-            self.node = self.sinks[i]["name"]
-            self._load_profile(self.store.binding_for(self.node) or CLEAN_ID)
+        if not (0 <= i < len(self._dev_choices or [])):
+            return
+        node, desc = self._dev_choices[i]
+        if node == self.node:
+            return
+        self.node = node
+        self._node_desc = desc.replace(" -- gone", "")
+        self._reconcile_node()
+        self._load_profile(self.store.binding_for(node) or CLEAN_ID)
+        GLib.idle_add(self._refresh_device_model)
 
     def _on_follow_toggled(self, *_):
         """Follow-default toggled; snap to the current default when turned on."""
@@ -937,11 +980,10 @@ class EqWindow(Adw.ApplicationWindow):
         """PWState refresh: keep the device model current and, with follow
         on and no measure window open, chase the default sink. One poll in
         pipewire feeds this instead of a per-window timer."""
-        prev = [s["name"] for s in self.sinks]
         self.sinks = st.sinks
-        if [s["name"] for s in st.sinks] != prev:
-            self._refresh_device_model()
+        self._refresh_device_model()
         self._maybe_follow(st.default_sink)
+        self._reconcile_node()
         return False
 
     def _maybe_follow(self, default):
@@ -957,6 +999,26 @@ class EqWindow(Adw.ApplicationWindow):
         if (self.follow_btn.get_active() and default
                 and default != self.node):
             self._select_device(default, load=True)
+
+    def _reconcile_node(self):
+        """The panel belongs to its node: alive or Unavailable.
+        The pinned selection survives the node's death -- the
+        panel is the profile's home, and edits keep landing in
+        the metadata under the node's name; the WP hook delivers
+        them on reconnect. Only the meters stop: a capture on a
+        vanished node is a tap on a removed pipe."""
+        alive = bool(self.node) and any(
+            s["name"] == self.node for s in self.sinks)
+        self._set_node_gone(bool(self.node) and not alive)
+
+    def _set_node_gone(self, gone):
+        if gone == self._node_gone:
+            return
+        self._node_gone = gone
+        self.header_note.set_text(
+            "The output device is gone" if gone else "")
+        self.header_note.set_visible(gone)
+        self._update_meter()
 
     # ---- slots / working profile body -------------------------------------
     def _slot(self, ch):
@@ -1680,7 +1742,8 @@ class EqWindow(Adw.ApplicationWindow):
         chains fresh and its lifecycle matched to window visibility and the
         selected device. The capture holds the sink awake, so it runs only
         while the window is mapped."""
-        want = bool(self.live and self.node and self.get_mapped()
+        want = bool(self.live and self.node
+                    and not self._node_gone and self.get_mapped()
                     and pipewire.meter_available())
         if want and self._meter is None:
             try:
