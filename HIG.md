@@ -66,6 +66,32 @@ deciding eye must be yours.
   decide the rule: toasts for outcomes of actions, labels for
   standing state?
 
+## The auditor
+
+Three tiers, honestly delimited. Tier one is the GATE:
+perdeviceeq/hig.py holds mechanical rules that run
+deterministically over a widget tree -- each finding names the
+rule, the path, and a suggested replacement.
+tools/hig_audit.py walks the LIVE widgets under a display
+(xvfb in CI); the rules themselves are pure dicts-in,
+findings-out and stay under test with no GTK in sight. Tier two
+is EVIDENCE: the CI screenshot rig (lands with the CI day)
+renders each surface to PNG artifacts so every merge request
+carries pictures, and a pixel diff flags unintended drift. Tier
+three is JUDGMENT: taste calls like dense-grid-vs-rows have no
+mechanical judge -- GNOME reviews Circle apps with human eyes,
+and so do we. The tiers connect by a RATCHET: every judgment
+call this file settles gets minted into a tier-one rule, so the
+gate grows stricter with every dispute instead of re-arguing it.
+
+Rules on the floor today: H1 linked means facets of one control;
+H2 an action group anchors to an edge; H3 flat needs a
+structured container; H4 an icon-only button describes itself;
+H5 spacing sits on the 6px grid; H6 dialog buttons name the
+action. H1-H3 are the .pdeq sprint's earned rules; H4-H6 are the
+HIG's own letter. Run: `xvfb-run -a python3 tools/hig_audit.py
+--peq-view`.
+
 ## Process
 
 Top to bottom, one item per sitting; each contested item gets a
