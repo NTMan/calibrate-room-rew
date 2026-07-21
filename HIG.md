@@ -76,8 +76,22 @@ deciding eye must be yours.
 - Dialogs: Adw.AlertDialog everywhere -- borrowed. Audit the
   button labels against HIG verb rules (no Yes/No, name the
   action).
-- Measurement window: [Mikhail] full separate walk -- it grew
-  fast and was never audited.
+- Measurement window, round one (three field findings):
+  the Takes fold snapped while the main cards breathe -- a
+  self-made per-row visibility toggle where the borrowed
+  grammar is the Revealer; it now folds through the same
+  200 ms slide as CollapsibleCard, and its face declares
+  card-header for rule H3. The calibration buttons read set
+  and unset apart at a glance: a chosen file wears its capsule
+  letter, a check mark and its name, with the path and the cal
+  sha16 in the tooltip -- the same fingerprint the rig block
+  records. The mic pickers stay Gtk.DropDown with native
+  chrome: this is a form body, not a row-as-control, and flat
+  here is exactly what rule H3 exists to catch; the settled
+  TARGET is row grammar -- Profile name, Measurement mic and
+  Calibration as one boxed group -- in a dedicated round.
+  [Mikhail] confirm round one by screenshot; round two is the
+  boxed group.
 - Toasts vs status labels: the wizard uses both. [Mikhail]
   decide the rule: toasts for outcomes of actions, labels for
   standing state?
