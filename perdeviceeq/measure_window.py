@@ -290,12 +290,13 @@ class MeasureWindow(Adw.Window):
                            or ["(no sources found)"])]
         self.source_dd = Gtk.DropDown.new_from_strings(names)
         self.source_dd.set_valign(Gtk.Align.CENTER)
+        self.source_dd.add_css_class("flat")
         self.source_dd.connect("notify::selected", self._on_source_changed)
         self._tame_scroll(self.source_dd)
-        self.source_dd.set_hexpand(True)
         mic_controls.append(self.source_dd)
         self.chan_dd = Gtk.DropDown.new_from_strings(["Mono", "Stereo"])
         self.chan_dd.set_valign(Gtk.Align.CENTER)
+        self.chan_dd.add_css_class("flat")
         self.chan_dd.set_tooltip_text("Capsules on the rig; a UMIK-1 is "
                                       "mono even if it enumerates as "
                                       "stereo")
@@ -1294,7 +1295,7 @@ class MeasureWindow(Adw.Window):
         for i in range(self.mic_ch):
             btn = Gtk.Button(label="%s cal…" % labels[i])
             btn.set_valign(Gtk.Align.CENTER)
-            btn.set_hexpand(True)
+            btn.add_css_class("flat")
             btn.set_tooltip_text("Calibration for the rig's %s capture "
                                  "channel; its RAW/HEQ/IDF/HPN domain is "
                                  "the compensation" % labels[i])

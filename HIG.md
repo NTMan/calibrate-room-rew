@@ -90,8 +90,16 @@ deciding eye must be yours.
   here is exactly what rule H3 exists to catch; the settled
   TARGET is row grammar -- Profile name, Measurement mic and
   Calibration as one boxed group -- in a dedicated round.
-  [Mikhail] confirm round one by screenshot; round two is the
-  boxed group.
+  Round one confirmed in the field (fold, walls, cal marks,
+  EQ range in sight).
+- Measurement window, round two: the mic and calibration
+  blocks join the Profile name row's grammar -- AdwActionRow
+  with title and subtitle, the dropdowns and cal buttons as
+  flat suffixes, exactly the Sound-settings shape the
+  round-one verdict named. The auditor's ratchet: Adw rows
+  join _BARS as the second legal home for flat chrome (a
+  suffix inside a boxed row IS the row's own control).
+  [Mikhail] confirm by screenshot.
 - Toasts vs status labels: the wizard uses both. [Mikhail]
   decide the rule: toasts for outcomes of actions, labels for
   standing state?

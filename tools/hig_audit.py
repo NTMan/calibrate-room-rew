@@ -28,7 +28,10 @@ from gi.repository import Gtk, Adw  # noqa: E402
 sys.path.insert(0, ".")
 from perdeviceeq import hig  # noqa: E402
 
-_BARS = ("GtkHeaderBar", "AdwHeaderBar", "GtkActionBar")
+_BARS = ("GtkHeaderBar", "AdwHeaderBar", "GtkActionBar",
+         # the bench's second legal home for flat chrome: a
+         # suffix inside a boxed row IS the row's own control
+         "AdwActionRow", "AdwEntryRow", "AdwExpanderRow")
 
 _ALIGN = {Gtk.Align.FILL: "fill", Gtk.Align.START: "start",
           Gtk.Align.CENTER: "center", Gtk.Align.END: "end"}
