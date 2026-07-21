@@ -796,11 +796,34 @@ class MeasureWindow(Adw.Window):
         self._sync_cal_labels()
 
     def _sync_cal_labels(self):
+        """Set and unset must read apart at a glance (field
+        finding): a chosen file wears its capsule letter, a
+        check mark and its name, and the tooltip carries the
+        path plus the cal sha16 -- the same fingerprint the
+        profile's rig block records. Unset stays an ellipsis
+        invitation and says the capsule runs raw."""
         labels = self._mic_labels()
         for i in range(self.mic_ch):
             path = self.cal.get(i)
-            self.cal_btns[i].set_label(
-                os.path.basename(path) if path else "%s cal…" % labels[i])
+            btn = self.cal_btns[i]
+            if not path:
+                btn.set_label("%s cal…" % labels[i])
+                btn.set_tooltip_text(
+                    "No calibration file -- the %s capture "
+                    "channel runs raw" % labels[i])
+                continue
+            btn.set_label("%s \u2713 %s"
+                          % (labels[i], os.path.basename(path)))
+            tip = path
+            try:
+                import hashlib
+                with open(path, "rb") as f:
+                    sha = hashlib.sha256(f.read()).hexdigest()
+                tip += ("\nsha256 %s -- the profile's rig "
+                        "fingerprint records this" % sha[:16])
+            except OSError:
+                pass
+            btn.set_tooltip_text(tip)
 
     def _selected_source(self):
         i = self.source_dd.get_selected()
