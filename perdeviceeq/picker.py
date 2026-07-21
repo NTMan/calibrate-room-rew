@@ -3,9 +3,12 @@
 window.
 
 Both headers carry the same widget with the same doctrine: the
-picker mirrors the graph, but the current node is always listed
--- marked "-- gone" when the graph lost it -- so the selection
-never dangles. Rebuilds RESTORE the selection; only a user pick
+picker mirrors the graph, but the current node is always
+listed, even when the graph lost it, so the selection never
+dangles. The row itself stays clean: the WINDOW names the gone
+state (the banner under the main header, the ring note in
+Measure); naming it twice was field-vetoed. Rebuilds RESTORE
+the selection; only a user pick
 or an explicit select() moves it. Letting GtkDropDown default to
 row 0 after a rebuild is what once painted a foreign sink over a
 pinned panel when the pinned sink died.
@@ -26,9 +29,6 @@ segfault); user picks defer their reconciliation to idle,
 after the emission unwinds.
 """
 
-GONE = " -- gone"
-
-
 class PickerCore:
     """Rows, placement and pick semantics, GTK-free."""
 
@@ -40,7 +40,7 @@ class PickerCore:
     def set_sinks(self, sinks):
         """Adopt a fresh graph snapshot; while the node is alive
         its desc follows the graph (renames), while it is gone
-        the last known desc is kept for the gone row."""
+        the last known desc keeps its row readable."""
         self.sinks = list(sinks)
         self.desc = next((s["desc"] for s in self.sinks
                           if s["name"] == self.node), self.desc)
@@ -60,12 +60,13 @@ class PickerCore:
         return any(s["name"] == name for s in self.sinks)
 
     def rows(self):
-        """The visible rows: the graph, plus the gone row of the
-        current node when the graph lost it (always at the top,
-        like the Measure picker minted it)."""
+        """The visible rows: the graph, plus the current node
+        when the graph lost it (kept at the top, like the
+        Measure picker minted it; no suffix -- the window
+        already names the gone state)."""
         rows = [(s["name"], s["desc"]) for s in self.sinks]
         if self.node and all(n != self.node for n, _ in rows):
-            rows.insert(0, (self.node, self.desc + GONE))
+            rows.insert(0, (self.node, self.desc))
         return rows
 
     def index_of(self, name, rows=None):
@@ -77,16 +78,16 @@ class PickerCore:
         """Resolve a user pick of row i AGAINST THE ROWS THE
         MODEL WAS BUILT FROM (the widget may lag the graph
         between a pick and its idle reconciliation). Returns
-        (node, clean desc) for a real move, None for out of
-        range or for re-picking the current node -- the gone row
-        IS the current choice, so picking it is a no-op."""
+        (node, desc) for a real move, None for out of range or
+        for re-picking the current node -- a gone row IS the
+        current choice, so picking it is a no-op."""
         rows = self.rows() if rows is None else rows
         if not (0 <= i < len(rows)):
             return None
         node, desc = rows[i]
         if node == self.node:
             return None
-        return node, desc.replace(GONE, "")
+        return node, desc
 
 
 class SinkPicker:

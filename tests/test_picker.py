@@ -1,10 +1,11 @@
 """PickerCore: the shared sink-picker doctrine, GTK-free.
 
 The selection never dangles: the current node is always among
-the rows, marked "-- gone" when the graph lost it; placement
+the rows even when the graph lost it (no suffix: the window
+names the gone state); placement
 restores, only a pick moves; picks resolve against the rows the
 widget was built from, not against a fresher graph."""
-from perdeviceeq.picker import GONE, PickerCore
+from perdeviceeq.picker import PickerCore
 
 
 def _s(name, desc=None):
@@ -29,7 +30,7 @@ def test_rows_mirror_the_graph():
 def test_gone_row_tops_the_list_and_keeps_the_desc():
     c = _core([_s("a", "A"), _s("b", "B")], "b")
     c.set_sinks([_s("a", "A")])          # b left the graph
-    assert c.rows()[0] == ("b", "B" + GONE)
+    assert c.rows()[0] == ("b", "B")
     assert c.index_of("b") == 0
     assert not c.alive()
     assert c.alive("a")
@@ -40,7 +41,7 @@ def test_desc_follows_the_graph_while_alive():
     c.set_sinks([_s("a", "new name")])   # the sink was renamed
     assert c.desc == "new name"
     c.set_sinks([])                      # gone: last desc kept
-    assert c.rows() == [("a", "new name" + GONE)]
+    assert c.rows() == [("a", "new name")]
 
 
 def test_pick_moves_strips_and_rejects():
@@ -69,7 +70,7 @@ def test_select_resolves_desc_with_fallback():
     assert c.desc == "B"
     c.set_node("ghost")                  # not listed: keep last
     assert c.desc == "B"
-    assert c.rows()[0] == ("ghost", "B" + GONE)
+    assert c.rows()[0] == ("ghost", "B")
 
 
 # ---- the GTK shell, executed against a stub gi ----------------
@@ -170,7 +171,7 @@ def test_shell_death_moves_onto_the_gone_row(monkeypatch):
     p.refresh([_s("a", "A"), _s("b", "B")])
     p.select("b")
     p.refresh([_s("a", "A")])            # b left the graph
-    assert dd.model.items[0] == "B" + GONE
+    assert dd.model.items[0] == "B"  # clean; the window says gone
     assert dd.get_selected() == 0
     assert picks == []                   # nobody picked anything
 
