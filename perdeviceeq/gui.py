@@ -186,6 +186,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.set_content(b.get_object("content"))
         self.header_bar = b.get_object("header_bar")
         self.header_note = b.get_object("header_note")
+        self.gone_banner = b.get_object("gone_banner")
         self.profile_button = b.get_object("profile_button")
         # the header picker is a suffix in an expander-style
         # row: flat in-row chrome, not a raised pill (HIG
@@ -1015,9 +1016,7 @@ class EqWindow(Adw.ApplicationWindow):
         if gone == self._node_gone:
             return
         self._node_gone = gone
-        self.header_note.set_text(
-            "The output device is gone" if gone else "")
-        self.header_note.set_visible(gone)
+        self.gone_banner.set_revealed(gone)
         self._update_meter()
 
     # ---- slots / working profile body -------------------------------------
