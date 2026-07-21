@@ -61,7 +61,13 @@ deciding eye must be yours.
   [Mikhail] confirm by screenshot.
 - Band actions row (Add band / Replace bands from file): raised
   icon+label buttons, left in one box -- closed by rules 2 and
-  3 this sprint.
+  3 this sprint. Reopened round four on new field evidence: once
+  the pickers went flat everywhere, the pair stood as the last
+  chrome on the card. Verdict: not naked flat (rule 3 holds) --
+  the box declares the toolbar class and the buttons declare
+  flat themselves (round five: the stylesheet's own flattening
+  was not trusted alone). The auditor's ratchet: the toolbar
+  class counts as a bar.
 - Eye toggle (measured curves): icon-only flat in a card corner.
   [Mikhail] against Calendar's icon buttons -- fine as is?
 - Preamp spin + Auto: linked pair -- borrowed (facets of one

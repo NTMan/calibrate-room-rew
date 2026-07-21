@@ -76,7 +76,8 @@ def describe(w, in_bar=False):
     accuses only on evidence."""
     t = _gtype(w)
     css = list(w.get_css_classes())
-    in_bar = in_bar or t in _BARS or "card-header" in css
+    in_bar = (in_bar or t in _BARS or "card-header" in css
+              or "toolbar" in css)
     props = {"css": css,
              "in_bar": in_bar,
              "tooltip": w.get_tooltip_text(),

@@ -398,6 +398,7 @@ class PeqView(Gtk.Box):
             # an icon restores it at rest (the GNOME list-action
             # idiom), without the visual weight of a border
             b = Gtk.Button()
+            b.add_css_class("flat")
             box = Gtk.Box(spacing=6)
             box.append(Gtk.Image.new_from_icon_name(icon))
             box.append(Gtk.Label(label=label))
@@ -405,6 +406,11 @@ class PeqView(Gtk.Box):
             return b
         acts = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
                        spacing=6, halign=Gtk.Align.START)
+        # the toolbar class is the lawful home for flat here:
+        # the container declares the idiom and rule H3 has a
+        # bar to point at; flat is ALSO declared on the buttons
+        # (belt: stylesheet flattening is not trusted alone)
+        acts.add_css_class("toolbar")
         addb = _action("list-add-symbolic", "Add band")
         addb.connect("clicked", self._on_add)
         acts.append(addb)
