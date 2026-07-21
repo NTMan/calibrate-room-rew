@@ -39,6 +39,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Gio, GLib, Gdk, Adw, Pango
 
 from . import __version__, config, eq, pipewire, integration
+from .picker import SinkPicker
 from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE, UI_STATE_FILE,
                      UI_FILE_CANDIDATES)
 from .peq_view import CollapsibleCard, PeqView
@@ -136,9 +137,6 @@ class EqWindow(Adw.ApplicationWindow):
         self._save_source = 0
         self._loading = False
         self.sinks = []
-        self._dev_guard = False
-        self._dev_choices = None
-        self._node_desc = ""
         self._node_gone = False
         self._pw = pipewire.app_state()
         self._pw_unsub = None
@@ -275,9 +273,9 @@ class EqWindow(Adw.ApplicationWindow):
         self.sep_switch.connect("notify::active", self._on_link)
         self.bypass_row.connect("notify::active", self._on_bypass)
         self.profile_button.connect("notify::active", self._on_picker_toggle)
-        self.device_dd.connect("notify::selected", self._on_device_changed)
         self.follow_btn.connect("toggled", self._on_follow_toggled)
 
+        self.picker = SinkPicker(self.device_dd, self._on_sink_pick)
         self._init_devices()
         self.current_pid = self.store.binding_for(self.node) or CLEAN_ID
         # apply=True primes the session metadata key for the startup device.
@@ -892,83 +890,32 @@ class EqWindow(Adw.ApplicationWindow):
         self.sinks = pipewire.list_sinks(dump)
         default = next((s["name"] for s in self.sinks if s["default"]), None)
         self.node = default or (self.sinks[0]["name"] if self.sinks else None)
-        self._node_desc = next((s["desc"] for s in self.sinks
-                                if s["name"] == self.node), "")
-        self._refresh_device_model()
+        self.picker.refresh(self.sinks)
+        self.picker.select(self.node)
         self.device_dd.set_sensitive(not self.follow_btn.get_active())
-
-    def _refresh_device_model(self):
-        """The header picker mirrors the graph, but the current
-        node is always listed -- marked gone when the graph lost
-        it -- so the selection never dangles (the measure
-        picker's doctrine). The model is rebuilt only when the
-        choices changed; the PLACEMENT is unconditional, so a
-        caller that moved self.node gets its row restored even
-        when the list is the same. Letting GtkDropDown default
-        to row 0 is what painted a foreign sink over the panel
-        when the pinned sink died. Never called from inside the
-        picker's own notify::selected emission -- set_model
-        there tears the model the widget still walks (field
-        segfault); the pick handler defers to idle instead."""
-        choices = [(s["name"], s["desc"]) for s in self.sinks]
-        if self.node and all(n != self.node for n, _ in choices):
-            choices.insert(0, (self.node,
-                               "%s -- gone" % self._node_desc))
-        if choices != self._dev_choices:
-            self._dev_choices = choices
-            self._dev_guard = True
-            try:
-                model = Gtk.StringList()
-                for _, d in choices:
-                    model.append(d)
-                self.device_dd.set_model(model)
-            finally:
-                self._dev_guard = False
-        idx = next((i for i, (n, _) in enumerate(choices)
-                    if n == self.node), -1)
-        if idx >= 0 and self.device_dd.get_selected() != idx:
-            self._dev_guard = True
-            try:
-                self.device_dd.set_selected(idx)
-            finally:
-                self._dev_guard = False
 
     def _select_device(self, name, load=True):
         """Programmatically select a sink; optionally load its
         bound profile. The single door for moving the selection
-        from code: a rebuild restores, only this moves."""
+        from code -- the picker restores on rebuilds, only this
+        (and a user pick) moves it."""
         self.node = name
-        self._node_desc = next((s["desc"] for s in self.sinks
-                                if s["name"] == name),
-                               self._node_desc)
-        self._refresh_device_model()
+        self.picker.select(name)
         self._reconcile_node()
         if load:
             self._load_profile(self.store.binding_for(name) or CLEAN_ID)
 
-    def _on_device_changed(self, *_):
-        """Manual sink pick from the dropdown (ignored while
-        following default). Rows map through _dev_choices: the
-        graph sinks plus, possibly, the gone row of the current
-        node (picking that one is a no-op, it IS the choice).
-        No model surgery here: this runs INSIDE the dropdown's
-        own notify::selected emission, and set_model there tears
-        the model the widget still walks -- a segfault in the
-        field. A stale gone row is reconciled at idle, after the
-        emission unwinds."""
-        if self._dev_guard or self.follow_btn.get_active():
-            return
-        i = self.device_dd.get_selected()
-        if not (0 <= i < len(self._dev_choices or [])):
-            return
-        node, desc = self._dev_choices[i]
-        if node == self.node:
-            return
+    def _on_sink_pick(self, node, desc):
+        """A user pick from the shared picker (vetoed while
+        following: the dropdown is insensitive then, this is the
+        second lock on the same door). Runs inside the picker's
+        emission, so no model work happens here -- the shell
+        reconciles itself at idle."""
+        if self.follow_btn.get_active():
+            return False
         self.node = node
-        self._node_desc = desc.replace(" -- gone", "")
         self._reconcile_node()
         self._load_profile(self.store.binding_for(node) or CLEAN_ID)
-        GLib.idle_add(self._refresh_device_model)
 
     def _on_follow_toggled(self, *_):
         """Follow-default toggled; snap to the current default when turned on."""
@@ -982,7 +929,7 @@ class EqWindow(Adw.ApplicationWindow):
         on and no measure window open, chase the default sink. One poll in
         pipewire feeds this instead of a per-window timer."""
         self.sinks = st.sinks
-        self._refresh_device_model()
+        self.picker.refresh(st.sinks)
         self._maybe_follow(st.default_sink)
         self._reconcile_node()
         return False

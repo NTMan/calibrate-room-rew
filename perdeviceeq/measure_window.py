@@ -27,6 +27,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Gdk, Adw       # noqa: E402
 
 from . import config, pipewire, measure_build       # noqa: E402
+from .picker import SinkPicker                       # noqa: E402
 from . import measure_core as mc                    # noqa: E402
 from . import measure_session as ms                 # noqa: E402
 from . import measure_prefs                         # noqa: E402
@@ -240,13 +241,10 @@ class MeasureWindow(Adw.Window):
         # arrive with the profile's own home; this switches to
         # any other route without losing the sitting.
         self.sink_dd = b.get_object("sink_dd")
-        self._sink_choices = []
-        # connect BEFORE the first refresh: handler_block_by_func
-        # raises on a handler that was never connected (field
-        # crash), and the refresh blocks it around the initial
-        # set_model/set_selected anyway, so nothing fires early
-        self.sink_dd.connect("notify::selected", self._on_sink_dd)
+        self.picker = SinkPicker(self.sink_dd, self._on_sink_pick,
+                                 ellipsis=34)
         self._tame_scroll(self.sink_dd)
+        self.picker.select(self.sink_node, self.sink_desc)
         self._refresh_sinks_from(self._pw)
         self.center = b.get_object("status")
         self.warning = b.get_object("warning")
@@ -1194,31 +1192,18 @@ class MeasureWindow(Adw.Window):
         return False
 
     def _refresh_sinks_from(self, st):
-        """The header picker mirrors the graph. The target sink is
-        always listed -- marked gone when the graph lost it -- so
-        the selection never dangles and Unavailable stays
-        readable in the picker too."""
-        choices = [(s["name"], s["desc"]) for s in st.sinks]
-        if all(n != self.sink_node for n, _ in choices):
-            choices.insert(0, (self.sink_node,
-                               "%s -- gone" % self.sink_desc))
-        if choices == self._sink_choices:
-            return
-        self._sink_choices = choices
-        names = [(d if len(d) <= 34 else d[:33] + "\u2026")
-                 for _, d in choices]
-        self.sink_dd.handler_block_by_func(self._on_sink_dd)
-        self.sink_dd.set_model(Gtk.StringList.new(names))
-        idx = next((i for i, (n, _) in enumerate(choices)
-                    if n == self.sink_node), 0)
-        self.sink_dd.set_selected(idx)
-        self.sink_dd.handler_unblock_by_func(self._on_sink_dd)
+        """The shared picker mirrors the graph; the doctrine
+        (the target sink always listed, gone when the graph
+        lost it, the selection never dangling) lives in
+        picker.py now, one implementation for both windows."""
+        self.picker.refresh(st.sinks)
 
-    def _on_sink_dd(self, *_):
-        i = self.sink_dd.get_selected()
-        if not (0 <= i < len(self._sink_choices)):
-            return
-        node, desc = self._sink_choices[i]
+    def _on_sink_pick(self, node, desc):
+        """A user pick from the shared picker; vetoed while a
+        sweep runs (the dropdown is insensitive then, this is
+        the second lock on the same door)."""
+        if self._busy:
+            return False
         self._retarget(node, desc)
 
     def _retarget(self, node, desc):
@@ -1241,14 +1226,15 @@ class MeasureWindow(Adw.Window):
             self._entered = False
         self.session = None
         self.sink_node = node
-        self.sink_desc = desc.replace(" -- gone", "")
+        self.sink_desc = desc
+        self.picker.select(node, desc)
         try:
             self._persist_mic()          # the new home learns the rig
         except Exception:
             pass
         self._ensure_session(arm=False, quiet=True)
         self._refresh_volume()
-        self._on_pw_state(self._pw)
+        GLib.idle_add(self._on_pw_state, self._pw)
         self._refresh_all()
         self._update_pult()
 
