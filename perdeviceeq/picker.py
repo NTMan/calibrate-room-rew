@@ -119,16 +119,22 @@ class SinkPicker:
         self._ellipsis = ellipsis
         self._shown = None       # rows the visible model shows
         self._guard = False
+        self._in_pick = False    # delivering on_pick right now
+        self._sync_queued = False
         self.dd.connect("notify::selected", self._on_selected)
 
     def refresh(self, sinks):
-        """Adopt a fresh graph snapshot and mirror it."""
+        """Adopt a fresh graph snapshot and mirror it. Legal
+        from any context: called while the pick is being
+        delivered, the mirror lands at idle."""
         self.core.set_sinks(sinks)
         self._sync()
 
     def select(self, name, desc=None):
         """Move the selection from code -- the one legal mover
-        besides a user pick."""
+        besides a user pick. Legal from any context: called
+        while the pick is being delivered (a retarget does),
+        the mirror lands at idle."""
         self.core.set_node(name, desc)
         self._sync()
 
@@ -138,11 +144,30 @@ class SinkPicker:
             return d[:e - 1] + "\u2026"
         return d
 
+    def _queue_sync(self):
+        if not self._sync_queued:
+            self._sync_queued = True
+            self._GLib.idle_add(self._idle_sync)
+
+    def _idle_sync(self):
+        self._sync_queued = False
+        self._sync()             # _in_pick is False at idle
+
     def _sync(self):
         """Mirror the core: rebuild the model only when the rows
         changed, place the selection unconditionally. GTK resets
         a fresh model's selection to row 0 -- the placement is
-        what keeps that reset from ever becoming the choice."""
+        what keeps that reset from ever becoming the choice.
+        While a pick is being delivered the mirror is deferred:
+        set_model inside the dropdown's own notify::selected
+        emission tears down the model the widget is still
+        walking (three field segfaults now), and on_pick may
+        legitimately walk back in through select() -- a Measure
+        retarget does. The latch makes the doors safe by
+        construction instead of by every caller's memory."""
+        if self._in_pick:
+            self._queue_sync()
+            return
         rows = self.core.rows()
         if rows != self._shown:
             self._shown = rows
@@ -169,8 +194,13 @@ class SinkPicker:
         if hit is None:
             return
         node, desc = hit
-        if self.on_pick(node, desc) is False:     # vetoed
-            self._GLib.idle_add(self._sync)       # snap back
+        self._in_pick = True
+        try:
+            vetoed = self.on_pick(node, desc) is False
+        finally:
+            self._in_pick = False
+        if vetoed:
+            self._queue_sync()            # snap back at idle
             return
         self.core.set_node(node, desc)
-        self._GLib.idle_add(self._sync)   # a stale gone row melts
+        self._queue_sync()        # a stale gone row melts at idle

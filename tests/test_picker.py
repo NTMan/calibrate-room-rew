@@ -97,15 +97,24 @@ class FakeDropDown:
         self.selected = INVALID
         self.set_model_calls = 0
         self._handlers = []
+        self._emitting = 0
 
     def connect(self, _sig, cb):
         self._handlers.append(cb)
 
     def _emit(self):
-        for cb in list(self._handlers):
-            cb(self, None)
+        self._emitting += 1
+        try:
+            for cb in list(self._handlers):
+                cb(self, None)
+        finally:
+            self._emitting -= 1
 
     def set_model(self, model):
+        # model surgery inside the widget's own emission is the
+        # segfault (three field crashes); the fake refuses it so
+        # every shell test enforces the invariant
+        assert not self._emitting, "set_model inside emission"
         self.model = model
         self.set_model_calls += 1
         new = 0 if model.items else INVALID
@@ -114,6 +123,7 @@ class FakeDropDown:
             self._emit()          # GTK's reset-to-row-0
 
     def set_selected(self, i):
+        assert not self._emitting, "set_selected inside emission"
         if i != self.selected:
             self.selected = i
             self._emit()
@@ -125,7 +135,7 @@ class FakeDropDown:
         self.set_selected(i)
 
 
-def _shell(monkeypatch, veto=False, ellipsis=None):
+def _shell(monkeypatch, veto=False, ellipsis=None, on_pick=None):
     idle = []
     glib = types.SimpleNamespace(
         idle_add=lambda fn, *a: idle.append((fn, a)))
@@ -142,6 +152,8 @@ def _shell(monkeypatch, veto=False, ellipsis=None):
 
     def cb(node, desc):
         picks.append((node, desc))
+        if on_pick is not None:
+            return on_pick(node, desc)
         if veto:
             return False
 
@@ -207,3 +219,29 @@ def test_shell_clips_like_the_measure_picker(monkeypatch):
     p.refresh([_s("a", "ABCDEFGH")])
     p.select("a")
     assert dd.model.items == ["ABCDE\u2026"]
+
+
+def test_shell_doors_are_safe_inside_the_pick(monkeypatch):
+    """The field crash: a Measure retarget calls picker.select()
+    from inside on_pick (the dropdown's own emission), and the
+    gone-to-live move changes the rows -- the mirror must land
+    at idle, never inside the emission (the strict fake raises
+    on any surgery there)."""
+    box = {}
+
+    def retarget(node, desc):
+        box["picker"].select(node, desc)   # what _retarget does
+
+    p, dd, picks, idle = _shell(monkeypatch, on_pick=retarget)
+    box["picker"] = p
+    p.refresh([_s("a", "A"), _s("b", "B")])
+    p.select("b")
+    p.refresh([_s("a", "A")])            # b gone: rows [b, a]
+    calls = dd.set_model_calls
+    dd.user_pick(1)                      # retarget to a
+    assert picks == [("a", "A")]
+    assert p.core.node == "a"
+    assert dd.set_model_calls == calls   # nothing in the emission
+    _run_idle(idle)
+    assert dd.model.items == ["A"]       # the gone row melted
+    assert dd.get_selected() == 0

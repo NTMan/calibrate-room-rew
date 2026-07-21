@@ -1227,6 +1227,10 @@ class MeasureWindow(Adw.Window):
         self.session = None
         self.sink_node = node
         self.sink_desc = desc
+        # legal even when the retarget arrives through a pick:
+        # the shell defers its mirror to idle (the synchronous
+        # select here is what segfaulted the gone-to-live
+        # retarget in the field)
         self.picker.select(node, desc)
         try:
             self._persist_mic()          # the new home learns the rig
