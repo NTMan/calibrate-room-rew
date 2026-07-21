@@ -50,36 +50,36 @@ USER_TARGET_DIR = os.path.join(CONFIG_DIR, "export-targets")
 FILE_WRITERS = ("pdeq", "parametric", "graphiceq",
                 "poweramp")
 HAND_WRITERS = ("fixed",)
+
+# the native page speaks the whole doctrine; the picker row
+# carries one line and this paragraph stays testable
+PDEQ_PAGE_DOCTRINE = (
+    "Device correction only. The taste layer stays separate -- "
+    "baking it in would falsify the package's own fit "
+    "provenance, and the receiving per-device-eq has a taste "
+    "layer of its own. Foreign targets get taste baked in "
+    "precisely because they cannot reconstruct it.")
 WRITERS = FILE_WRITERS + HAND_WRITERS
 
 BUILTIN_TARGETS = [
     {"id": "pdeq", "name": "per-device-eq package",
      "writer": "pdeq", "ext": ".pdeq",
-     "note": "Device correction only. The taste layer stays "
-             "separate -- baking it in would falsify the "
-             "package's own fit provenance, and the receiving "
-             "per-device-eq has a taste layer of its own. "
-             "Foreign targets get taste baked in precisely "
-             "because they cannot reconstruct it."},
+     "note": "correction only, lossless -- taste stays yours;"
+             " the receiver applies its own"},
     {"id": "peq-text",
      "name": "Parametric EQ text",
-     "note": "AutoEq style; REW, EqualizerAPO and device apps"
-             " import it (Qudelix 5K takes 10 bands) -- set the"
-             " band budget below",
+     "note": "AutoEq style -- REW, EqualizerAPO, device apps;"
+             " band budget on the page",
      "writer": "parametric", "ext": ".txt"},
     {"id": "graphiceq",
      "name": "GraphicEQ text (EqualizerAPO / Wavelet)",
-     "note": "the exact AutoEq GraphicEQ line: EqualizerAPO"
-             " includes it, Wavelet imports the file as-is (level"
-             " renormalized by the app), the JamesDSP family"
-             " reads it too",
+     "note": "the AutoEq GraphicEQ line -- EqualizerAPO,"
+             " Wavelet, JamesDSP read it as-is",
      "writer": "graphiceq", "ext": ".txt", "bare": True},
     {"id": "vendor-graphic",
      "name": "Vendor graphic EQ",
-     "note": "hand-set vendor sliders -- a coarse instrument:"
-             " few bands, guessed octave bells, stepped gains."
-             " It exists because iOS offers no system EQ; expect"
-             " residual, the plot shows it honestly",
+     "note": "hand-set vendor sliders -- coarse: few bands,"
+             " stepped gains (iOS has no system EQ)",
      "writer": "fixed", "ext": ".txt",
      "centers": [100.0, 200.0, 400.0, 800.0, 1600.0, 3200.0,
                  6400.0, 12800.0],
@@ -103,8 +103,8 @@ BUILTIN_TARGETS = [
      ]},
     {"id": "poweramp",
      "name": "Poweramp Equalizer",
-     "note": "Android; parametric preset JSON, per-band left/right"
-             " channels -- true stereo, no collapse",
+     "note": "Android; parametric JSON, per-band L/R --"
+             " true stereo, no collapse",
      "writer": "poweramp", "ext": ".json",
      "gain_range": [-15.0, 15.0], "q_range": [0.1, 12.0],
      "freq_range": [20.0, 24000.0],

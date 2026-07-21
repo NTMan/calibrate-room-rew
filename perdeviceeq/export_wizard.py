@@ -268,6 +268,11 @@ class ExportDialog(Adw.Dialog):
             ll.add_css_class("dim-label")
             ll.set_text("Target limits: " + lim)
             box.append(ll)
+        if target["writer"] == "pdeq":
+            doc = Gtk.Label(xalign=0, wrap=True)
+            doc.add_css_class("dim-label")
+            doc.set_text(xp.PDEQ_PAGE_DOCTRINE)
+            box.append(doc)
         st["taste"] = True
         rows = Adw.PreferencesGroup()
         got_rows = False

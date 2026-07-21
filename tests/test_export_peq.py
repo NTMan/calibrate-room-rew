@@ -966,7 +966,8 @@ def test_native_package_row_takes_rank_zero():
     t = targets[0]
     assert t["id"] == "pdeq" and t["ext"] == ".pdeq"
     assert t["writer"] in ex.FILE_WRITERS
-    assert "taste layer stays" in t["note"]
+    assert "taste stays yours" in t["note"]
+    assert "falsify" in ex.PDEQ_PAGE_DOCTRINE
     chains = [("FL", -6.0, []), ("FR", -6.0, [])]
     score, flag, reasons = ex.audit_target(
         t, chains, ex.log_grid(20.0, 20000.0, 60))
