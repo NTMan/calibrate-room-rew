@@ -32,17 +32,33 @@ deciding eye must be yours.
   history pattern). Sink dropdown + pin toggle: [Mikhail]
   compare against Adw.SplitButton and the Settings device
   pickers; is the pin discoverable?
-- Device card / Taste card shells: hand-built Gtk.Box cards.
-  [Mikhail] compare against Adw.PreferencesGroup with boxed
-  lists -- do we adopt the boxed-list look, or is the graph too
-  wide for it?
+- Device card / Taste card shells: SETTLED (the pickers-vs-
+  Sound round). Settings' row is flat because the row IS the
+  control -- one action per strip; our header multiplexes two
+  (collapse + pick), and the GNOME grammar for a multiplexed
+  header is the expander row: arrow at the end, the whole strip
+  toggles, suffix controls keep their own clicks.
+  CollapsibleCard already carried that grammar; the one delta
+  was chrome, and the header pickers now wear flat in-row style
+  (the suffix idiom). Raised was never a sin -- Sound's own
+  Test... button is raised -- it was compensating for the wrong
+  container. Ratchet: the card header is a structured container
+  for rule H3 (css card-header -> in_bar). The graph stays in a
+  card, not a boxed list -- too wide, deliberately.
+  [Mikhail] confirm by screenshot.
 - FL / FR selector: linked ToggleButtons of equal size --
   borrowed (segmented control; rule 1 satisfied, uniform grid).
-- Band table: dense Gtk.Grid of DropDown + SpinButtons.
-  [Mikhail] the HIG answer is a boxed list of Adw.SpinRow, one
-  band per row -- taller, calmer, but the density is the point
-  of this table. Decide: keep the dense grid as a deliberate
-  exception, or go rows.
+- Band table: SETTLED (the table-of-controls round). The
+  dense grid stays, a deliberate exception -- density is the
+  point, and EasyEffects is the libadwaita-world precedent for
+  exactly this widget. Two clarifications made it easy: HIG
+  flatness is about buttons and pickers, never about entry-like
+  controls (spins carry chrome by nature, like Sound's own
+  sliders), and Settings' Search list IS a table of controls --
+  its grammar, state then a vertical separator then the action,
+  is borrowed verbatim: the band row now draws a separator
+  between On and the delete blade.
+  [Mikhail] confirm by screenshot.
 - Band actions row (Add band / Replace bands from file): raised
   icon+label buttons, left in one box -- closed by rules 2 and
   3 this sprint.
