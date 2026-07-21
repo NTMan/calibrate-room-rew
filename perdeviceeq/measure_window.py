@@ -277,10 +277,9 @@ class MeasureWindow(Adw.Window):
         for side in ("start", "end", "bottom"):
             getattr(fa, "set_margin_" + side)(10)
         fa.set_margin_top(6)
-        fit_row = Gtk.ListBoxRow()
-        fit_row.set_activatable(False)
-        fit_row.set_child(fa)
-        self._page["takes_list"].append(fit_row)
+        # always in sight: the range lives on the card, below
+        # the fold -- only the take rows tuck away
+        self._page["card"].append(fa)
 
     def _build_mic_controls(self, mic_controls, cal_controls):
         # the dropdown's widest label IS the window's minimum width;
@@ -484,8 +483,8 @@ class MeasureWindow(Adw.Window):
         self._takes_open = True
         self._page = {"title": title, "header": header,
                       "summary": summary, "takes_list": lb,
-                      "takes_rev": rev, "chevron": chev,
-                      "take_rows": []}
+                      "takes_rev": rev, "card": card,
+                      "chevron": chev, "take_rows": []}
         return col
 
     def _on_takes_face(self, *_):
