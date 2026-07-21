@@ -259,6 +259,10 @@ class MeasureWindow(Adw.Window):
         ring_host.set_spacing(12)
         ring_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                            spacing=6)
+        # the ring centers in the space RIGHT of the fader, and
+        # the status line below shares that axis (its lead bin
+        # is size-grouped with the fader)
+        ring_col.set_hexpand(True)
         ring_col.append(self._build_ring())
         self.ready_hint = Gtk.Label(xalign=0.5)
         self.ready_hint.add_css_class("success")
@@ -269,8 +273,14 @@ class MeasureWindow(Adw.Window):
             "best version.")
         self.ready_hint.set_visible(False)
         ring_col.append(self.ready_hint)
-        ring_host.append(self._vol_col)  # slider, auto-level, state
+        self.vol_spin.set_valign(Gtk.Align.START)
+        ring_host.append(self.vol_spin)  # pinned to the left edge
         ring_host.append(ring_col)
+        lead = b.get_object("status_lead")
+        lead.append(self.relevel_btn)
+        sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        sg.add_widget(self.vol_spin)
+        sg.add_widget(lead)
         self._rebuild_map_slots()
 
         b.get_object("channel_host").append(self._build_page())
@@ -350,24 +360,22 @@ class MeasureWindow(Adw.Window):
         # The mics live INSIDE the ring now, where the volume used
         # to sit: capsule-to-speaker mapping is spatial information,
         # so it belongs in the spatial widget.
-        map_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                          spacing=10)
-        map_row.set_halign(Gtk.Align.CENTER)
-        map_row.append(self.map_left_slot)
-        map_row.append(self.map_right_slot)
-        center_box.append(map_row)
-
-        pult = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        pult.set_halign(Gtk.Align.CENTER)
+        # the invisible grid made visible to the code: two
+        # column axes shared by the mic icons, the capsule
+        # pickers and the transport -- nothing floats between
+        # the columns
+        self._center_grid = Gtk.Grid()
+        self._center_grid.set_halign(Gtk.Align.CENTER)
+        self._center_grid.set_row_spacing(6)
+        self._center_grid.set_column_spacing(10)
+        self._center_grid.set_column_homogeneous(True)
         self.play_btn = self._pult_btn(
             "media-playback-start-symbolic",
             "Measure the selected channel", self._on_play)
         self.stop_btn = self._pult_btn(
             "media-playback-stop-symbolic", "Stop the sweep", self._on_stop)
         self.stop_btn.set_sensitive(False)
-        pult.append(self.play_btn)
-        pult.append(self.stop_btn)
-        center_box.append(pult)
+        center_box.append(self._center_grid)
         self.ring.put(center_box, SPEAKER, int(RING / 2 - 56))
         self._center_box = center_box
         # The gone note lives in the disc's EMPTY top arc, so its
@@ -399,7 +407,7 @@ class MeasureWindow(Adw.Window):
         self.vol_spin.set_draw_value(True)
         self.vol_spin.set_value_pos(Gtk.PositionType.BOTTOM)
         self.vol_spin.set_digits(0)
-        self.vol_spin.set_size_request(-1, RING - 72)
+        self.vol_spin.set_size_request(-1, RING)
         self.vol_spin.set_tooltip_text(
             "Sweep playback level (%). Auto-level sets it; drag to "
             "override if it misses.")
@@ -410,11 +418,6 @@ class MeasureWindow(Adw.Window):
             "Measure the playback level now (probe sweeps only)",
             self._on_relevel)
         self.relevel_btn.set_halign(Gtk.Align.CENTER)
-        self._vol_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
-                                spacing=6)
-        self._vol_col.set_valign(Gtk.Align.CENTER)
-        self._vol_col.append(self.vol_spin)
-        self._vol_col.append(self.relevel_btn)
         return self.ring
 
     def _pult_btn(self, icon, tip, cb):
@@ -1316,12 +1319,22 @@ class MeasureWindow(Adw.Window):
         self._sync_cal_labels()
 
     def _rebuild_map_slots(self):
+        g = self._center_grid
+        child = g.get_first_child()
+        while child:
+            nxt = child.get_next_sibling()
+            g.remove(child)
+            child = nxt
         for slot in (self.map_left_slot, self.map_right_slot):
             child = slot.get_first_child()
             while child:
                 nxt = child.get_next_sibling()
                 slot.remove(child)
                 child = nxt
+        for b in (self.play_btn, self.stop_btn):
+            parent = b.get_parent()
+            if parent is not None:
+                parent.remove(b)
         self.map_dds = {}
         if self.n_ch == 2 and self.mic_ch == 2:
             for k, slot in ((0, self.map_left_slot),
@@ -1339,7 +1352,23 @@ class MeasureWindow(Adw.Window):
                 col.append(icon)            # picker under the mic:
                 col.append(dd)              # a column fits the ring
                 slot.append(col)
+                slot.set_halign(Gtk.Align.CENTER)
                 self.map_dds[k] = dd
+            g.attach(self.map_left_slot, 0, 0, 1, 1)
+            g.attach(self.map_right_slot, 1, 0, 1, 1)
+            self.play_btn.set_halign(Gtk.Align.CENTER)
+            self.stop_btn.set_halign(Gtk.Align.CENTER)
+            g.attach(self.play_btn, 0, 1, 1, 1)
+            g.attach(self.stop_btn, 1, 1, 1, 1)
+        else:
+            # no column axes to honor: the transport rides as
+            # a centered pair, exactly as before
+            pult = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                           spacing=6)
+            pult.set_halign(Gtk.Align.CENTER)
+            pult.append(self.play_btn)
+            pult.append(self.stop_btn)
+            g.attach(pult, 0, 0, 1, 1)
 
     def _make_map_cb(self, k):
         def cb(dd, _p):

@@ -129,6 +129,19 @@ deciding eye must be yours.
   own rows carry a control beside a button); our split was
   width plus the Capsules warning earning a subtitle of its
   own, not a prohibition.
+- Measurement window, rounds four and five (field review): the
+  ring's transport hung centered BETWEEN the column axes -- the
+  center now lives on a real Gtk.Grid, two column axes shared
+  by mic icons, capsule pickers, play and stop (mono keeps the
+  centered pair). The card's macro layout follows the field
+  spec: the volume fader holds the card's left edge at ring
+  height, the auto-level button joins the status line (its lead
+  bin size-grouped with the fader), and ring plus status center
+  together in the space right of the fader -- one axis, no
+  card-versus-ring drift. And an empty fold promises nothing:
+  the chevron is born hidden, arrives with the first take and
+  leaves with the last (round five caught the fresh-session
+  gap the refresh path missed).
 - Toasts vs status labels: the wizard uses both. [Mikhail]
   decide the rule: toasts for outcomes of actions, labels for
   standing state?
