@@ -457,6 +457,11 @@ class MeasureWindow(Adw.Window):
         trow.append(header)
         chev = Gtk.Image.new_from_icon_name("pan-up-symbolic")
         chev.set_valign(Gtk.Align.CENTER)
+        # born hidden: a fresh session opens with zero takes and
+        # _refresh_takes is not called until something changes
+        # (field round five caught the gap), so the initial
+        # state must not promise a fold either
+        chev.set_visible(False)
         trow.append(chev)
         face.append(trow)
         face.append(summary)
@@ -484,6 +489,8 @@ class MeasureWindow(Adw.Window):
         return col
 
     def _on_takes_face(self, *_):
+        if not self._page["take_rows"]:
+            return
         self._takes_open = not self._takes_open
         self._page["chevron"].set_from_icon_name(
             "pan-up-symbolic" if self._takes_open
@@ -1008,6 +1015,9 @@ class MeasureWindow(Adw.Window):
             lb.append(row)
             self._page["take_rows"].append(row)
         lb.set_visible(bool(takes))
+        # an empty fold has nothing to promise: the chevron
+        # leaves with the takes instead of wagging at nothing
+        self._page["chevron"].set_visible(bool(takes))
         self._refresh_summary(ch, takes)
 
     def _refresh_summary(self, ch, takes):
