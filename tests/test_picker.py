@@ -70,3 +70,139 @@ def test_select_resolves_desc_with_fallback():
     c.set_node("ghost")                  # not listed: keep last
     assert c.desc == "B"
     assert c.rows()[0] == ("ghost", "B" + GONE)
+
+
+# ---- the GTK shell, executed against a stub gi ----------------
+# The fake dropdown mimics the one GTK behavior that caused the
+# field bug: set_model resets the selection to row 0 and emits.
+
+import sys
+import types
+
+INVALID = 4294967295
+
+
+class FakeStringList:
+    def __init__(self):
+        self.items = []
+
+    def append(self, s):
+        self.items.append(s)
+
+
+class FakeDropDown:
+    def __init__(self):
+        self.model = None
+        self.selected = INVALID
+        self.set_model_calls = 0
+        self._handlers = []
+
+    def connect(self, _sig, cb):
+        self._handlers.append(cb)
+
+    def _emit(self):
+        for cb in list(self._handlers):
+            cb(self, None)
+
+    def set_model(self, model):
+        self.model = model
+        self.set_model_calls += 1
+        new = 0 if model.items else INVALID
+        if new != self.selected:
+            self.selected = new
+            self._emit()          # GTK's reset-to-row-0
+
+    def set_selected(self, i):
+        if i != self.selected:
+            self.selected = i
+            self._emit()
+
+    def get_selected(self):
+        return self.selected
+
+    def user_pick(self, i):
+        self.set_selected(i)
+
+
+def _shell(monkeypatch, veto=False, ellipsis=None):
+    idle = []
+    glib = types.SimpleNamespace(
+        idle_add=lambda fn, *a: idle.append((fn, a)))
+    gtk = types.SimpleNamespace(StringList=FakeStringList)
+    repo = types.ModuleType("gi.repository")
+    repo.Gtk, repo.GLib = gtk, glib
+    gi = types.ModuleType("gi")
+    gi.repository = repo
+    monkeypatch.setitem(sys.modules, "gi", gi)
+    monkeypatch.setitem(sys.modules, "gi.repository", repo)
+    from perdeviceeq.picker import SinkPicker
+    dd = FakeDropDown()
+    picks = []
+
+    def cb(node, desc):
+        picks.append((node, desc))
+        if veto:
+            return False
+
+    return SinkPicker(dd, cb, ellipsis=ellipsis), dd, picks, idle
+
+
+def _run_idle(idle):
+    while idle:
+        fn, a = idle.pop(0)
+        fn(*a)
+
+
+def test_shell_rebuild_restores_selection_not_row0(monkeypatch):
+    p, dd, picks, idle = _shell(monkeypatch)
+    p.refresh([_s("a", "A"), _s("b", "B")])
+    p.select("b")
+    assert dd.get_selected() == 1
+    # the graph grows; GTK resets a fresh model to row 0 -- the
+    # placement must take the choice back (the field bug)
+    p.refresh([_s("a", "A"), _s("b", "B"), _s("c", "C")])
+    assert dd.get_selected() == 1
+    assert picks == []
+
+
+def test_shell_death_moves_onto_the_gone_row(monkeypatch):
+    p, dd, picks, idle = _shell(monkeypatch)
+    p.refresh([_s("a", "A"), _s("b", "B")])
+    p.select("b")
+    p.refresh([_s("a", "A")])            # b left the graph
+    assert dd.model.items[0] == "B" + GONE
+    assert dd.get_selected() == 0
+    assert picks == []                   # nobody picked anything
+
+
+def test_shell_pick_defers_all_model_surgery(monkeypatch):
+    p, dd, picks, idle = _shell(monkeypatch)
+    p.refresh([_s("a", "A"), _s("b", "B")])
+    p.select("b")
+    p.refresh([_s("a", "A")])            # gone-b tops the list
+    calls = dd.set_model_calls
+    dd.user_pick(1)                      # the user picks a
+    assert picks == [("a", "A")]
+    assert p.core.node == "a"
+    assert dd.set_model_calls == calls   # none inside the emission
+    _run_idle(idle)
+    assert dd.model.items == ["A"]       # the gone row melted
+    assert dd.get_selected() == 0
+
+
+def test_shell_veto_snaps_the_row_back(monkeypatch):
+    p, dd, picks, idle = _shell(monkeypatch, veto=True)
+    p.refresh([_s("a", "A"), _s("b", "B")])
+    p.select("b")
+    dd.user_pick(0)
+    assert picks == [("a", "A")]
+    assert p.core.node == "b"            # the core did not move
+    _run_idle(idle)
+    assert dd.get_selected() == 1        # the row snapped back
+
+
+def test_shell_clips_like_the_measure_picker(monkeypatch):
+    p, dd, picks, idle = _shell(monkeypatch, ellipsis=6)
+    p.refresh([_s("a", "ABCDEFGH")])
+    p.select("a")
+    assert dd.model.items == ["ABCDE\u2026"]

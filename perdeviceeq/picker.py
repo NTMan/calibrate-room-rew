@@ -87,3 +87,89 @@ class PickerCore:
         if node == self.node:
             return None
         return node, desc.replace(GONE, "")
+
+
+class SinkPicker:
+    """The GTK shell around a GtkDropDown, one per window.
+
+    The shell owns every touch of the widget's model. refresh()
+    and select() are the windows' two doors, legal from poll,
+    idle and construction -- never from inside the dropdown's
+    own notify::selected emission (set_model there tears down
+    the model the widget is still walking; a field segfault).
+    User picks arrive through that emission, so the shell does
+    no model work in it: the pick is resolved against the rows
+    snapshot the visible model was built from, handed to the
+    window's on_pick, and the widget is reconciled at idle,
+    after the emission unwinds. on_pick returning False is a
+    veto: the core does not move and the row snaps back."""
+
+    def __init__(self, dropdown, on_pick, ellipsis=None):
+        # gi arrives here, not at module scope: the core above
+        # stays importable in the GTK-less test sandbox (the
+        # pipewire.py rule), and by construction time the app
+        # has long loaded gi with its versions required.
+        from gi.repository import Gtk, GLib
+        self._Gtk = Gtk
+        self._GLib = GLib
+        self.core = PickerCore()
+        self.dd = dropdown
+        self.on_pick = on_pick
+        self._ellipsis = ellipsis
+        self._shown = None       # rows the visible model shows
+        self._guard = False
+        self.dd.connect("notify::selected", self._on_selected)
+
+    def refresh(self, sinks):
+        """Adopt a fresh graph snapshot and mirror it."""
+        self.core.set_sinks(sinks)
+        self._sync()
+
+    def select(self, name, desc=None):
+        """Move the selection from code -- the one legal mover
+        besides a user pick."""
+        self.core.set_node(name, desc)
+        self._sync()
+
+    def _clip(self, d):
+        e = self._ellipsis
+        if e and len(d) > e:
+            return d[:e - 1] + "\u2026"
+        return d
+
+    def _sync(self):
+        """Mirror the core: rebuild the model only when the rows
+        changed, place the selection unconditionally. GTK resets
+        a fresh model's selection to row 0 -- the placement is
+        what keeps that reset from ever becoming the choice."""
+        rows = self.core.rows()
+        if rows != self._shown:
+            self._shown = rows
+            self._guard = True
+            try:
+                model = self._Gtk.StringList()
+                for _, d in rows:
+                    model.append(self._clip(d))
+                self.dd.set_model(model)
+            finally:
+                self._guard = False
+        idx = self.core.index_of(self.core.node, rows)
+        if idx >= 0 and self.dd.get_selected() != idx:
+            self._guard = True
+            try:
+                self.dd.set_selected(idx)
+            finally:
+                self._guard = False
+
+    def _on_selected(self, *_):
+        if self._guard:
+            return
+        hit = self.core.pick(self.dd.get_selected(), self._shown)
+        if hit is None:
+            return
+        node, desc = hit
+        if self.on_pick(node, desc) is False:     # vetoed
+            self._GLib.idle_add(self._sync)       # snap back
+            return
+        self.core.set_node(node, desc)
+        self._GLib.idle_add(self._sync)   # a stale gone row melts
