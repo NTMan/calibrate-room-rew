@@ -444,7 +444,7 @@ class MeasureWindow(Adw.Window):
         # included; a click anywhere on the face folds the take
         # rows underneath.
         lb = Gtk.ListBox()
-        lb.add_css_class("boxed-list")
+        lb.set_show_separators(True)
         lb.set_selection_mode(Gtk.SelectionMode.NONE)
         face = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                        spacing=6)
@@ -470,14 +470,17 @@ class MeasureWindow(Adw.Window):
         click.set_button(1)
         click.connect("released", self._on_takes_face)
         face.add_controller(click)
-        col.append(face)
         rev = Gtk.Revealer()
         rev.set_transition_type(
             Gtk.RevealerTransitionType.SLIDE_DOWN)
         rev.set_transition_duration(200)
         rev.set_reveal_child(True)
         rev.set_child(lb)
-        col.append(rev)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        card.add_css_class("card")
+        card.append(face)
+        card.append(rev)
+        col.append(card)
         self._takes_open = True
         self._page = {"title": title, "header": header,
                       "summary": summary, "takes_list": lb,
@@ -786,13 +789,20 @@ class MeasureWindow(Adw.Window):
         if prof and prof.get("node_match"):
             idx = next((k for k, s in enumerate(self.sources)
                         if s["name"] == prof["node_match"]), None)
+        if prof:
+            # cal BEFORE the dropdown: set_selected fires the
+            # source-change handler synchronously, and
+            # _persist_mic must never see an empty self.cal
+            # while a remembered rig exists (the field wipe).
+            # Restore every stored capsule, not range(mic_ch)
+            # -- the channel count may not be restored yet.
+            for k, path in (prof.get("cal") or {}).items():
+                try:
+                    self.cal[int(k)] = path
+                except (TypeError, ValueError):
+                    pass
         if idx is not None:
             self.source_dd.set_selected(idx)
-        if prof:
-            for i in range(self.mic_ch):
-                path = prof.get("cal", {}).get(str(i))
-                if path:
-                    self.cal[i] = path
         self._sync_cal_labels()
 
     def _sync_cal_labels(self):
@@ -1712,6 +1722,11 @@ class MeasureWindow(Adw.Window):
         cal = {str(i): p for i, p in self.cal.items() if p}
         if not cal and existing is None:
             return
+        if not cal and existing:
+            # never downgrade a remembered rig to
+            # calibration-less because a change handler fired
+            # before the cals were in RAM
+            cal = dict(existing.get("cal") or {})
         body = {"name": src["desc"], "node_match": src["name"],
                 "serial": ((existing or {}).get("serial", "")
                            or measure_prefs.serial_from_cal(cal.values())),
