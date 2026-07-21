@@ -111,7 +111,18 @@ deciding eye must be yours.
   (check mark and file name, or "runs raw"), a flat
   Choose/Change button as the suffix, path and cal sha16 in
   the row tooltip. No suffix is ever wider than its title
-  again. [Mikhail] confirm by screenshot.
+  again. Confirmed in the field on both rig shapes: the
+  stereo E.A.R.S renders L and R calibration rows, the mono
+  UMIK-1 a single Mono calibration row; the vertical cost was
+  accepted, the column had the headroom. The bench's answer
+  to "may one row hold several picker controls": the HIG has
+  no such ban. The rules that actually bit were narrower --
+  a ComboRow IS one choice by construction (the row is the
+  control), and a suffix must never out-grow its title. Two
+  modest suffix controls in one ActionRow stay legal (Sound's
+  own rows carry a control beside a button); our split was
+  width plus the Capsules warning earning a subtitle of its
+  own, not a prohibition.
 - Toasts vs status labels: the wizard uses both. [Mikhail]
   decide the rule: toasts for outcomes of actions, labels for
   standing state?
