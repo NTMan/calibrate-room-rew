@@ -44,3 +44,25 @@ def test_list_sources_skips_nameless_source():
     dump = [{"type": "PipeWire:Interface:Node", "id": 7,
              "info": {"props": {"media.class": "Audio/Source"}}}]
     assert pipewire.list_sources(dump) == []
+
+
+def test_monitor_capture_pins_the_tap(monkeypatch):
+    """The meter tap must die with its pipe, never wander to the
+    default (field catch: a card-profile fork died and was reborn
+    between two polls; WirePlumber re-parented the orphaned
+    capture onto the default sink and the meter danced to another
+    device's music)."""
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, cmd, **kw):
+            seen["cmd"] = cmd
+            self.stdout = None
+
+    monkeypatch.setattr(pipewire.subprocess, "Popen", FakePopen)
+    pipewire.monitor_capture("some.sink", 2, 48000)
+    cmd = seen["cmd"]
+    props = cmd[cmd.index("-P") + 1]
+    assert "node.dont-reconnect = true" in props
+    assert "stream.capture.sink = true" in props
+    assert cmd[cmd.index("--target") + 1] == "some.sink"

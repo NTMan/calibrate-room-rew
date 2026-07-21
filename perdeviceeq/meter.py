@@ -119,6 +119,12 @@ class MeterEngine:
                                         daemon=True)
         self._thread.start()
 
+    def alive(self):
+        """The capture worker is running. False after the tap died
+        with its pipe (node.dont-reconnect) so the owner can
+        re-arm on the next beat instead of trusting a corpse."""
+        return self._thread is not None and self._thread.is_alive()
+
     def stop(self):
         self._stop.set()
         if self._proc is not None:

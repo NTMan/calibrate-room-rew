@@ -932,6 +932,12 @@ class EqWindow(Adw.ApplicationWindow):
         self.picker.refresh(st.sinks)
         self._maybe_follow(st.default_sink)
         self._reconcile_node()
+        # the meter heartbeat: a tap that died with its pipe
+        # (node.dont-reconnect) re-arms on the next poll even
+        # when nothing else changed -- a profile fork can die
+        # and be reborn between two polls, invisibly to the
+        # gone machinery
+        self._update_meter()
         return False
 
     def _maybe_follow(self, default):
@@ -1700,7 +1706,8 @@ class EqWindow(Adw.ApplicationWindow):
             self._meter = MeterEngine(self._publish_meter)
         if self._meter is None:
             return
-        restart = want and self._meter_node != self.node
+        restart = want and (self._meter_node != self.node
+                            or not self._meter.alive())
         if restart:
             self._meter.stop()      # never swap a running worker's count
         pre, chains = self._meter_chains()

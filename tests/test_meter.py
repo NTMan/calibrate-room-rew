@@ -176,3 +176,23 @@ def test_count_changing_swap_is_deferred_to_restart():
     assert frames and all(len(f["peaks_db"]) == 1 for f in frames)
     eng.stop()                                  # clears state
     assert eng.n_channels == 2                  # pending survived for restart
+
+
+def test_alive_follows_the_worker():
+    """alive() is the owner's view of the tap: False before start
+    and after the worker ended (the tap died with its pipe), so
+    the GUI re-arms instead of trusting a corpse."""
+    eng = MeterEngine(lambda frame: None)
+    assert not eng.alive()
+
+    class FakeThread:
+        def __init__(self, up):
+            self._up = up
+
+        def is_alive(self):
+            return self._up
+
+    eng._thread = FakeThread(True)
+    assert eng.alive()
+    eng._thread = FakeThread(False)
+    assert not eng.alive()
