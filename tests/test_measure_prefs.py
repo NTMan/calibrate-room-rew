@@ -135,3 +135,32 @@ def test_serial_from_cal_reads_the_unit_identity():
     assert f(["L_RAW_8603052_20260714.txt",
               "R_RAW_8603052.txt"]) == "8603052"
     assert f([]) == "" and f([None, ""]) == ""
+
+
+def test_mic_memory_survives_a_card_profile_switch(paths):
+    """Field regression: one USB DAC appeared under three sink
+    names as its ALSA profile changed, and the rig memory looked
+    wiped on each new name. The exact key must win, a sibling on
+    the same card stem must answer otherwise, and writes must go
+    to the exact key so the fork heals under the new name."""
+    m = mp.MeasureMemory()
+    hifi = "alsa_output.usb-Generic_USB_Audio-00.HiFi__Speaker__sink"
+    seven = "alsa_output.usb-Generic_USB_Audio-00.HiFi_7_1__Speaker__sink"
+    fresh = "alsa_output.usb-Generic_USB_Audio-00.analog-stereo"
+    m.remember(hifi, mic_profile="ears")
+    # the fresh profile name has no entry -- the sibling answers
+    assert mp.MeasureMemory().mic_for(fresh) == "ears"
+    # an exact entry always beats the sibling
+    m.remember(seven, mic_profile="umik")
+    assert mp.MeasureMemory().mic_for(seven) == "umik"
+    assert mp.MeasureMemory().mic_for(hifi) == "ears"
+    # learning under the fresh name writes the exact key
+    m2 = mp.MeasureMemory()
+    m2.remember(fresh, mic_profile="ears")
+    assert m2.state[fresh]["mic_profile"] == "ears"
+    # a different card never borrows this rig
+    assert mp.MeasureMemory().mic_for(
+        "alsa_output.pci-0000_00_1f.3.analog-stereo") is None
+    # and bluez keys fall back across their trailing instance too
+    m2.remember("bluez_output.F4_9D.1", mic_profile="ears")
+    assert mp.MeasureMemory().mic_for("bluez_output.F4_9D.2") == "ears"

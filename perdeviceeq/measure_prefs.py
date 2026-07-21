@@ -162,7 +162,30 @@ class MeasureMemory:
         return e if isinstance(e, dict) else {}
 
     def mic_for(self, sink):
-        return self.for_sink(sink).get("mic_profile")
+        """The sink's remembered mic -- with a sibling fallback.
+
+        A sink's node name encodes the card's ALSA profile
+        (...HiFi__Speaker__sink vs ...HiFi_7_1__Speaker__sink vs
+        ...analog-stereo are ONE device), so switching the card
+        profile forks the identity and would orphan the rig
+        memory (field data loss: the cals "disappeared" after a
+        profile switch). Exact key wins; otherwise the first
+        sibling on the same card stem answers. remember() still
+        writes the exact key, so a fork heals itself on first
+        use under the new name."""
+        e = self.for_sink(sink)
+        if "mic_profile" in e:
+            return e.get("mic_profile")
+        stem = (sink or "").rsplit(".", 1)[0]
+        if not stem:
+            return None
+        for key, entry in self.state.items():
+            if (key != sink
+                    and key.rsplit(".", 1)[0] == stem
+                    and isinstance(entry, dict)
+                    and entry.get("mic_profile")):
+                return entry["mic_profile"]
+        return None
 
     def volume_for(self, sink, source):
         """The last good auto-level volume for this sink+source pair, or
