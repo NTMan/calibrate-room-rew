@@ -35,6 +35,11 @@
         </child>
       </object>
     </child>
+    <child type="top">
+      <object class="AdwBanner" id="gone_banner">
+        <property name="title" translatable="yes">The output device is gone</property>
+      </object>
+    </child>
     <child>
       <object class="AdwMultiLayoutView" id="mlv">
 

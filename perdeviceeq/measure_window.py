@@ -240,6 +240,7 @@ class MeasureWindow(Adw.Window):
         # profiles arrive with the main window's sink; edits
         # arrive with the profile's own home; this switches to
         # any other route without losing the sitting.
+        self.gone_banner = b.get_object("gone_banner")
         self.sink_dd = b.get_object("sink_dd")
         self.picker = SinkPicker(self.sink_dd, self._on_sink_pick,
                                  ellipsis=34)
@@ -1284,12 +1285,14 @@ class MeasureWindow(Adw.Window):
         self.relevel_btn.set_sensitive(not gone)
         self._set_ring_sensitive(not gone)
         self._disc.queue_draw()          # the red edge follows
+        # the banner names the state (the main window's words);
+        # the warning keeps only what the banner cannot carry
+        self.gone_banner.set_revealed(gone)
         if gone:
             self._warn(
-                "The output device is gone -- its channel "
-                "configuration changed, or it was unplugged. Bring "
-                "it back to keep measuring; you can still save what "
-                "you have measured.")
+                "Its channel configuration changed, or it was "
+                "unplugged. Bring it back to keep measuring; you "
+                "can still save what you have measured.")
         else:
             self._warn("")
             self._refresh_all()
