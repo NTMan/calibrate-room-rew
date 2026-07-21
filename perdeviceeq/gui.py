@@ -945,10 +945,17 @@ class EqWindow(Adw.ApplicationWindow):
         return False
 
     def _maybe_follow(self, default):
-        # freeze following while the measure window is open, so it cannot
-        # diverge from the sink being measured
+        """Following works even while a measurement window is
+        open (field verdict). Playback and measurement are not
+        coupled: finalize binds by the measure window's OWN sink
+        node, so the main window moving with the system default
+        cannot corrupt the result. The old freeze bought no
+        correctness and set a trap instead -- following resumed
+        only on the NEXT default change, so after closing the
+        measurement the app could sit on yesterday's sink until
+        the default was toggled again by hand."""
         if (self.follow_btn.get_active() and default
-                and default != self.node and self._measure_win is None):
+                and default != self.node):
             self._select_device(default, load=True)
 
     # ---- slots / working profile body -------------------------------------
@@ -2033,8 +2040,8 @@ class EqWindow(Adw.ApplicationWindow):
         self._measure_win.present()
 
     def _on_measure_closed(self, win, *_):
-        """Drop the reference when the measure window closes so following
-        resumes. Compare identity: during a retarget the old window closes
+        """Drop the reference when the measure window closes.
+        Compare identity: during a retarget the old window closes
         after the new one is stored, and must not clear it. Also re-apply
         the current device's bound profile so the shown profile and the
         applied EQ match -- measuring or switching can leave the previous
