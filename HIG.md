@@ -99,7 +99,19 @@ deciding eye must be yours.
   round-one verdict named. The auditor's ratchet: Adw rows
   join _BARS as the second legal home for flat chrome (a
   suffix inside a boxed row IS the row's own control).
-  [Mikhail] confirm by screenshot.
+  Field verdict: revised -- the wide suffixes crushed the
+  title column into hyphenation (Calibrat-ion is the tell),
+  and GtkDropDown ignores the flat class, so the pickers
+  kept their chrome. The _BARS ratchet stands.
+- Measurement window, round three: Sound's actual grammar is
+  the ComboRow -- the row IS the picker, flat by birth, the
+  selected value ellipsized by the row itself. Measurement
+  mic and Capsules become AdwComboRows; Calibration becomes
+  one ActionRow per capsule with the state in the subtitle
+  (check mark and file name, or "runs raw"), a flat
+  Choose/Change button as the suffix, path and cal sha16 in
+  the row tooltip. No suffix is ever wider than its title
+  again. [Mikhail] confirm by screenshot.
 - Toasts vs status labels: the wizard uses both. [Mikhail]
   decide the rule: toasts for outcomes of actions, labels for
   standing state?

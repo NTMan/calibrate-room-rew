@@ -166,29 +166,15 @@
               </object>
             </child>
             <child>
-              <object class="AdwActionRow" id="mic_row">
-                <property name="activatable">false</property>
+              <object class="AdwComboRow" id="source_row">
                 <property name="title" translatable="yes">Measurement mic</property>
                 <property name="subtitle" translatable="yes">Input the sweep is captured on</property>
-                <child type="suffix">
-                  <object class="GtkBox" id="mic_controls">
-                    <property name="spacing">6</property>
-                    <property name="valign">center</property>
-                  </object>
-                </child>
               </object>
             </child>
             <child>
-              <object class="AdwActionRow" id="cal_row">
-                <property name="activatable">false</property>
-                <property name="title" translatable="yes">Calibration</property>
-                <property name="subtitle" translatable="yes">Mic calibration file per capsule</property>
-                <child type="suffix">
-                  <object class="GtkBox" id="cal_controls">
-                    <property name="spacing">6</property>
-                    <property name="valign">center</property>
-                  </object>
-                </child>
+              <object class="AdwComboRow" id="chan_row">
+                <property name="title" translatable="yes">Capsules</property>
+                <property name="subtitle" translatable="yes">A UMIK-1 is mono even if it enumerates as stereo</property>
               </object>
             </child>
           </object>

@@ -247,8 +247,9 @@ class MeasureWindow(Adw.Window):
         self.name_row.set_text(
             (self.edit_prof or {}).get("name") or self.sink_desc)
 
-        self._build_mic_controls(b.get_object("mic_controls"),
-                                 b.get_object("cal_controls"))
+        self._build_mic_controls(b.get_object("source_row"),
+                                 b.get_object("chan_row"),
+                                 b.get_object("mic_group"))
 
         self.map_left_slot = Gtk.Box()
         self.map_left_slot.set_valign(Gtk.Align.CENTER)
@@ -281,29 +282,23 @@ class MeasureWindow(Adw.Window):
         # the fold -- only the take rows tuck away
         self._page["card"].append(fa)
 
-    def _build_mic_controls(self, mic_controls, cal_controls):
-        # the dropdown's widest label IS the window's minimum width;
-        # long ALSA descriptions get an ellipsis, the full name lives
-        # in the mic memory and the tooltips
+    def _build_mic_controls(self, source_row, chan_row, mic_group):
+        # the row IS the picker (AdwComboRow); the popup shows
+        # the full name, the row ellipsizes the selected one --
+        # the ellipsis cap stays so a monster ALSA description
+        # never dictates the window's minimum width
         names = [(n if len(n) <= 34 else n[:33] + "\u2026")
                  for n in ([s["desc"] for s in self.sources]
                            or ["(no sources found)"])]
-        self.source_dd = Gtk.DropDown.new_from_strings(names)
-        self.source_dd.set_valign(Gtk.Align.CENTER)
-        self.source_dd.add_css_class("flat")
+        self.source_dd = source_row
+        self.source_dd.set_model(Gtk.StringList.new(names))
         self.source_dd.connect("notify::selected", self._on_source_changed)
         self._tame_scroll(self.source_dd)
-        mic_controls.append(self.source_dd)
-        self.chan_dd = Gtk.DropDown.new_from_strings(["Mono", "Stereo"])
-        self.chan_dd.set_valign(Gtk.Align.CENTER)
-        self.chan_dd.add_css_class("flat")
-        self.chan_dd.set_tooltip_text("Capsules on the rig; a UMIK-1 is "
-                                      "mono even if it enumerates as "
-                                      "stereo")
+        self.chan_dd = chan_row
+        self.chan_dd.set_model(Gtk.StringList.new(["Mono", "Stereo"]))
         self.chan_dd.connect("notify::selected", self._on_chan_changed)
         self._tame_scroll(self.chan_dd)
-        mic_controls.append(self.chan_dd)  # one row: mic + capsules
-        self.cal_controls = cal_controls
+        self.mic_group = mic_group
         self._recompute_mic()
         self._rebuild_cal_row()
 
@@ -806,24 +801,26 @@ class MeasureWindow(Adw.Window):
         self._sync_cal_labels()
 
     def _sync_cal_labels(self):
-        """Set and unset must read apart at a glance (field
-        finding): a chosen file wears its capsule letter, a
-        check mark and its name, and the tooltip carries the
-        path plus the cal sha16 -- the same fingerprint the
-        profile's rig block records. Unset stays an ellipsis
-        invitation and says the capsule runs raw."""
+        """Set and unset must read apart at a glance: the row's
+        subtitle wears the check mark and the chosen file's
+        name, the button flips Choose/Change, and the row's
+        tooltip carries the path plus the cal sha16 -- the same
+        fingerprint the profile's rig block records. Unset says
+        plainly that the capture channel runs raw."""
         labels = self._mic_labels()
-        for i in range(self.mic_ch):
+        for i, row in enumerate(getattr(self, "cal_rows", [])):
             path = self.cal.get(i)
             btn = self.cal_btns[i]
             if not path:
-                btn.set_label("%s cal…" % labels[i])
-                btn.set_tooltip_text(
-                    "No calibration file -- the %s capture "
-                    "channel runs raw" % labels[i])
+                row.set_subtitle("not set -- the capture "
+                                 "channel runs raw")
+                row.set_tooltip_text(
+                    "Calibration for the rig's %s capture "
+                    "channel; its RAW/HEQ/IDF/HPN domain is "
+                    "the compensation" % labels[i])
+                btn.set_label("Choose\u2026")
                 continue
-            btn.set_label("%s \u2713 %s"
-                          % (labels[i], os.path.basename(path)))
+            row.set_subtitle("\u2713 " + os.path.basename(path))
             tip = path
             try:
                 import hashlib
@@ -833,7 +830,8 @@ class MeasureWindow(Adw.Window):
                         "fingerprint records this" % sha[:16])
             except OSError:
                 pass
-            btn.set_tooltip_text(tip)
+            row.set_tooltip_text(tip)
+            btn.set_label("Change\u2026")
 
     def _selected_source(self):
         i = self.source_dd.get_selected()
@@ -1288,20 +1286,24 @@ class MeasureWindow(Adw.Window):
         return m
 
     def _rebuild_cal_row(self):
-        for btn in getattr(self, "cal_btns", {}).values():
-            self.cal_controls.remove(btn)
+        for row in getattr(self, "cal_rows", []):
+            self.mic_group.remove(row)
+        self.cal_rows = []
         self.cal_btns = {}
         labels = self._mic_labels()
         for i in range(self.mic_ch):
-            btn = Gtk.Button(label="%s cal…" % labels[i])
+            row = Adw.ActionRow()
+            row.set_title("%s calibration" % labels[i])
+            btn = Gtk.Button(label="Choose\u2026")
             btn.set_valign(Gtk.Align.CENTER)
             btn.add_css_class("flat")
-            btn.set_tooltip_text("Calibration for the rig's %s capture "
-                                 "channel; its RAW/HEQ/IDF/HPN domain is "
-                                 "the compensation" % labels[i])
             btn.connect("clicked", self._make_cal_cb(i))
-            self.cal_controls.append(btn)
+            row.add_suffix(btn)
+            row.set_activatable_widget(btn)
+            self.mic_group.add(row)
+            self.cal_rows.append(row)
             self.cal_btns[i] = btn
+        self._sync_cal_labels()
 
     def _rebuild_map_slots(self):
         for slot in (self.map_left_slot, self.map_right_slot):
