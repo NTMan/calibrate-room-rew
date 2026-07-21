@@ -438,10 +438,11 @@ class MeasureWindow(Adw.Window):
         summary.set_content_height(120)
         summary.set_visible(False)
         summary.set_hexpand(True)
-        # The summary IS the accordion's face: the card's first row
-        # shows the channel's result with a chevron on the right --
-        # the Adw look, not Gtk.Expander's corner triangle -- and a
-        # click on it folds the take rows underneath.
+        # The summary IS the accordion's face: the channel's
+        # result with a chevron on the right -- the same expander
+        # grammar as the main window's cards, Revealer breath
+        # included; a click anywhere on the face folds the take
+        # rows underneath.
         lb = Gtk.ListBox()
         lb.add_css_class("boxed-list")
         lb.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -464,27 +465,33 @@ class MeasureWindow(Adw.Window):
         trow.append(chev)
         face.append(trow)
         face.append(summary)
-        face_row = Gtk.ListBoxRow()
-        face_row.set_child(face)
-        lb.append(face_row)
-        lb.connect("row-activated", self._on_takes_face)
-        col.append(lb)
+        face.add_css_class("card-header")
+        click = Gtk.GestureClick()
+        click.set_button(1)
+        click.connect("released", self._on_takes_face)
+        face.add_controller(click)
+        col.append(face)
+        rev = Gtk.Revealer()
+        rev.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_DOWN)
+        rev.set_transition_duration(200)
+        rev.set_reveal_child(True)
+        rev.set_child(lb)
+        col.append(rev)
         self._takes_open = True
         self._page = {"title": title, "header": header,
                       "summary": summary, "takes_list": lb,
-                      "face_row": face_row, "chevron": chev,
+                      "takes_rev": rev, "chevron": chev,
                       "take_rows": []}
         return col
 
-    def _on_takes_face(self, _lb, row):
-        if row is not self._page["face_row"]:
-            return
+    def _on_takes_face(self, *_):
         self._takes_open = not self._takes_open
         self._page["chevron"].set_from_icon_name(
             "pan-up-symbolic" if self._takes_open
             else "pan-down-symbolic")
-        for r in self._page["take_rows"]:
-            r.set_visible(self._takes_open)
+        self._page["takes_rev"].set_reveal_child(
+            self._takes_open)
 
     def _make_curve_draw(self, rec, lo, hi, mean=None, shift=0.0):
         """The take's raw curve; where the (gain-compensated) take
@@ -967,8 +974,7 @@ class MeasureWindow(Adw.Window):
                                       driver=self._spread_driver,
                                       mean=mean,
                                       shift=shifts.get(rec.id, 0.0))
-            row.set_visible(self._takes_open)
-            lb.insert(row, 1 + len(self._page["take_rows"]))
+            lb.append(row)
             self._page["take_rows"].append(row)
         lb.set_visible(bool(takes))
         self._refresh_summary(ch, takes)
