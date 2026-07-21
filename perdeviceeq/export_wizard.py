@@ -251,7 +251,7 @@ class ExportDialog(Adw.Dialog):
     def _target_page(self, target):
         stereo = (target["writer"] == "poweramp"
                   and xp.poweramp_stereo_keys(self.chains))
-        band_domain = target["writer"] in ("parametric", "sheet",
+        band_domain = target["writer"] in ("parametric",
                                            "poweramp")
         choices = (["stereo"] if stereo
                    else xp.collapse_choices(self.chains,
@@ -350,7 +350,7 @@ class ExportDialog(Adw.Dialog):
                 prow.connect("notify::selected", fill)
                 st["preset_name"] = pres[0]["name"]
             got_rows = True
-        if target["writer"] in ("parametric", "sheet"):
+        if target["writer"] == "parametric":
             spin = Adw.SpinRow(
                 title="Band budget",
                 subtitle="0 -- follow the chain / profile",
@@ -507,7 +507,7 @@ class ExportDialog(Adw.Dialog):
                          " range rides as a flat band per"
                          " channel." % spill)
             self._set_status(st, line, worst <= xp.NULL_PASS_DB)
-        elif writer in ("parametric", "sheet"):
+        elif writer == "parametric":
             if "budget" in st:
                 b = int(st["budget"].get_value())
                 if b:
@@ -561,25 +561,13 @@ class ExportDialog(Adw.Dialog):
                 psuf = ("" if perr is None else
                         " Mean by band average, %.2f dB vs the"
                         " true mean." % perr)
-                if writer == "parametric":
-                    text = xp.parametric_text(fg, fbands,
-                                              header=hdr)
-                    err = xp.null_test_parametric(text, nf, ref)
-                    self._set_status(
-                        st, self._null_line(err)
-                        + " Export preamp %+.1f dB." % fg + psuf,
-                        err <= xp.NULL_PASS_DB)
-                else:
-                    text = xp.sheet_text(t, fg, fbands, header=hdr)
-                    rp, rb = xp.rounded_chain(t, fg, fbands)
-                    got = xp.chain_response(rp, rb, nf)
-                    err = max(abs(a - b) for a, b in zip(got, ref))
-                    self._set_status(
-                        st, "Rounding to the target's steps costs"
-                        " max %.2f dB over %s. Export preamp"
-                        " %+.1f dB." % (err, self._band_str(), fg)
-                        + psuf,
-                        err <= xp.NULL_PASS_DB)
+                text = xp.parametric_text(fg, fbands,
+                                          header=hdr)
+                err = xp.null_test_parametric(text, nf, ref)
+                self._set_status(
+                    st, self._null_line(err)
+                    + " Export preamp %+.1f dB." % fg + psuf,
+                    err <= xp.NULL_PASS_DB)
         elif writer == "graphiceq":
             grid = xp.graphic_grid()
             mv = self._measurement_vals(st, taste,
@@ -851,14 +839,8 @@ class ExportDialog(Adw.Dialog):
                                          "" if len(fold) == 1
                                          else "s"))
         ref = xp.chain_response(adj, bands, nf)
-        if writer == "parametric":
-            text = xp.parametric_text(adj, bands, header=hdr)
-            err = xp.null_test_parametric(text, nf, ref)
-        else:
-            text = xp.sheet_text(t, adj, bands, header=hdr)
-            rp, rb = xp.rounded_chain(t, adj, bands)
-            got = xp.chain_response(rp, rb, nf)
-            err = max(abs(a - b) for a, b in zip(got, ref))
+        text = xp.parametric_text(adj, bands, header=hdr)
+        err = xp.null_test_parametric(text, nf, ref)
         unf = ("" if ask <= 0.3 else
                " Unfillable ask %.2f dB above the cap." % rmax)
         ts = " + %d taste" % len(ok) if ok else ""

@@ -49,7 +49,7 @@ USER_TARGET_DIR = os.path.join(CONFIG_DIR, "export-targets")
 # stays complete.
 FILE_WRITERS = ("pdeq", "parametric", "graphiceq",
                 "poweramp")
-HAND_WRITERS = ("fixed", "sheet")
+HAND_WRITERS = ("fixed",)
 WRITERS = FILE_WRITERS + HAND_WRITERS
 
 BUILTIN_TARGETS = [
@@ -109,11 +109,6 @@ BUILTIN_TARGETS = [
      "gain_range": [-15.0, 15.0], "q_range": [0.1, 12.0],
      "freq_range": [20.0, 24000.0],
      "preamp_range": [-12.0, 12.0]},
-    {"id": "hand-peq",
-     "name": "Hand-transfer sheet",
-     "note": "Any parametric EQ entered by hand",
-     "writer": "sheet", "ext": ".txt",
-     "gain_step": 0.1, "q_step": 0.01},
 ]
 
 
@@ -521,58 +516,6 @@ def round_step(v, step):
     if not step:
         return float(v)
     return round(round(float(v) / step) * step, 6)
-
-
-def rounded_chain(target, preamp, bands):
-    """(preamp, bands) with values rounded to the target's steps
-    (gain_step / q_step / freq_step, each optional) -- what the
-    sheet prints, reusable by the wizard to state the rounding cost
-    as a response delta."""
-    gs = target.get("gain_step")
-    qs = target.get("q_step")
-    fs = target.get("freq_step")
-    out = []
-    for b in bands:
-        out.append(dict(b,
-                        freq=round_step(b.get("freq", 0.0), fs),
-                        gain=round_step(b.get("gain", 0.0), gs),
-                        q=round_step(b.get("q", 1.0), qs)))
-    return round_step(preamp, gs), out
-
-
-def sheet_text(target, preamp, bands, header=()):
-    """The hand-transfer sheet: one readable table of the chain,
-    values rounded to the target's steps, preamp on top."""
-    rp, rb = rounded_chain(target, preamp,
-                           [b for b in bands
-                            if b.get("enabled", True)])
-    gd = _step_decimals(target.get("gain_step"))
-    qd = _step_decimals(target.get("q_step"))
-    lines = list(header)
-    lines.append("")
-    lines.append("Preamp: %+.*f dB" % (gd, rp))
-    lines.append("")
-    lines.append(" #  %-10s  %9s  %9s  %7s"
-                 % ("Type", "Freq [Hz]", "Gain [dB]", "Q"))
-    for i, b in enumerate(rb, 1):
-        lines.append("%2d  %-10s  %9g  %+9.*f  %7.*f"
-                     % (i, _TYPE_NAMES.get(b["type"], b["type"]),
-                        b["freq"], gd, b["gain"], qd, b["q"]))
-    steps = []
-    if target.get("gain_step"):
-        steps.append("gain %g dB" % target["gain_step"])
-    if target.get("q_step"):
-        steps.append("Q %g" % target["q_step"])
-    if target.get("freq_step"):
-        steps.append("freq %g Hz" % target["freq_step"])
-    if steps:
-        lines.append("")
-        lines.append("Values rounded to the target's steps: %s."
-                     % ", ".join(steps))
-    return "\n".join(lines) + "\n"
-
-
-# ---- verification ------------------------------------------------------
 
 
 def log_grid(flo, fhi, n):

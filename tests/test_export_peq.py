@@ -47,7 +47,7 @@ def test_builtin_targets_shape():
     ts = ex.load_targets(extra_dir="/nonexistent")
     ids = [t["id"] for t in ts]
     assert "peq-text" in ids and "graphiceq" in ids
-    assert "vendor-graphic" in ids and "hand-peq" in ids
+    assert "vendor-graphic" in ids
     assert all(t["writer"] in ex.WRITERS for t in ts)
     # every writer is classified for the wizard's first page --
     # an unclassified writer would exist but never show a row
@@ -61,9 +61,9 @@ def test_targets_dropin_override_and_append(tmp_path):
             "writer": "fixed",
             "centers": [100.0, 1000.0, 10000.0],
             "gain_range": [-4.0, 4.0], "gain_step": 0.5}
-    fresh = {"id": "acme-sheet", "name": "ACME sheet",
-             "writer": "sheet", "gain_step": 0.5}
-    bad = {"name": "no id", "writer": "sheet"}
+    fresh = {"id": "acme-peq", "name": "ACME peq",
+             "writer": "parametric"}
+    bad = {"name": "no id", "writer": "parametric"}
     (tmp_path / "10-acme.json").write_text(
         json.dumps([over, fresh, bad]), encoding="utf-8")
     (tmp_path / "junk.json").write_text("{", encoding="utf-8")
@@ -73,8 +73,8 @@ def test_targets_dropin_override_and_append(tmp_path):
     got = ts[ids.index("vendor-graphic")]
     assert got["name"] == "ACME Buds" and len(got["centers"]) == 3
     assert got["_src"].endswith("10-acme.json")
-    assert "acme-sheet" in ids
-    assert ids.index("vendor-graphic") < ids.index("hand-peq")
+    assert "acme-peq" in ids
+    assert ids.index("vendor-graphic") < ids.index("acme-peq")
 
 
 # ---- composition -------------------------------------------------------
@@ -143,13 +143,13 @@ def test_merged_parametric_and_max_bands_validator(tmp_path):
         extra_dir="/nonexistent")}["peq-text"]
     assert t["writer"] == "parametric"
     assert "max_bands" not in t      # the budget is a page dial
-    bad1 = {"id": "b1", "name": "b1", "writer": "sheet",
+    bad1 = {"id": "b1", "name": "b1", "writer": "parametric",
             "max_bands": 0}
-    bad2 = {"id": "b2", "name": "b2", "writer": "sheet",
+    bad2 = {"id": "b2", "name": "b2", "writer": "parametric",
             "max_bands": "5"}
-    bad3 = {"id": "b3", "name": "b3", "writer": "sheet",
+    bad3 = {"id": "b3", "name": "b3", "writer": "parametric",
             "max_bands": True}
-    good = {"id": "g1", "name": "g1", "writer": "sheet",
+    good = {"id": "g1", "name": "g1", "writer": "parametric",
             "max_bands": 5}
     import json as _json
     (tmp_path / "mb.json").write_text(
@@ -321,41 +321,6 @@ def test_null_test_catches_a_lie():
     freqs = ex.log_grid(20.0, 12000.0, 64)
     ref = ex.chain_response(g0, b0, freqs)
     assert ex.null_test_parametric(text, freqs, ref) > ex.NULL_PASS_DB
-
-
-# ---- the hand-transfer sheet -------------------------------------------
-
-def test_sheet_rounds_to_steps():
-    t = {"id": "x", "name": "X", "writer": "sheet",
-         "gain_step": 0.5, "q_step": 0.01}
-    bands = [{"type": "PK", "freq": 1234.5, "gain": -3.24,
-              "q": 1.4142, "enabled": True},
-             {"type": "HSC", "freq": 8000.0, "gain": 2.26,
-              "q": 0.707, "enabled": True},
-             {"type": "PK", "freq": 400.0, "gain": 5.0, "q": 1.0,
-              "enabled": False}]
-    text = ex.sheet_text(t, -3.24, bands,
-                         header=("Target: X", "Collapse: FL"))
-    assert "Collapse: FL" in text
-    assert "Preamp: -3.0 dB" in text  # round(-6.48 steps) == -6
-    assert "-3.0" in text and "+2.5" in text
-    assert "1.41" in text and "0.71" in text
-    assert "Peak" in text and "High shelf" in text
-    assert text.count("\n 1  ") + text.count("\n 2  ") == 2
-    assert "400" not in text          # disabled band not printed
-    assert "gain 0.5 dB, Q 0.01" in text
-
-
-def test_rounded_chain_reports_delta_material():
-    t = {"gain_step": 1.0, "q_step": 0.1}
-    g, b = ex.rounded_chain(t, -2.4,
-                            [{"type": "PK", "freq": 997.0,
-                              "gain": 2.6, "q": 1.16,
-                              "enabled": True}])
-    assert g == pytest.approx(-2.0)
-    assert b[0]["gain"] == pytest.approx(3.0)
-    assert b[0]["q"] == pytest.approx(1.2)
-    assert b[0]["freq"] == pytest.approx(997.0)   # no freq_step
 
 
 # ---- the fixed-band fit (writer class b) --------------------------------
