@@ -277,6 +277,15 @@ class MeasureWindow(Adw.Window):
         ring_host.append(self.vol_spin)  # pinned to the left edge
         ring_host.append(ring_col)
         lead = b.get_object("status_lead")
+        # the size group matches the bin's WIDTH to the fader,
+        # but a Box hands a child only its natural width -- and
+        # hexpand is NOT the tool (expand flags propagate up:
+        # the bin would start expanding too and drag the whole
+        # status line off both axes, field-proven). Homogeneous
+        # hands the lone child the bin's full width without
+        # touching expand, and center-halign lands the button
+        # on the fader's trough axis.
+        lead.set_homogeneous(True)
         lead.append(self.relevel_btn)
         sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
         sg.add_widget(self.vol_spin)
