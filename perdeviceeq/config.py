@@ -84,7 +84,7 @@ MEASURE_STATE_FILE = os.path.join(CONFIG_DIR, "measure-state.json")
 
 TYPE_TO_LABEL = {"PK": "bq_peaking", "LSC": "bq_lowshelf", "HSC": "bq_highshelf"}
 TYPE_NAMES = ["PK", "LSC", "HSC"]
-SCHEMA_VERSION = 3      # profile body schema; older files convert once via
+SCHEMA_VERSION = 4      # profile body schema; older files convert once via
 #                         tools/migrate_profiles_v1_to_v2.py (v1 -> v2) and
 #                         tools/migrate_profiles_v2_to_v3.py (v2 -> v3)
 # the optional v3 blocks the store/GUI carry verbatim through save /

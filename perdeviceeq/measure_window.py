@@ -325,7 +325,6 @@ class MeasureWindow(Adw.Window):
         # the ellipsis cap stays so a monster ALSA description
         # never dictates the window's minimum width
         self.source_dd = source_row
-        self._mic_subtitle = source_row.get_subtitle()
         self.mic_picker = NodePicker(self.source_dd,
                                      self._on_mic_pick,
                                      ellipsis=34)
@@ -816,12 +815,15 @@ class MeasureWindow(Adw.Window):
         self._sync_cal_labels()
 
     def _select_profile_rig(self):
-        """An edit belongs to its rig: the profile's stored mic
-        is selected at birth, present or gone -- substituting
-        another mic would hide the measured takes (field
-        doctrine). Per-sink memory still rules new profiles."""
+        """An edit belongs to its rig: the mic of the profile's
+        LAST sitting is selected at birth, present or gone --
+        never a silent substitute (field doctrine). Per-sink
+        memory still rules new profiles."""
         m = ((self.edit_prof or {}).get("measurement") or {})
-        stored = m.get("source") or {}
+        takes = m.get("takes") or []
+        sid = takes[-1].get("session") if takes else None
+        stored = (((m.get("sessions") or {}).get(sid) or {})
+                  .get("source") or {})
         node = stored.get("node_match")
         if not node:
             return
@@ -1351,7 +1353,6 @@ class MeasureWindow(Adw.Window):
         self.session = None
         self._canvas_ids = {}
         self._canvas_session = None
-        self.source_dd.set_subtitle(self._mic_subtitle)
         self._ensure_session(arm=False, quiet=True)
         self._refresh_all()
 
@@ -1785,28 +1786,13 @@ class MeasureWindow(Adw.Window):
         takes = m.get("takes") or []
         if not takes:
             return
-        src = self._source_info() or {}
-        node = self.session.source_ident.get("name")
-        stored_src = m.get("source")
-        # The rig's identity gates nothing (field doctrine: a
-        # mic moving to a better interface is a better version
-        # of itself, not another rig; and a truly mixed canvas
-        # is judged by its own statistics -- foreign curves
-        # widen the take-to-take spread, spread_trust_bound
-        # sinks the trust and shrinks the trusted band). The mic
-        # row names a foreign rig as a plain fact; the fact
-        # melts when the serial or the node matches again.
-        foreign = bool(
-            stored_src and not measure_build.rig_matches(
-                stored_src, src.get("serial"), node))
-        if foreign:
-            self.source_dd.set_subtitle(
-                "Measured with %s"
-                % (stored_src.get("name")
-                   or stored_src.get("node_match")
-                   or "another rig"))
-        else:
-            self.source_dd.set_subtitle(self._mic_subtitle)
+        # The rig's identity gates nothing (field doctrine): a
+        # mixed canvas is judged by its own statistics -- the
+        # per-take-calibrated spread feeds spread_trust_bound,
+        # trust sinks, the trusted band shrinks. The per-take
+        # passports (schema v4) will mark foreign takes in the
+        # take rows; the whole-canvas subtitle enumeration died
+        # with measurement.source.
         g = m.get("grid") or {}
         freqs = mc.log_grid(float(g.get("f_lo", mc.GRID_F_LO)),
                             float(g.get("f_hi", mc.GRID_F_HI)),

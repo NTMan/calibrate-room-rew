@@ -37,22 +37,6 @@ def _utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _channel_cal(cal_map, takes, key):
-    """The ONE cal entry behind a channel's takes (by their capture
-    columns), or None when none of the columns has a cal. Takes that
-    mix different cal files under one channel are refused: averaging
-    across acoustic references is not a measurement."""
-    entries = {}
-    for t in takes:
-        col = t.get("capture_channel")
-        e = cal_map.get(str(col)) if col is not None else None
-        if e:
-            entries[e.get("sha256")] = e
-    if len(entries) > 1:
-        raise RefitError("channel %s mixes takes with different cal "
-                         "files; they have no shared reference" % key)
-    return next(iter(entries.values())) if entries else None
-
 
 def channel_results(measurement, take_ids=None, smoothing=6):
     """Canvas -> {channel key: result dict}, plus the take ids used.
@@ -60,11 +44,14 @@ def channel_results(measurement, take_ids=None, smoothing=6):
     Mirrors the live pipeline: each channel's takes are aligned DOWN
     onto the quietest recorded software gain (the session scales the
     raw samples by gain_comp_factors; in the magnitude domain that is
-    an exact dB shift), power-averaged, corrected by the cal points
-    embedded in source.cal and box-smoothed on the stored grid. The
-    result dicts carry data.freq_hz / mag_db_* / spread_db, the
-    per-take drives under `levels` and the cal sha256 as `cal_file`,
-    so fit_peq's balance trims keep their validity gate: channels
+    an exact dB shift), corrected PER TAKE by each take's own cal
+    from measurement.cal_library (schema v4: the statistics must
+    judge calibrated curves -- uncalibrated ones from different mics
+    differ by the mics' own responses, not by the seating), then
+    power-averaged and box-smoothed on the stored grid. The result
+    dicts carry data.freq_hz / mag_db_* / spread_db, the per-take
+    drives under `levels` and the takes' cal shas as `cal_shas`, so
+    fit_peq's balance trims keep their validity gate: channels
     measured on distinct couplers still refuse to cross-balance.
 
     take_ids, when given, restricts the fit to those takes (unknown
@@ -86,7 +73,7 @@ def channel_results(measurement, take_ids=None, smoothing=6):
     if not sel:
         raise RefitError("the canvas has no takes to fit")
 
-    cal_map = (measurement.get("source") or {}).get("cal") or {}
+    lib = measurement.get("cal_library") or {}
     by_ch = {}
     for t in sel:
         by_ch.setdefault(t.get("channel"), []).append(t)
@@ -106,22 +93,26 @@ def channel_results(measurement, take_ids=None, smoothing=6):
                        for k in factors]
             mags = mags + np.array(
                 [20.0 * math.log10(k) for k in factors])[:, None]
+        uncal = 10.0 * np.log10(np.mean(10.0 ** (mags / 10.0),
+                                        axis=0))
+        # per-take cal BEFORE the statistics: the spread judges
+        # the seating only when every curve is on its own
+        # acoustic reference
+        for i, t in enumerate(takes):
+            pts = np.asarray(((lib.get(t.get("cal_sha")) or {})
+                              .get("points") or []), float)
+            if pts.size:
+                mags[i] = mc.apply_mic_cal(freqs, mags[i],
+                                           pts[:, 0], pts[:, 1])
         avg = 10.0 * np.log10(np.mean(10.0 ** (mags / 10.0), axis=0))
         spread = (mags.std(axis=0, ddof=1) if len(takes) > 1
                   else None)
-        uncal = avg.copy()
-        entry = _channel_cal(cal_map, takes, key)
-        if entry is not None:
-            pts = np.asarray(entry.get("points") or [], float)
-            if pts.size:
-                avg = mc.apply_mic_cal(freqs, avg, pts[:, 0],
-                                       pts[:, 1])
         smoothed = mc.smooth_fractional_octave(avg, ppo, smoothing)
         results[key] = {
             "grid": dict(grid),
             "smoothing": {"type": "fractional-octave",
                           "fraction": smoothing, "domain": "power"},
-            "cal_file": entry.get("sha256") if entry else None,
+            "cal_shas": [t.get("cal_sha") for t in takes],
             "takes": {"count": len(takes),
                       "snr_db": [t.get("snr_db") for t in takes],
                       "delay_ms": [t.get("delay_ms")
@@ -156,8 +147,8 @@ def refit_profile(prof, bands=None, f_lo=None, f_hi=None,
 
     Raises RefitError when the profile has no canvas, when the fit is
     marked hand-edited and allow_edited is False, or when the takes
-    cannot be combined (unknown ids, off-grid data, mixed cals under
-    one channel, a mono fit over several channels)."""
+    cannot be combined (unknown ids, off-grid data, a mono fit
+    over several channels)."""
     m = prof.get("measurement")
     if not m:
         raise RefitError("the profile carries no measurement canvas")

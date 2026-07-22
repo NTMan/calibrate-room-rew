@@ -122,7 +122,7 @@ class ProfileStore:
                 continue
             if p.get("version") != SCHEMA_VERSION:
                 print("per-device-eq: skipping %s (profile schema v%s; run "
-                      "tools/migrate_profiles_v2_to_v3.py once to convert)"
+                      "tools/migrate_profiles_v3_to_v4.py once to convert)"
                       % (path, p.get("version", 1)), file=sys.stderr)
                 continue
             pid = p.get("id") or os.path.splitext(fn)[0]

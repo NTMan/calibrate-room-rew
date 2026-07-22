@@ -358,7 +358,8 @@ def balance_trims(results, means):
     """
     if len(results) < 2:
         return None, "single channel, nothing to balance"
-    cals = {r.get("cal_file") or None for r in results.values()}
+    cals = {sha for r in results.values()
+            for sha in (r.get("cal_shas") or [None])}
     if len(cals) != 1:
         return None, ("channels measured on different mics/couplers "
                       "(distinct cal files): no shared level reference")

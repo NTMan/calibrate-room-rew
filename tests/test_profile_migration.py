@@ -81,4 +81,64 @@ def test_store_skips_v1_files(tmp_path, monkeypatch, capsys):
                         str(tmp_path / "bindings.json"))
     st = profiles.ProfileStore()
     assert "good" in st.profiles and "old" not in st.profiles
-    assert "migrate_profiles_v2_to_v3" in capsys.readouterr().err
+    assert "migrate_profiles_v3_to_v4" in capsys.readouterr().err
+
+
+import migrate_profiles_v3_to_v4 as mig4
+from perdeviceeq import measure_build
+
+
+def _v3_measured(fresh_fit=True):
+    m = {"grid": {"f_lo": 20.0, "f_hi": 20000.0, "ppo": 12},
+         "source": {"name": "E.A.R.S", "serial": "8603052",
+                    "node_match": "ears-node", "channels": 2,
+                    "cal": {"0": {"file": "L.txt", "sha256": "aa",
+                                  "points": [[20, 0.0]]},
+                            "1": {"file": "R.txt", "sha256": "bb",
+                                  "points": [[20, 0.1]]}}},
+         "sessions": {"s1": {"created_utc": "t"}},
+         "takes": [{"id": "t1", "session": "s1",
+                    "capture_channel": 0, "mag_db_uncal": [0.0]},
+                   {"id": "t2", "session": "s1",
+                    "capture_channel": 1, "mag_db_uncal": [0.1]},
+                   {"id": "t3", "session": "s1",
+                    "capture_channel": None,
+                    "mag_db_uncal": [0.2]}]}
+    fit = {"takes": ["t1", "t2"], "params": {"bands": 5},
+           "inputs_sha256": mig4._v3_fingerprint(
+               m, ["t1", "t2"], {"bands": 5})}
+    if not fresh_fit:
+        fit["inputs_sha256"] = "0" * 64        # stale under v3
+    return {"id": "p", "name": "P", "version": 3, "apply_all": True,
+            "preamp": 0.0, "ch_keys": [], "all": {"bands": []},
+            "channels": {}, "measurement": m, "fit": fit}
+
+
+def test_v4_lift_moves_provenance_to_the_takes():
+    out = mig4.migrate_body(_v3_measured())
+    assert out["version"] == 4
+    m = out["measurement"]
+    assert "source" not in m
+    assert set(m["cal_library"]) == {"aa", "bb"}
+    assert [t["cal_sha"] for t in m["takes"]] == ["aa", "bb", None]
+    assert m["sessions"]["s1"]["source"]["serial"] == "8603052"
+    assert mig4.migrate_body(out) is out       # idempotent
+
+
+def test_v4_lift_recomputes_only_a_fresh_fingerprint():
+    fresh = mig4.migrate_body(_v3_measured(fresh_fit=True))
+    assert fresh["fit"]["inputs_sha256"] == \
+        measure_build.fit_fingerprint(fresh["measurement"],
+                                      ["t1", "t2"], {"bands": 5})
+    stale = mig4.migrate_body(_v3_measured(fresh_fit=False))
+    assert stale["fit"]["inputs_sha256"] == "0" * 64   # left stale
+
+
+def test_v4_refuses_v2():
+    v2 = mig.migrate_body(_v1_unlinked())
+    try:
+        mig4.migrate_body(dict(v2, id="x"))
+    except ValueError as e:
+        assert "migrate_profiles_v2_to_v3" in str(e)
+    else:
+        raise AssertionError("v2 accepted")

@@ -74,29 +74,32 @@ def test_convert_dir_roundtrip(tmp_path):
         {"apply_all": True, "all": {"preamp": 0.0, "bands": []}}))
     assert mig.convert_dir(str(tmp_path)) == (1, 1, 1)
     got = json.loads((tmp_path / "old.json").read_text())
-    assert got["version"] == 3
+    assert got["version"] == mig.SCHEMA_VERSION   # the TOOL's target
     assert got["provenance"]["kind"] == "legacy"
     assert (tmp_path / "old.json.v2").exists()       # backup kept
     # a second run converts nothing and still refuses the v1 file
     assert mig.convert_dir(str(tmp_path)) == (0, 2, 1)
 
 
-def test_store_skips_v2_loads_v3(tmp_path, monkeypatch, capsys):
+def test_store_skips_old_loads_current(tmp_path, monkeypatch,
+                                       capsys):
     (tmp_path / "old.json").write_text(json.dumps(_v2()))
-    good = dict(mig.migrate_body(_v2()), id="good", name="Good")
+    good = dict(mig.migrate_body(_v2()), id="good", name="Good",
+                version=profiles.SCHEMA_VERSION)
     (tmp_path / "good.json").write_text(json.dumps(good))
     st = _store(tmp_path, monkeypatch)
     assert "good" in st.profiles and "x" not in st.profiles
-    assert "migrate_profiles_v2_to_v3" in capsys.readouterr().err
+    assert "migrate_profiles_v3_to_v4" in capsys.readouterr().err
 
 
 def test_save_load_round_trip_keeps_blocks(tmp_path, monkeypatch):
     st = _store(tmp_path, monkeypatch)
-    pid = st.save_user(dict(_v2(), version=3, **_blocks()))
+    pid = st.save_user(dict(_v2(), version=profiles.SCHEMA_VERSION,
+                            **_blocks()))
     got = _store(tmp_path, monkeypatch).profiles[pid]  # re-read the disk
     for key in profiles.V3_BLOCKS:
         assert got[key] == _blocks()[key]
-    assert got["version"] == 3
+    assert got["version"] == profiles.SCHEMA_VERSION
 
 
 def test_save_drops_empty_or_non_dict_blocks(tmp_path, monkeypatch):

@@ -9,12 +9,13 @@ refit_and_save() settles the profile from the whole stored canvas
 when the caller decides the house is full. Plus the serialization
 helpers they stand on: take_dict() puts an uncalibrated magnitude
 onto the canvas grid, cal_entry() embeds a cal file as points + sha,
-fit_fingerprint() hashes everything a fit consumed, and rig_matches()
-tells whether the current rig is the profile's own -- informational
-now: the statistics judge a mixed canvas (the take-to-take spread
-feeds spread_trust_bound, so foreign curves widen the spread, sink
-the trust and shrink the trusted band), not a name gate. No GTK and
-no store construction here; the store is injected.
+fit_fingerprint() hashes everything a fit consumed. Schema v4:
+every take carries its own passport -- cal_sha into the append-only
+measurement.cal_library, the rig stamp on its session -- and the
+statistics judge a mixed canvas (per-take-calibrated curves feed the
+spread and spread_trust_bound), not a name gate. Runtime reads ONE
+shape; tools/migrate_profiles_v3_to_v4.py converts older files once.
+No GTK and no store construction here; the store is injected.
 """
 import hashlib
 import json
@@ -53,6 +54,17 @@ def cal_entry(path):
                        for a, b in zip(fr, db)]}
 
 
+def _lib_add(m, path):
+    """Parse the cal file at `path` into the canvas cal library
+    (append-only, keyed by sha256) and return its sha."""
+    e = cal_entry(path)
+    lib = dict(m.get("cal_library") or {})
+    lib.setdefault(e["sha256"], {"file": e["file"],
+                                 "points": e["points"]})
+    m["cal_library"] = lib
+    return e["sha256"]
+
+
 def take_dict(rec, session_id, key, freqs):
     """One canvas take: the record's UNCALIBRATED magnitude resampled
     onto the profile grid (log-f interp; a no-op on the session's own
@@ -85,29 +97,15 @@ def fit_fingerprint(measurement, take_ids, params):
     takes = {t["id"]: t["mag_db_uncal"]
              for t in measurement.get("takes", [])
              if t["id"] in wanted}
-    cal = {c: (e or {}).get("sha256")
-           for c, e in ((measurement.get("source") or {})
-                        .get("cal") or {}).items()}
+    cal = {t["id"]: t.get("cal_sha")
+           for t in measurement.get("takes", [])
+           if t["id"] in wanted}
     blob = json.dumps({"grid": measurement.get("grid"), "cal": cal,
                        "takes": takes, "params": params},
                       sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-
-def rig_matches(stored, serial, node_match):
-    """Is the current rig the profile's own? Serials decide when
-    both sides have one (two different units on one node name are
-    two rigs); otherwise the node identity does. Informational --
-    the mic row names a foreign rig, nothing is gated on it: a
-    mixed canvas is judged by its own spread. `stored` is
-    measurement.source."""
-    s_old = (stored or {}).get("serial") or ""
-    s_new = serial or ""
-    if s_old and s_new:
-        return s_old == s_new
-    return (((stored or {}).get("node_match") or "")
-            == (node_match or ""))
 
 
 def _session_block(session):
@@ -135,13 +133,14 @@ def commit_take(store, pid, session, ch_index, key, take_id,
                 cal=None, source=None, canvas_session=None):
     """Persist ONE accepted take into profile `pid`'s canvas the
     moment it exists: the core of the interruptible workflow. The
-    canvas (rig-gated when one already exists) and the session entry
-    are created on first use; returns {"take": <canvas take id>,
-    "session": <canvas session id>} so the caller threads the
-    session id through subsequent commits and can map its live take
-    onto the canvas for deletion. `cal` is the cal-file path for
-    this take's capture column and REPLACES the stored entry (the
-    mic profile's cal is the current truth). The fit is not touched:
+    canvas and the session entry are created on first use; returns
+    {"take": <canvas take id>, "session": <canvas session id>} so
+    the caller threads the session id through subsequent commits and
+    can map its live take onto the canvas for deletion. `cal` is the
+    cal-file path for this take's capture column: it joins the
+    append-only cal library and the take carries its sha --
+    provenance is immutable, no entry is ever replaced. The rig
+    stamp lands on the take's session. The fit is not touched:
     it goes incomplete or stale honestly, and refit_and_save settles
     it when the caller decides the house is full."""
     prof = store.get(pid)
@@ -156,6 +155,12 @@ def commit_take(store, pid, session, ch_index, key, take_id,
     src = source or {}
     ident = session.source_ident
     new_serial = src.get("serial") or session.cfg.rig or ""
+    rig = {"name": (src.get("name") or session.cfg.mic
+                    or ident.get("description")
+                    or ident.get("name")),
+           "serial": new_serial,
+           "node_match": ident.get("name"),
+           "channels": session.cfg.channels}
     m = prof.get("measurement")
     g = (m.get("grid") if m else None) or {}
     freqs = mc.log_grid(float(g.get("f_lo", mc.GRID_F_LO)),
@@ -165,15 +170,7 @@ def commit_take(store, pid, session, ch_index, key, take_id,
         block = _session_block(session)
         m = {"grid": {"f_lo": mc.GRID_F_LO, "f_hi": mc.GRID_F_HI,
                       "ppo": mc.GRID_PPO},
-             "source": {
-                 "name": (src.get("name") or session.cfg.mic
-                          or ident.get("description")
-                          or ident.get("name")),
-                 "serial": new_serial,
-                 "node_match": ident.get("name"),
-                 "channels": session.cfg.channels,
-                 "cal": {}},
-             "sessions": {}, "takes": []}
+             "cal_library": {}, "sessions": {}, "takes": []}
         prof.setdefault(
             "device",
             {"label": (session.cfg.device
@@ -182,26 +179,61 @@ def commit_take(store, pid, session, ch_index, key, take_id,
              "sink": dict(block["sink"])})
     else:
         m = dict(m)
-        m["source"] = dict(m.get("source") or {})
         m["sessions"] = dict(m.get("sessions") or {})
         m["takes"] = list(m.get("takes") or [])
-        if not m["source"].get("serial") and new_serial:
-            m["source"]["serial"] = new_serial
     sid = canvas_session or _new_id()
     if sid not in m["sessions"]:
-        m["sessions"][sid] = _session_block(session)
+        # the sitting wears the rig stamp: a mic change always
+        # crosses a fresh session, so sitting and rig are 1:1
+        m["sessions"][sid] = dict(_session_block(session),
+                                  source=dict(rig))
     take = take_dict(rec, sid, key, freqs)
+    take["cal_sha"] = None
     m["takes"].append(take)
     path = cal if cal is not None else session.cfg.cal
     col = rec.capture_channel
     if path and col is not None:
-        calmap = dict(m["source"].get("cal") or {})
-        calmap[str(col)] = cal_entry(path)  # the current truth wins
-        m["source"]["cal"] = calmap
+        take["cal_sha"] = _lib_add(m, path)
     prof["measurement"] = m
     prof["provenance"] = {"kind": "measured"}
     store.save_user(prof)
     return {"take": take["id"], "session": sid}
+
+
+def reassign_cal(store, pid, old_sha, new_path):
+    """Move EVERY take that consumed cal `old_sha` onto the cal
+    at `new_path`, in one stroke -- the operation is bulk by
+    design (field verdict: nobody re-hangs takes one by one).
+    The new cal joins the library; the old entry stays (the
+    library is append-only history); takes with another sha or
+    with none are untouched. The fit is not touched: a moved
+    canvas stales it honestly through the fingerprint. Returns
+    the number of takes moved."""
+    prof = store.get(pid)
+    if prof is None:
+        raise KeyError("no profile %s" % pid)
+    m = prof.get("measurement")
+    if not m:
+        return 0
+    entry = cal_entry(new_path)
+    takes = [dict(t) for t in (m.get("takes") or [])]
+    moved = 0
+    for t in takes:
+        if t.get("cal_sha") == old_sha:
+            t["cal_sha"] = entry["sha256"]
+            moved += 1
+    if not moved:
+        return 0
+    m = dict(m)
+    lib = dict(m.get("cal_library") or {})
+    lib.setdefault(entry["sha256"], {"file": entry["file"],
+                                     "points": entry["points"]})
+    m["cal_library"] = lib
+    m["takes"] = takes
+    prof = dict(prof)
+    prof["measurement"] = m
+    store.save_user(prof)
+    return moved
 
 
 def remove_takes(store, pid, take_ids):

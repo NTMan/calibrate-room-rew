@@ -150,15 +150,21 @@ def parse_curve(path):
 
 
 def _rig_meta(profile):
-    src = (profile.get("measurement") or {}).get("source") or {}
-    cal = src.get("cal") or {}
+    """Schema v4: the rig lives on the sessions; report the LAST
+    sitting's stamp and the file names of every cal the canvas
+    consumed (from the append-only library)."""
+    m = profile.get("measurement") or {}
+    takes = m.get("takes") or []
+    sid = takes[-1].get("session") if takes else None
+    src = ((m.get("sessions") or {}).get(sid) or {}).get("source") \
+        or {}
+    lib = m.get("cal_library") or {}
     return {"profile_id": profile.get("id"),
             "profile_name": profile.get("name"),
             "rig": src.get("name"),
             "serial": src.get("serial"),
-            "cal_files": {k: (v.get("path") if isinstance(v, dict)
-                              else v)
-                          for k, v in cal.items()}}
+            "cal_files": {sha: (e or {}).get("file")
+                          for sha, e in lib.items()}}
 
 
 def compute_bridge(prof_a, prof_b, published=None):

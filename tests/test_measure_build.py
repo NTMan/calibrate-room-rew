@@ -134,12 +134,14 @@ def test_commit_take_builds_the_canvas(shim_state, store, tmp_path):
     m = p["measurement"]
     assert m["grid"] == {"f_lo": mc.GRID_F_LO, "f_hi": mc.GRID_F_HI,
                          "ppo": mc.GRID_PPO}
-    assert m["source"]["node_match"] == "test_source"
-    assert m["source"]["serial"] == "861"
-    assert m["source"]["cal"]["0"]["file"] == "flat.txt"
-    assert m["source"]["cal"]["1"]["sha256"] == hashlib.sha256(
-        tilt.read_bytes()).hexdigest()
+    assert "source" not in m         # v4: the rig lives on sessions
     (sid, sess), = m["sessions"].items()
+    assert sess["source"]["node_match"] == "test_source"
+    assert sess["source"]["serial"] == "861"
+    flat_sha = hashlib.sha256(flat.read_bytes()).hexdigest()
+    tilt_sha = hashlib.sha256(tilt.read_bytes()).hexdigest()
+    assert set(m["cal_library"]) == {flat_sha, tilt_sha}
+    assert m["cal_library"][flat_sha]["file"] == "flat.txt"
     assert sess["sink"]["node_name"] == "test_sink"
     assert sess["sweep"]["fs"] == ses.sweep.fs
     n = len(mc.log_grid())
@@ -149,6 +151,8 @@ def test_commit_take_builds_the_canvas(shim_state, store, tmp_path):
         assert len(t["mag_db_uncal"]) == n
         assert isinstance(t["created_utc"], str)
         assert t["capture_channel"] == {"FL": 0, "FR": 1}[t["channel"]]
+        assert t["cal_sha"] == {"FL": flat_sha,
+                                "FR": tilt_sha}[t["channel"]]
     assert p["provenance"] == {"kind": "measured"}
     assert "fit" not in p                    # commits never fit
     events = []
@@ -172,12 +176,9 @@ def test_commit_take_builds_the_canvas(shim_state, store, tmp_path):
 
 def test_commit_take_accepts_a_foreign_rig(shim_state, store,
                                            tmp_path):
-    """The append gate fell (field doctrine): a mic on a better
-    interface is a better version of itself, not another rig,
-    and a truly mixed canvas is judged by its own spread via
-    spread_trust_bound -- so a foreign-rig take commits, the
-    canvas grows, and measurement.source keeps the FIRST rig
-    (the serial fills only when it was empty)."""
+    """The append gate fell (field doctrine): a foreign-rig take
+    commits and the canvas grows; schema v4 keeps the truth per
+    sitting -- each session wears its own rig stamp."""
     pid = _bare(store, "g", "Gate")
     ses = _session(tmp_path, [(0, 0)])
     measure_build.commit_take(store, pid, ses, 0, "FL",
@@ -189,7 +190,9 @@ def test_commit_take_accepts_a_foreign_rig(shim_state, store,
                               source={"serial": "999"})
     m = store.get(pid)["measurement"]
     assert len(m["takes"]) == 2          # the canvas grew
-    assert m["source"]["serial"] == "861"  # first rig kept
+    stamps = [m["sessions"][t["session"]]["source"]["serial"]
+              for t in m["takes"]]
+    assert stamps == ["861", "999"]      # truth per sitting
 
 
 def test_remove_takes_prunes_sessions_and_stales_the_fit(
@@ -231,3 +234,41 @@ def test_refit_and_save_respects_hand_edits(shim_state, store,
         measure_build.refit_and_save(store, pid)
     measure_build.refit_and_save(store, pid, allow_edited=True)
     assert store.get(pid)["fit"]["edited"] is False
+
+
+def _cal_file(tmp_path, name="c.txt", db=1.0):
+    p = tmp_path / name
+    p.write_text("20 0.0\n1000 %.1f\n20000 0.0\n" % db)
+    return str(p)
+
+
+def test_reassign_cal_moves_by_sha(shim_state, store, tmp_path):
+    """The bulk re-hang the schema was built for: every take on
+    old_sha moves to the new cal in one stroke; others and raw
+    takes are untouched; the old library entry survives."""
+    pid = _bare(store, "rh", "Rehang")
+    ses = _session(tmp_path, [(0, 0), (0, 0)])
+    cal_a = _cal_file(tmp_path, "a.txt", 1.0)
+    ids = measure_build.commit_take(store, pid, ses, 0, "FL",
+                                    ses.takes_of(0)[0].id,
+                                    cal=cal_a)
+    measure_build.commit_take(store, pid, ses, 0, "FL",
+                              ses.takes_of(0)[1].id, cal=cal_a,
+                              canvas_session=ids["session"])
+    ses2 = _session(tmp_path, [(0, 0)])
+    measure_build.commit_take(store, pid, ses2, 0, "FL",
+                              ses2.takes_of(0)[-1].id)  # raw
+    m0 = store.get(pid)["measurement"]
+    old_sha = m0["takes"][0]["cal_sha"]
+    assert old_sha and m0["takes"][2]["cal_sha"] is None
+    cal_b = _cal_file(tmp_path, "b.txt", 2.0)
+    moved = measure_build.reassign_cal(store, pid, old_sha, cal_b)
+    assert moved == 2
+    m = store.get(pid)["measurement"]
+    new_shas = {t["cal_sha"] for t in m["takes"][:2]}
+    assert len(new_shas) == 1 and old_sha not in new_shas
+    assert m["takes"][2]["cal_sha"] is None
+    assert old_sha in m["cal_library"]        # history kept
+    assert next(iter(new_shas)) in m["cal_library"]
+    assert measure_build.reassign_cal(store, pid, "nope",
+                                      cal_b) == 0

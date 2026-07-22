@@ -79,7 +79,7 @@ def test_cli_writes_importable_v2_profile(tmp_path):
     assert r.returncode == 0, r.stderr
     p = json.loads(out.read_text())
     # exactly the shape gui._import_profile / ProfileStore expect (v2)
-    assert p["version"] == 3
+    assert p["version"] == 4
     assert p["apply_all"] is False
     assert p["ch_keys"] == ["FL", "FR"]
     assert p["preamp"] == 0.0                  # the app derives Safe/Session
@@ -106,7 +106,7 @@ def test_fit_profiles_direct_call():
     prof = fit_peq.fit_profiles(results, name="Unit", bands=12,
                                 f_lo=20.0, f_hi=12000.0)
     assert prof["name"] == "Unit"
-    assert prof["version"] == 3
+    assert prof["version"] == 4
     assert prof["apply_all"] is False
     assert prof["ch_keys"] == ["FL", "FR"]
     assert prof["preamp"] == 0.0
@@ -123,13 +123,13 @@ def test_fit_profiles_direct_call():
 
 # --- balance trim: equalize the channels' TRUE acoustic levels -------------
 
-def _result_flat(level_db, soft, chan, cal="R_RAW.txt"):
+def _result_flat(level_db, soft, chan, cal="R_RAW"):
     f = np.logspace(np.log10(20), np.log10(20000), 240)
     return {"data": {"freq_hz": [float(x) for x in f],
                      "mag_db_smoothed": [level_db] * len(f)},
             "levels": {"take_soft_volumes": list(soft),
                        "take_channel_volumes": list(chan)},
-            "cal_file": cal}
+            "cal_shas": [cal] * len(soft)}
 
 
 def test_balance_trims_correct_the_drive_not_the_raw_means():
@@ -148,7 +148,7 @@ def test_balance_trims_correct_the_drive_not_the_raw_means():
 def test_balance_trims_validity_gate():
     a = _result_flat(0.0, [0.064], [0.064])
     # distinct cal files: distinct couplers, no shared reference
-    b = _result_flat(-2.0, [0.064], [0.064], cal="L_RAW.txt")
+    b = _result_flat(-2.0, [0.064], [0.064], cal="L_RAW")
     trims, why = fit_peq.balance_trims({"FL": a, "FR": b},
                                        {"FL": 0.0, "FR": -2.0})
     assert trims is None and "cal" in why

@@ -60,9 +60,9 @@ def store(tmp_path, monkeypatch):
     return ProfileStore()
 
 
-def _take(tid, key, mag, soft=0.3, chan=0.3, col=0):
+def _take(tid, key, mag, soft=0.3, chan=0.3, col=0, cal_sha=None):
     return {"id": tid, "session": "s1", "channel": key,
-            "capture_channel": col,
+            "capture_channel": col, "cal_sha": cal_sha,
             "created_utc": "2026-07-14T00:00:00+00:00",
             "mag_db_uncal": [float(v) for v in mag],
             "delay_ms": 5.0, "snr_db": 45.0, "peak_dbfs": -6.0,
@@ -70,11 +70,14 @@ def _take(tid, key, mag, soft=0.3, chan=0.3, col=0):
             "chan_vol": chan, "soft_vol": soft}
 
 
-def _meas(takes, cal=None):
+def _meas(takes, lib=None):
     return {"grid": dict(GRID),
-            "source": {"name": "rig", "serial": "", "node_match": "n",
-                       "channels": 2, "cal": cal or {}},
-            "sessions": {"s1": {"created_utc": "x"}},
+            "cal_library": lib or {},
+            "sessions": {"s1": {"created_utc": "x",
+                                "source": {"name": "rig",
+                                           "serial": "",
+                                           "node_match": "n",
+                                           "channels": 2}}},
             "takes": takes}
 
 
@@ -102,24 +105,36 @@ def test_unknown_gain_disables_compensation():
 
 
 def test_cal_applied_from_embedded_points():
-    cal = {"0": {"file": "tilt.txt", "sha256": "abc",
-                 "points": [[20.0, 0.0], [20000.0, -6.0]]}}
-    m = _meas([_take("a", "FL", np.zeros(N))], cal=cal)
+    lib = {"abc": {"file": "tilt.txt",
+                   "points": [[20.0, 0.0], [20000.0, -6.0]]}}
+    m = _meas([_take("a", "FL", np.zeros(N), cal_sha="abc")],
+              lib=lib)
     res, _ = refit.channel_results(m)
     d = res["FL"]["data"]
-    assert res["FL"]["cal_file"] == "abc"
+    assert res["FL"]["cal_shas"] == ["abc"]
     assert abs(d["mag_db_raw"][0]) < 1e-9
     assert abs(d["mag_db_raw"][-1] - 6.0) < 1e-9
     assert np.allclose(d["mag_db_uncal"], 0.0, atol=1e-9)
 
 
-def test_mixed_cals_within_channel_refused():
-    cal = {"0": {"sha256": "x", "points": [[20.0, 0.0]]},
-           "1": {"sha256": "y", "points": [[20.0, 0.0]]}}
-    m = _meas([_take("a", "FL", np.zeros(N), col=0),
-               _take("b", "FL", np.zeros(N), col=1)], cal=cal)
-    with pytest.raises(refit.RefitError, match="different cal"):
-        refit.channel_results(m)
+def test_mixed_cals_within_channel_calibrate_per_take():
+    """Schema v4 (field doctrine): a channel may mix takes from
+    different rigs; each take is corrected by ITS OWN cal before
+    the statistics, so the spread judges the seating on one
+    shared acoustic reference -- no refusal, the numbers speak."""
+    lib = {"x": {"points": [[20.0, 0.0], [20000.0, 0.0]]},
+           "y": {"points": [[20.0, -6.0], [20000.0, -6.0]]}}
+    m = _meas([_take("a", "FL", np.zeros(N), col=0, cal_sha="x"),
+               _take("b", "FL", np.zeros(N) - 6.0, col=1,
+                     cal_sha="y")], lib=lib)
+    res, _ = refit.channel_results(m)
+    d = res["FL"]["data"]
+    assert res["FL"]["cal_shas"] == ["x", "y"]
+    # b's own cal lifts its -6 dB curve back to flat: after
+    # per-take correction the two takes agree and the spread
+    # collapses
+    assert np.allclose(d["mag_db_raw"], 0.0, atol=1e-6)
+    assert np.allclose(d["spread_db"], 0.0, atol=1e-6)
 
 
 def test_take_selection_is_validated():
