@@ -245,3 +245,25 @@ def test_shell_doors_are_safe_inside_the_pick(monkeypatch):
     _run_idle(idle)
     assert dd.model.items == ["A"]       # the gone row melted
     assert dd.get_selected() == 0
+
+
+def test_shell_core_leads_the_callback(monkeypatch):
+    """The field bug, mic edition: window code inside on_pick
+    resolves the selection through the core, so the core must
+    already stand on the picked node when the callback runs --
+    one pick behind meant every mic pick acted on the previous
+    mic."""
+    seen = {}
+
+    def peek(node, desc):
+        seen["core"] = box["p"].core.node
+
+    box = {}
+    p, dd, picks, idle = _shell(monkeypatch, on_pick=peek)
+    box["p"] = p
+    p.refresh([_s("a", "A"), _s("b", "B")])
+    p.select("a")
+    dd.user_pick(1)
+    assert picks == [("b", "B")]
+    assert seen["core"] == "b"           # led, not lagged
+    assert p.core.node == "b"

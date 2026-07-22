@@ -195,13 +195,18 @@ class NodePicker:
         if hit is None:
             return
         node, desc = hit
+        # The core LEADS the callback: everything the window does
+        # inside on_pick (resolving the selection, rebuilding a
+        # session, persisting) must see the PICKED node, not the
+        # previous one -- the field ran every mic pick against
+        # the pick before it. A veto rolls the core back.
+        prev = (self.core.node, self.core.desc)
+        self.core.set_node(node, desc)
         self._in_pick = True
         try:
             vetoed = self.on_pick(node, desc) is False
         finally:
             self._in_pick = False
         if vetoed:
-            self._queue_sync()            # snap back at idle
-            return
-        self.core.set_node(node, desc)
-        self._queue_sync()        # a stale gone row melts at idle
+            self.core.set_node(*prev)
+        self._queue_sync()    # snap-back / stale gone row melts
