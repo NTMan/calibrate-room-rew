@@ -382,7 +382,12 @@ class MeasureWindow(Adw.Window):
 
         center_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                              spacing=6)
-        center_box.set_size_request(RING - 2 * SPEAKER, -1)
+        # A fixed-height stage with the grid glued to its BOTTOM:
+        # the transport is the last grid row in every capsule
+        # mode, so play and stop stand still relative to the disc
+        # while the mic map row appears ABOVE them (field verdict:
+        # the pult must not jump between mono and stereo).
+        center_box.set_size_request(RING - 2 * SPEAKER, 96)
         center_box.set_halign(Gtk.Align.CENTER)
         # The mics live INSIDE the ring now, where the volume used
         # to sit: capsule-to-speaker mapping is spatial information,
@@ -396,6 +401,8 @@ class MeasureWindow(Adw.Window):
         self._center_grid.set_row_spacing(6)
         self._center_grid.set_column_spacing(10)
         self._center_grid.set_column_homogeneous(True)
+        self._center_grid.set_vexpand(True)
+        self._center_grid.set_valign(Gtk.Align.END)
         self.play_btn = self._pult_btn(
             "media-playback-start-symbolic",
             "Measure the selected channel", self._on_play)
