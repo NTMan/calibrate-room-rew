@@ -760,17 +760,26 @@ class EqWindow(Adw.ApplicationWindow):
             # the dialog is the GUI face of --install, and they
             # SHARE the routine now -- one source of truth
             try:
-                integration.install_full()
+                result = integration.install_full()
             except FileNotFoundError as e:
                 err = Adw.AlertDialog(heading="Install failed",
                                       body=str(e))
                 err.add_response("ok", "OK")
                 err.present(self)
                 return
+            body = ("To remove it later, run:\n"
+                    "per-device-eq.py --uninstall")
+            if result.get("restarted") is False:
+                where = (" on the host"
+                         if os.environ.get("FLATPAK_ID") else "")
+                body = ("The WirePlumber hook is installed but "
+                        "the service was not restarted, so it is "
+                        "not loaded yet. Run once%s:\n"
+                        "  systemctl --user restart wireplumber"
+                        "\n\n%s" % (where, body))
             info = Adw.AlertDialog(
                 heading="Integration installed",
-                body="To remove it later, run:\n"
-                     "per-device-eq.py --uninstall")
+                body=body)
             info.add_response("ok", "OK")
             info.present(self)
         dlg.connect("response", done)

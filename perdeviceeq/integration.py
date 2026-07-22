@@ -65,11 +65,16 @@ def install_full():
     """One source of truth for --install and the GUI dialog: the
     hook (with one WirePlumber restart when it changed), then the
     desktop entry unless a system package owns it. Returns
-    {"hook": changed, "desktop": "packaged"|"installed"|"missing"}
-    for the caller to narrate its own way."""
+    {"hook": changed, "desktop": "packaged"|"installed"|"missing",
+    "restarted": True|False|None} for the caller to narrate its
+    own way -- False means the hook landed but the service kept
+    running the old world (a sandbox, or a system without
+    systemd --user), and the caller MUST say so: a silently
+    unloaded hook is the app doing nothing."""
     changed = install_hook()
+    restarted = None
     if changed:
-        restart_wireplumber()
+        restarted = restart_wireplumber()
     if os.path.exists(SYS_DESKTOP_FILE):
         desk = "packaged"
     else:
@@ -78,7 +83,8 @@ def install_full():
             desk = "installed"
         except FileNotFoundError:
             desk = "missing"
-    return {"hook": changed, "desktop": desk}
+    return {"hook": changed, "desktop": desk,
+            "restarted": restarted}
 
 
 def hook_installed():
