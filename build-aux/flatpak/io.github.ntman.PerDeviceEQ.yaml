@@ -13,14 +13,16 @@
 # the Flathub repo following `tools/bump_version.py` +
 # `gh release create vX.Y.Z`).
 #
-# GNOME runtime 48 ships Python 3.12; the wheels below are cp312,
-# pinned from PyPI with their published sha256 digests. If the
-# runtime moves, regenerate the python3-deps module (the standard
-# tool is flatpak-pip-generator) and update this comment.
+# GNOME runtime 50 rides freedesktop 25.08, which ships Python
+# 3.13 (fact from elements/include/python3.yml on the release
+# branch: v3.13.14) -- the wheels below are cp313, pinned from PyPI
+# with their published sha256 digests. If the runtime moves,
+# regenerate the python3-deps module (flatpak-pip-generator) and
+# re-verify the python version the same way.
 
 app-id: io.github.ntman.PerDeviceEQ
 runtime: org.gnome.Platform
-runtime-version: '48'
+runtime-version: '50'
 sdk: org.gnome.Sdk
 command: per-device-eq
 
@@ -84,20 +86,20 @@ modules:
     sources:
       - type: file
         only-arches: [x86_64]
-        url: https://files.pythonhosted.org/packages/b8/a9/6e73d68500f80773f65f0654ea932019d6694329a0eb0ed0533de38df376/numpy-2.5.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
-        sha256: 59fda5e192b570217ec2580c96f00e9a7e12ef6866a900eb089b62c1a32545ca
+        url: https://files.pythonhosted.org/packages/ed/a7/2bcd3fdbb87804755c35b729bf8709d62025c5f4cfd7d5b2415997097515/numpy-2.5.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+        sha256: 9726558e8db4a5bf7929a70ae50f63abda4daf0efe810e3bfbab95976f75fc1a
       - type: file
         only-arches: [aarch64]
-        url: https://files.pythonhosted.org/packages/a9/4b/a2b32dd94ee9ffbeecb28152240042a3949db33b1c834d44090b80e1b3b8/numpy-2.5.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
-        sha256: 61ac47e772e6b8ea489e1d2f441a34c5c3ac17327e7ce294cbdf535795ad4e75
+        url: https://files.pythonhosted.org/packages/2e/20/1ee6614d64332a1bba6411f38e68cb79eec1b2459e20a623777c5c5492a2/numpy-2.5.1-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+        sha256: 1c6759f538fb912fc46de0a6b1758ccf7b57bc7c7ebebc23974fdac3de8db0cd
       - type: file
         only-arches: [x86_64]
-        url: https://files.pythonhosted.org/packages/dd/aa/1b939f6c67ed68635bb538e6752d3dacc02f66535182e939a89581a44e9c/scipy-1.18.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
-        sha256: 1f55797419e16e7f30cf88ffb3113ce0467f00cfe3f70d5c281730b21769bfc2
+        url: https://files.pythonhosted.org/packages/f6/af/e8fe5fb136f51e2b01678b92cb4106d10d8cd68ec147ead2e7cb0ac75398/scipy-1.18.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+        sha256: a46f9273dbd0eb1cefba61c9b8648b4dfe3cbc14a080176f9a73e44b8336dc7f
       - type: file
         only-arches: [aarch64]
-        url: https://files.pythonhosted.org/packages/3c/23/21f5e703643d66f21faa6b4c73195bfcad70c55efcb4f1ab327cd7c4101a/scipy-1.18.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
-        sha256: 52a96e21517c7292375c0e27dd796a811f03fcea5fd4d108fdfea8145dcf17ab
+        url: https://files.pythonhosted.org/packages/ea/b2/e83ea34279a52c03374477c74006256ec78df65fc877baa4617d6de1d202/scipy-1.18.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+        sha256: 0d13bca67c096d89fb95ced0d8921807300fce0275643aef9533cc63a0773468
       - type: file
         only-arches: [x86_64]
         url: https://files.pythonhosted.org/packages/7b/a2/70fd4432b924684c372df8b0a45708c36c057ef3596c9eb53e0a806b980b/soundfile-0.14.0-py2.py3-none-manylinux_2_28_x86_64.whl
@@ -108,12 +110,12 @@ modules:
         sha256: e85724a90bc99a6e8062c0b4ddf725f53b2a3b70afd4da875e9d2cfc4e92f377
       - type: file
         only-arches: [x86_64]
-        url: https://files.pythonhosted.org/packages/62/f2/c9522a81c32132799a1972c39f5c5f8b4c8b9f00488a23feaa6c06f07741/cffi-2.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
-        sha256: 1e9f50d192a3e525b15a75ab5114e442d83d657b7ec29182a991bc9a88fd3a66
+        url: https://files.pythonhosted.org/packages/6f/08/f2e7d62c460faae0926f2d6e423694aa409ced3bc1fe2927a0a6e5f05416/cffi-2.1.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+        sha256: 799416bae98336e400981ff6e532d67d5c709cfb30afb79865a1315f94b0e224
       - type: file
         only-arches: [aarch64]
-        url: https://files.pythonhosted.org/packages/1b/dc/5620cf930688be01f2d673804291de757a934c90b946dbdc3d84130c2ea4/cffi-2.1.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
-        sha256: b6422532152adf4e59b110cb2808cee7a033800952f5c036b4af047ee43199e7
+        url: https://files.pythonhosted.org/packages/3a/a6/e879bb68cc23a2bc9ba8f4b7d8019f0c2694bad2ab6c4a3701d429439f58/cffi-2.1.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+        sha256: ff067a8d8d880e7809e4ac88eb009bb848870115317b306666502ccad30b147f
       - type: file
         url: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
         sha256: b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992

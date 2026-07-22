@@ -13,7 +13,7 @@ jobs:
   flatpak:
     name: Flatpak (${{ matrix.variant.arch }})
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
       options: --privileged
     strategy:
       fail-fast: false
