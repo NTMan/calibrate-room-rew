@@ -778,9 +778,9 @@ def verify_capture(source, cap):
         wrong.append({"id": s, "node_name": name})
     if source["id"] not in sources or wrong:
         raise MeasureError(
-            "capture is linked to the wrong source (a wrong default "
-            "recording device hijacked the stream): got %s, wanted %s. "
-            "node.target pinning failed."
+            "the capture opened on the wrong device: got %s, "
+            "wanted %s -- the target was not honored, the take "
+            "is refused"
             % (", ".join("%(node_name)s (id %(id)s)" % w for w in wrong)
                or "nothing", node_ident(source)["name"]))
     return {"verified": True, "source": node_ident(source)}
@@ -1307,6 +1307,31 @@ class MeasureSession:
                                "%d-channel capture" % (a, cfg.channels))
         if self.wav is None:
             raise MeasureError("session not entered (use `with session:`)")
+        # Names are identity, ids are addresses, and PipeWire
+        # recycles addresses on graph churn: the ids resolved at
+        # enter time can point at a RECYCLED number by the next
+        # take (the field caught a webcam wearing the mic's old
+        # id -- the pin held, the address lied). Every take
+        # re-resolves both ends by name, fresh; an absent end
+        # fails to open, honestly, before anything is spawned.
+        dump = pw_dump()
+        try:
+            self.sink = resolve_node(dump, cfg.sink, "Audio/Sink")
+        except RefusalError:
+            raise MeasureError(
+                "output device %r failed to open: it is not in "
+                "the graph" % (cfg.device or cfg.sink))
+        try:
+            self.source = resolve_node(dump, cfg.source,
+                                       "Audio/Source")
+        except RefusalError:
+            raise MeasureError(
+                "capture device %r failed to open: it is not in "
+                "the graph" % cfg.source)
+        self.sink_ident = node_ident(self.sink)
+        self.source_ident = node_ident(self.source)
+        self.sink_layout = sink_channels(self.sink_ident["name"],
+                                         dump)
         self._pending = None                # a new sweep supersedes it
         self._cancel.clear()                # fresh; cancel() sets it to abort
         raw_path = (os.path.join(self.outdir,

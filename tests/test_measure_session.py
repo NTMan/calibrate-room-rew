@@ -800,3 +800,29 @@ def test_enter_resolves_a_deferred_birth(shim_state, tmp_path):
         assert ses._resolved and ses.sink is not None
         assert ses.sink_ident["name"] == "test_sink"
         assert ses.volume_start is not None
+
+
+def test_take_fails_honestly_when_an_end_left(shim_state, tmp_path,
+                                              monkeypatch):
+    """Ids are recycled addresses: a take must re-resolve both
+    ends by name from a FRESH dump and refuse plainly when one
+    is absent -- never spawn against an id resolved at enter
+    time (the field caught a webcam wearing the mic's recycled
+    number)."""
+    ses = ms.MeasureSession(make_cfg(tmp_path))
+    with ses:
+        full = ms.pw_dump()
+        no_mic = [o for o in full
+                  if (o.get("info", {}).get("props", {})
+                      .get("node.name")) != "test_source"]
+        monkeypatch.setattr(ms, "pw_dump", lambda: no_mic)
+        with pytest.raises(ms.MeasureError,
+                           match="failed to open"):
+            ses.take(0)
+        no_sink = [o for o in full
+                   if (o.get("info", {}).get("props", {})
+                       .get("node.name")) != "test_sink"]
+        monkeypatch.setattr(ms, "pw_dump", lambda: no_sink)
+        with pytest.raises(ms.MeasureError,
+                           match="failed to open"):
+            ses.take(0)

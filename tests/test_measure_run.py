@@ -308,7 +308,7 @@ def test_capture_wrong_source_aborts(tmp_path):
     proc, out, state = run_measure(
         tmp_path, env_extra={"PDE_SHIM_CAPTURE_WRONG": "1"})
     assert proc.returncode == 1
-    assert "wrong source" in proc.stderr
+    assert "the target was not honored" in proc.stderr
     assert "obsbot_wrong_default" in proc.stderr
     assert not out.exists()
     assert meta_now(state) == {"test_sink": GRAPH}    # profile restored

@@ -1285,9 +1285,10 @@ class MeasureWindow(Adw.Window):
 
     def _reconcile_source(self, st):
         """The rig is never substituted: a vanished mic keeps
-        the selection, the banner names the state, measuring
-        waits. On the rig's return the mic state re-derives and
-        an unarmed session rebuilds against it."""
+        the selection, the banner names the state, the ring
+        locks, measuring waits. On the rig's return the mic
+        state re-derives and an unarmed session rebuilds
+        against it."""
         name = self.mic_picker.core.node
         gone = bool(name) and not any(
             s["name"] == name for s in st.sources)
@@ -1295,8 +1296,17 @@ class MeasureWindow(Adw.Window):
             return
         self._mic_gone = gone
         self.mic_banner.set_revealed(gone)
+        self._gone_lock()
         if not gone and name:
             self._adopt_selected_source()
+
+    def _gone_lock(self):
+        """The ring obeys both ends of the chain: no sweeps
+        while either the sink or the rig is away (a sweep needs
+        a speaker AND a mic; the field started one against an
+        absent rig and PipeWire improvised)."""
+        self._set_ring_sensitive(
+            not (self._sink_gone or self._mic_gone or self._busy))
 
     def _set_sink_gone(self, gone):
         if gone == self._sink_gone:
@@ -1305,7 +1315,7 @@ class MeasureWindow(Adw.Window):
         self._center_box.set_sensitive(not gone)
         self.vol_spin.set_sensitive(not gone)
         self.relevel_btn.set_sensitive(not gone)
-        self._set_ring_sensitive(not gone)
+        self._gone_lock()
         # field verdict: the banner names the state and the
         # insensitivity shows where it bites -- no homebrew
         # badges, no loose prose outside a card
@@ -1320,6 +1330,7 @@ class MeasureWindow(Adw.Window):
         if self._mic_gone:
             self._mic_gone = False
             self.mic_banner.set_revealed(False)
+            self._gone_lock()
         self._adopt_selected_source()
 
     def _adopt_selected_source(self):
@@ -1614,6 +1625,8 @@ class MeasureWindow(Adw.Window):
             return
         if not self._ensure_session():
             return
+        if self._sink_gone or self._mic_gone:
+            return                  # the ring is locked; belt here
         if self._rig_blocked:
             self._error("This profile was measured with a different "
                         "rig; measuring here is blocked. Create a "
@@ -1621,7 +1634,7 @@ class MeasureWindow(Adw.Window):
             return
         self._level_only = level_only
         self._busy = True
-        self._set_ring_sensitive(False)
+        self._gone_lock()
         self._update_pult()
         self.center.set_text(
             "Measuring the level on %s\u2026" % self.ch_keys[ch]
@@ -1688,7 +1701,7 @@ class MeasureWindow(Adw.Window):
 
     def _measure_done(self, ch, result):
         self._busy = False
-        self._set_ring_sensitive(True)
+        self._gone_lock()
         self.center.set_text("Click a speaker to measure")
         err = result["error"]
         if isinstance(err, ms.MeasureCancelled):
