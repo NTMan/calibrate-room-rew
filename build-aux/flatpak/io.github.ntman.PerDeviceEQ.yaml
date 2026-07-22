@@ -59,7 +59,7 @@ modules:
       - -Dbluez5=disabled
       - -Dgstreamer=disabled
       - -Dgstreamer-device-provider=disabled
-      - -Dsystemd=disabled
+      - -Dsystemd-user-service=disabled
       - -Dselinux=disabled
       - -Dlibcamera=disabled
       - -Dx11=disabled
