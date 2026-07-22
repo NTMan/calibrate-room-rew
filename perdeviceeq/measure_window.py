@@ -185,7 +185,6 @@ class MeasureWindow(Adw.Window):
         self._loud_ack = False
         self._canvas_ids = {}       # (ch, live rec.id) -> canvas id
         self._canvas_session = None  # one session entry per sitting
-        self._rig_blocked = False   # profile belongs to another rig
         self._mic_gone = False      # selected rig left the graph
         self._relevel_pending = False
         self._sink_gone = False
@@ -1352,7 +1351,6 @@ class MeasureWindow(Adw.Window):
         self.session = None
         self._canvas_ids = {}
         self._canvas_session = None
-        self._rig_blocked = False
         self.source_dd.set_subtitle(self._mic_subtitle)
         self._ensure_session(arm=False, quiet=True)
         self._refresh_all()
@@ -1545,14 +1543,14 @@ class MeasureWindow(Adw.Window):
         """The pult is the shared gone lock (field verdict): a
         sweep needs a speaker AND a mic, so both sweep triggers
         -- play and the releveler -- obey both ends of the
-        chain and the rig-identity block (a foreign rig may
-        browse and refit the stored history, never add to it).
-        The speakers stay free: takes are per channel, and
-        browsing the neighbor's pile must survive a gone
-        device."""
+        chain. The rig's identity gates nothing: a mixed canvas
+        is judged by its own spread (spread_trust_bound sinks
+        the trust and shrinks the trusted band), and the mic row
+        names a foreign rig as a fact. The speakers stay free:
+        takes are per channel, and browsing the neighbor's pile
+        must survive a gone device."""
         live = (self._sink_present() and not self._sink_gone
-                and self._source_present() and not self._mic_gone
-                and not self._rig_blocked)
+                and self._source_present() and not self._mic_gone)
         self.play_btn.set_sensitive(not self._busy and live)
         if getattr(self, "relevel_btn", None) is not None:
             self.relevel_btn.set_sensitive(not self._busy and live)
@@ -1629,11 +1627,6 @@ class MeasureWindow(Adw.Window):
             return
         if self._sink_gone or self._mic_gone:
             return    # play is locked; stray starts no-op here
-        if self._rig_blocked:
-            self._error("This profile was measured with a different "
-                        "rig; measuring here is blocked. Create a "
-                        "new profile for this rig.")
-            return
         self._level_only = level_only
         self._busy = True
         self._set_ring_sensitive(False)
@@ -1795,24 +1788,25 @@ class MeasureWindow(Adw.Window):
         src = self._source_info() or {}
         node = self.session.source_ident.get("name")
         stored_src = m.get("source")
-        # The rig-identity block gates ADDING, never viewing:
-        # while the rig is foreign no new take can be born, so
-        # the adopted history stays one-rig by construction --
-        # its spread and its fit are legitimate, and hiding it
-        # only read as data loss (field doctrine: takes are the
-        # profile's history, the canvas is the artifact).
-        self._rig_blocked = bool(
+        # The rig's identity gates nothing (field doctrine: a
+        # mic moving to a better interface is a better version
+        # of itself, not another rig; and a truly mixed canvas
+        # is judged by its own statistics -- foreign curves
+        # widen the take-to-take spread, spread_trust_bound
+        # sinks the trust and shrinks the trusted band). The mic
+        # row names a foreign rig as a plain fact; the fact
+        # melts when the serial or the node matches again.
+        foreign = bool(
             stored_src and not measure_build.rig_matches(
                 stored_src, src.get("serial"), node))
-        if self._rig_blocked:
+        if foreign:
             self.source_dd.set_subtitle(
-                "Measured with %s -- measuring here is blocked"
+                "Measured with %s"
                 % (stored_src.get("name")
                    or stored_src.get("node_match")
                    or "another rig"))
         else:
             self.source_dd.set_subtitle(self._mic_subtitle)
-        self._update_pult()
         g = m.get("grid") or {}
         freqs = mc.log_grid(float(g.get("f_lo", mc.GRID_F_LO)),
                             float(g.get("f_hi", mc.GRID_F_HI)),
@@ -1844,7 +1838,7 @@ class MeasureWindow(Adw.Window):
         counts span it) and a fit that is absent, stale or does not
         cover the canvas. Hand-edited fits are never discarded
         silently -- the editor's Re-fit asks."""
-        if self.session is None or self._rig_blocked:
+        if self.session is None:
             return False
         if any(self._clean_count(i) < CLEAN_TARGET
                for i in range(self.n_ch)):

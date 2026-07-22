@@ -10,8 +10,11 @@ when the caller decides the house is full. Plus the serialization
 helpers they stand on: take_dict() puts an uncalibrated magnitude
 onto the canvas grid, cal_entry() embeds a cal file as points + sha,
 fit_fingerprint() hashes everything a fit consumed, and rig_matches()
-is the one gate between a canvas and a foreign rig. No GTK and no
-store construction here; the store is injected.
+tells whether the current rig is the profile's own -- informational
+now: the statistics judge a mixed canvas (the take-to-take spread
+feeds spread_trust_bound, so foreign curves widen the spread, sink
+the trust and shrink the trusted band), not a name gate. No GTK and
+no store construction here; the store is injected.
 """
 import hashlib
 import json
@@ -91,14 +94,14 @@ def fit_fingerprint(measurement, take_ids, params):
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-class SourceMismatch(RuntimeError):
-    """The session's rig is not the profile's rig."""
-
 
 def rig_matches(stored, serial, node_match):
-    """The append gate: serials decide when both sides have one (two
-    different units on one node name are two rigs); otherwise the
-    node identity does. `stored` is measurement.source."""
+    """Is the current rig the profile's own? Serials decide when
+    both sides have one (two different units on one node name are
+    two rigs); otherwise the node identity does. Informational --
+    the mic row names a foreign rig, nothing is gated on it: a
+    mixed canvas is judged by its own spread. `stored` is
+    measurement.source."""
     s_old = (stored or {}).get("serial") or ""
     s_new = serial or ""
     if s_old and s_new:
@@ -154,16 +157,6 @@ def commit_take(store, pid, session, ch_index, key, take_id,
     ident = session.source_ident
     new_serial = src.get("serial") or session.cfg.rig or ""
     m = prof.get("measurement")
-    if m and m.get("source"):
-        stored = m["source"]
-        if not rig_matches(stored, new_serial, ident.get("name")):
-            raise SourceMismatch(
-                "this profile was measured with %s (serial %r, "
-                "node %r); measuring with a different rig needs a "
-                "new profile"
-                % (stored.get("name") or "another rig",
-                   stored.get("serial") or "",
-                   stored.get("node_match") or ""))
     g = (m.get("grid") if m else None) or {}
     freqs = mc.log_grid(float(g.get("f_lo", mc.GRID_F_LO)),
                         float(g.get("f_hi", mc.GRID_F_HI)),

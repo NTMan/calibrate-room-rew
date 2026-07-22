@@ -170,28 +170,26 @@ def test_commit_take_builds_the_canvas(shim_state, store, tmp_path):
     assert {e[1] for e in events[:-1]} == {"FL", "FR"}
 
 
-def test_commit_take_respects_the_rig_gate(shim_state, store,
+def test_commit_take_accepts_a_foreign_rig(shim_state, store,
                                            tmp_path):
+    """The append gate fell (field doctrine): a mic on a better
+    interface is a better version of itself, not another rig,
+    and a truly mixed canvas is judged by its own spread via
+    spread_trust_bound -- so a foreign-rig take commits, the
+    canvas grows, and measurement.source keeps the FIRST rig
+    (the serial fills only when it was empty)."""
     pid = _bare(store, "g", "Gate")
     ses = _session(tmp_path, [(0, 0)])
     measure_build.commit_take(store, pid, ses, 0, "FL",
                               ses.takes_of(0)[-1].id,
                               source={"serial": "861"})
-    before = store.get(pid)["measurement"]
     ses2 = _session(tmp_path, [(0, 0)])
     rid = ses2.takes_of(0)[-1].id
-    with pytest.raises(measure_build.SourceMismatch):
-        measure_build.commit_take(store, pid, ses2, 0, "FL", rid,
-                                  source={"serial": "999"})
-    assert store.get(pid)["measurement"] == before
-    # serials unknown on either side: the node identity decides
-    p = dict(store.get(pid))
-    p["measurement"] = dict(p["measurement"])
-    p["measurement"]["source"] = dict(p["measurement"]["source"],
-                                      serial="", node_match="other")
-    store.save_user(p)
-    with pytest.raises(measure_build.SourceMismatch):
-        measure_build.commit_take(store, pid, ses2, 0, "FL", rid)
+    measure_build.commit_take(store, pid, ses2, 0, "FL", rid,
+                              source={"serial": "999"})
+    m = store.get(pid)["measurement"]
+    assert len(m["takes"]) == 2          # the canvas grew
+    assert m["source"]["serial"] == "861"  # first rig kept
 
 
 def test_remove_takes_prunes_sessions_and_stales_the_fit(
