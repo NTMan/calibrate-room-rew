@@ -1012,8 +1012,27 @@ class MeasureWindow(Adw.Window):
         return sum(1 for r in self.session.takes_of(ch)
                    if ms.take_quality(r) == ms.TAKE_CLEAN)
 
+    def _refresh_cal_manage(self):
+        """The Manage row states the canvas's cal reality --
+        "2 calibrations \u00b7 12 takes" -- and hides on a
+        canvas with no history (nothing to manage)."""
+        row = getattr(self, "cal_manage_row", None)
+        if row is None:
+            return
+        m = (((self.parent.store.get(self.edit_pid) or {})
+              .get("measurement")) if self.edit_pid else None) or {}
+        groups = measure_build.cal_groups(m)
+        row.set_visible(bool(groups))
+        if groups:
+            takes = sum(g["count"] for g in groups)
+            cals = sum(1 for g in groups if g["sha"])
+            row.set_subtitle("%d calibration%s \u00b7 %d take%s"
+                             % (cals, "" if cals == 1 else "s",
+                                takes, "" if takes == 1 else "s"))
+
     def _refresh_all(self):
         ready = self.session is not None
+        self._refresh_cal_manage()
         for i in range(self.n_ch):
             n = self._clean_count(i)
             if n < CLEAN_TARGET:
@@ -1478,6 +1497,20 @@ class MeasureWindow(Adw.Window):
             self.mic_group.add(row)
             self.cal_rows.append(row)
             self.cal_btns[i] = btn
+        if not hasattr(self, "cal_manage_row"):
+            r = Adw.ActionRow()
+            r.set_title("Recorded calibrations")
+            b = Gtk.Button(label="Manage\u2026")
+            b.set_valign(Gtk.Align.CENTER)
+            b.add_css_class("flat")
+            b.connect("clicked", lambda *_: self._open_cal_manager())
+            r.add_suffix(b)
+            r.set_activatable_widget(b)
+            self.cal_manage_row = r
+        else:
+            self.mic_group.remove(self.cal_manage_row)
+        self.mic_group.add(self.cal_manage_row)
+        self._refresh_cal_manage()
         self._sync_cal_labels()
 
     def _rebuild_map_slots(self):
@@ -1535,6 +1568,103 @@ class MeasureWindow(Adw.Window):
     def _make_map_cb(self, k):
         def cb(dd, _p):
             self.mic_of[k] = dd.get_selected()
+        return cb
+
+    def _open_cal_manager(self):
+        """The cal history, reified the HIG way: a boxed list in
+        a dialog, one row per cal origin, bulk reassign on each
+        (the operation is by-sha by design). The refilled list
+        after a move IS the feedback."""
+        if not self.edit_pid:
+            return
+        dlg = Adw.Dialog()
+        dlg.set_title("Recorded calibrations")
+        dlg.set_content_width(440)
+        tv = Adw.ToolbarView()
+        tv.add_top_bar(Adw.HeaderBar())
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.set_margin_top(12)
+        box.set_margin_bottom(18)
+        box.set_margin_start(18)
+        box.set_margin_end(18)
+        lb = Gtk.ListBox()
+        lb.set_selection_mode(Gtk.SelectionMode.NONE)
+        lb.add_css_class("boxed-list")
+        box.append(lb)
+        tv.set_content(box)
+        dlg.set_child(tv)
+
+        def refill():
+            child = lb.get_first_child()
+            while child:
+                nxt = child.get_next_sibling()
+                lb.remove(child)
+                child = nxt
+            m = ((self.parent.store.get(self.edit_pid) or {})
+                 .get("measurement")) or {}
+            for g in measure_build.cal_groups(m):
+                row = Adw.ActionRow()
+                row.set_title(g["file"] or "Raw capture")
+                n = g["count"]
+                sub = "%d take%s" % (n, "" if n == 1 else "s")
+                if g["rigs"]:
+                    sub += " \u00b7 " + ", ".join(g["rigs"])
+                row.set_subtitle(sub)
+                b = Gtk.Button(label=("Reassign\u2026" if g["sha"]
+                                      else "Assign\u2026"))
+                b.set_valign(Gtk.Align.CENTER)
+                b.add_css_class("flat")
+                b.connect("clicked", self._make_reassign_cb(
+                    g["sha"], g["file"], g["count"], refill))
+                row.add_suffix(b)
+                row.set_activatable_widget(b)
+                lb.append(row)
+        refill()
+        dlg.present(self)
+
+    def _make_reassign_cb(self, sha, fname, count, refill):
+        """Chooser, then a plain-words confirmation, then the
+        bulk move; the fit stales honestly through its
+        fingerprint and the Re-fit machinery offers the
+        recompute."""
+        def cb(_btn):
+            dialog = Gtk.FileDialog()
+            dialog.set_title("Choose the calibration to move "
+                             "%d take%s onto"
+                             % (count, "" if count == 1 else "s"))
+
+            def done(d, res):
+                try:
+                    gfile = d.open_finish(res)
+                except GLib.Error:
+                    return
+                path = gfile.get_path() if gfile else None
+                if not path:
+                    return
+                ask = Adw.AlertDialog(
+                    heading="Move %d take%s?"
+                            % (count, "" if count == 1 else "s"),
+                    body="%s \u2192 %s\nThe old calibration "
+                         "stays in the library; the fit will be "
+                         "marked stale."
+                         % (fname or "raw capture",
+                            os.path.basename(path)))
+                ask.add_response("cancel", "Cancel")
+                ask.add_response("move", "Move")
+                ask.set_default_response("move")
+                ask.set_close_response("cancel")
+
+                def done2(_d, resp):
+                    if resp != "move":
+                        return
+                    measure_build.reassign_cal(
+                        self.parent.store, self.edit_pid,
+                        sha, path)
+                    refill()
+                    self._refresh_all()
+                ask.connect("response", done2)
+                ask.present(self)
+            dialog.open(self, None, done)
         return cb
 
     def _make_cal_cb(self, ch):

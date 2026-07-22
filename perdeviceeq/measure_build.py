@@ -200,6 +200,36 @@ def commit_take(store, pid, session, ch_index, key, take_id,
     return {"take": take["id"], "session": sid}
 
 
+def cal_groups(measurement):
+    """The canvas grouped by cal origin -- the shape the Manage
+    calibrations dialog renders and reassign_cal operates on.
+    One group per distinct cal_sha (None = raw takes), ordered
+    by first appearance on the canvas: {"sha", "file" (None for
+    raw), "count", "rigs": [distinct session rig names, in
+    order]}. Pure and GTK-free."""
+    m = measurement or {}
+    lib = m.get("cal_library") or {}
+    sessions = m.get("sessions") or {}
+    order = []
+    groups = {}
+    for t in (m.get("takes") or []):
+        sha = t.get("cal_sha")
+        g = groups.get(sha)
+        if g is None:
+            g = {"sha": sha,
+                 "file": ((lib.get(sha) or {}).get("file")
+                          if sha else None),
+                 "count": 0, "rigs": []}
+            groups[sha] = g
+            order.append(sha)
+        g["count"] += 1
+        rig = ((sessions.get(t.get("session")) or {})
+               .get("source") or {}).get("name")
+        if rig and rig not in g["rigs"]:
+            g["rigs"].append(rig)
+    return [groups[s] for s in order]
+
+
 def reassign_cal(store, pid, old_sha, new_path):
     """Move EVERY take that consumed cal `old_sha` onto the cal
     at `new_path`, in one stroke -- the operation is bulk by

@@ -272,3 +272,27 @@ def test_reassign_cal_moves_by_sha(shim_state, store, tmp_path):
     assert next(iter(new_shas)) in m["cal_library"]
     assert measure_build.reassign_cal(store, pid, "nope",
                                       cal_b) == 0
+
+
+def test_cal_groups_shapes_the_manage_dialog():
+    """The canvas grouped by cal origin: one group per sha (None
+    = raw), ordered by first appearance, counting takes and
+    naming the rigs that used it -- the pure core the Manage
+    dialog renders."""
+    m = {"cal_library": {"aa": {"file": "L.txt", "points": []},
+                         "bb": {"file": "R.txt", "points": []}},
+         "sessions": {"s1": {"source": {"name": "EARS"}},
+                      "s2": {"source": {"name": "Umik"}}},
+         "takes": [
+             {"id": "1", "session": "s1", "cal_sha": "aa"},
+             {"id": "2", "session": "s1", "cal_sha": "aa"},
+             {"id": "3", "session": "s2", "cal_sha": None},
+             {"id": "4", "session": "s2", "cal_sha": "aa"},
+             {"id": "5", "session": "s2", "cal_sha": "bb"}]}
+    gs = measure_build.cal_groups(m)
+    assert [(g["sha"], g["file"], g["count"], g["rigs"])
+            for g in gs] == [
+        ("aa", "L.txt", 3, ["EARS", "Umik"]),
+        (None, None, 1, ["Umik"]),
+        ("bb", "R.txt", 1, ["Umik"])]
+    assert measure_build.cal_groups({}) == []
