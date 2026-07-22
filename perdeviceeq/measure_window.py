@@ -406,7 +406,6 @@ class MeasureWindow(Adw.Window):
         self.stop_btn.set_sensitive(False)
         center_box.append(self._center_grid)
         self.ring.put(center_box, SPEAKER, int(RING / 2 - 56))
-        self._center_box = center_box
 
         # The volume is a fader now, on the ring's left; auto-level
         # sits under it -- the two speak the same language, and the
@@ -1285,7 +1284,7 @@ class MeasureWindow(Adw.Window):
 
     def _reconcile_source(self, st):
         """The rig is never substituted: a vanished mic keeps
-        the selection, the banner names the state, the ring
+        the selection, the banner names the state, the pult
         locks, measuring waits. On the rig's return the mic
         state re-derives and an unarmed session rebuilds
         against it."""
@@ -1296,26 +1295,17 @@ class MeasureWindow(Adw.Window):
             return
         self._mic_gone = gone
         self.mic_banner.set_revealed(gone)
-        self._gone_lock()
+        self._update_pult()
         if not gone and name:
             self._adopt_selected_source()
 
-    def _gone_lock(self):
-        """The ring obeys both ends of the chain: no sweeps
-        while either the sink or the rig is away (a sweep needs
-        a speaker AND a mic; the field started one against an
-        absent rig and PipeWire improvised)."""
-        self._set_ring_sensitive(
-            not (self._sink_gone or self._mic_gone or self._busy))
 
     def _set_sink_gone(self, gone):
         if gone == self._sink_gone:
             return
         self._sink_gone = gone
-        self._center_box.set_sensitive(not gone)
         self.vol_spin.set_sensitive(not gone)
-        self.relevel_btn.set_sensitive(not gone)
-        self._gone_lock()
+        self._update_pult()
         # field verdict: the banner names the state and the
         # insensitivity shows where it bites -- no homebrew
         # badges, no loose prose outside a card
@@ -1330,7 +1320,7 @@ class MeasureWindow(Adw.Window):
         if self._mic_gone:
             self._mic_gone = False
             self.mic_banner.set_revealed(False)
-            self._gone_lock()
+            self._update_pult()
         self._adopt_selected_source()
 
     def _adopt_selected_source(self):
@@ -1552,8 +1542,17 @@ class MeasureWindow(Adw.Window):
             self.session.cancel()            # aborts the sweep in flight
 
     def _update_pult(self):
-        live = self._sink_present() and not self._sink_gone
+        """The pult is the shared gone lock (field verdict): a
+        sweep needs a speaker AND a mic, so both sweep triggers
+        -- play and the releveler -- obey both ends of the
+        chain. The speakers stay free: takes are per channel,
+        and browsing the neighbor's pile must survive a gone
+        device."""
+        live = (self._sink_present() and not self._sink_gone
+                and self._source_present() and not self._mic_gone)
         self.play_btn.set_sensitive(not self._busy and live)
+        if getattr(self, "relevel_btn", None) is not None:
+            self.relevel_btn.set_sensitive(not self._busy and live)
         self.stop_btn.set_sensitive(self._busy)
         if getattr(self, "sink_dd", None) is not None:
             # mid-sweep the route is not a choice
@@ -1626,7 +1625,7 @@ class MeasureWindow(Adw.Window):
         if not self._ensure_session():
             return
         if self._sink_gone or self._mic_gone:
-            return                  # the ring is locked; belt here
+            return    # play is locked; stray starts no-op here
         if self._rig_blocked:
             self._error("This profile was measured with a different "
                         "rig; measuring here is blocked. Create a "
@@ -1634,7 +1633,7 @@ class MeasureWindow(Adw.Window):
             return
         self._level_only = level_only
         self._busy = True
-        self._gone_lock()
+        self._set_ring_sensitive(False)
         self._update_pult()
         self.center.set_text(
             "Measuring the level on %s\u2026" % self.ch_keys[ch]
@@ -1701,7 +1700,8 @@ class MeasureWindow(Adw.Window):
 
     def _measure_done(self, ch, result):
         self._busy = False
-        self._gone_lock()
+        self._set_ring_sensitive(True)
+        self._update_pult()
         self.center.set_text("Click a speaker to measure")
         err = result["error"]
         if isinstance(err, ms.MeasureCancelled):
