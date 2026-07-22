@@ -558,6 +558,58 @@ class MeasureWindow(Adw.Window):
                 cr.stroke()
         return draw
 
+    def _take_passport(self, ch, rec):
+        """The take's provenance off its canvas passport (schema
+        v4: the session's rig stamp, the take's own cal). Returns
+        (mark, tooltip): a SHORT rig mark for the row ONLY when
+        the take's rig differs from the current one -- a one-rig
+        canvas stays clean, and a mark per row cannot degrade
+        into the "Measured with A, B, C" enumeration -- plus the
+        full passport for the tooltip, degrading gracefully:
+        name falls back to the node, the serial appears when
+        known, the cal names its file and sha, raw says raw. The
+        serial-else-node comparison is informational; nothing is
+        gated on it (field doctrine: statistics judge)."""
+        if not self.edit_pid:
+            return None, None
+        m = ((self.parent.store.get(self.edit_pid) or {})
+             .get("measurement") or {})
+        cid = self._canvas_ids.get((ch, rec.id), rec.id)
+        take = next((t for t in m.get("takes") or []
+                     if t.get("id") == cid), None)
+        if take is None:
+            return None, None
+        stamp = (((m.get("sessions") or {})
+                  .get(take.get("session")) or {})
+                 .get("source") or {})
+        s = stamp.get("serial") or ""
+        cur = (self._source_info() or {}).get("serial") or ""
+        if s and cur:
+            foreign = s != cur
+        else:
+            foreign = ((stamp.get("node_match") or "")
+                       != (self.mic_picker.core.node or ""))
+        name = stamp.get("name") or stamp.get("node_match")
+        parts = []
+        if name:
+            head = "Captured with %s" % name
+            if s:
+                head += " S/N %s" % s
+            parts.append(head)
+        sha = take.get("cal_sha")
+        if sha:
+            e = (m.get("cal_library") or {}).get(sha) or {}
+            parts.append("cal %s (sha %s)"
+                         % (e.get("file") or "?", sha[:16]))
+        else:
+            parts.append("raw capture")
+        tip = " \u00b7 ".join(parts) if parts else None
+        mark = None
+        if foreign and name:
+            mark = (name if len(name) <= 24
+                    else name[:23] + "\u2026")
+        return mark, tip
+
     def _make_take_row(self, ch, rec, lo, hi, driver=None,
                        mean=None, shift=0.0):
         q = ms.take_quality(rec)
@@ -586,6 +638,9 @@ class MeasureWindow(Adw.Window):
         drives = driver is not None and driver[0] == rec.id
         if drives:
             info += "  ·  spread driver"
+        mark, passport = self._take_passport(ch, rec)
+        if mark:
+            info += "  \u00b7  %s" % mark
         lbl = Gtk.Label(label=info, xalign=0.0, hexpand=True)
         lbl.add_css_class("caption")
         lbl.add_css_class("warning" if drives else "dim-label")
@@ -601,6 +656,10 @@ class MeasureWindow(Adw.Window):
         rm.set_tooltip_text("Delete this take")
         rm.connect("clicked", self._make_discard_cb(ch, rec.id))
         head.append(rm)
+        if passport:
+            # the full passport rides the row, not the info
+            # label -- the spread-driver tooltip keeps the label
+            body.set_tooltip_text(passport)
         body.append(head)
 
         curve = Gtk.DrawingArea()
