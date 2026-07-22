@@ -199,6 +199,20 @@ listener, headroom that never lies.
   monitor port unlinked; only a node reconfigure (graph republish)
   completes the links. Repro + workaround live in per-device-eq (the
   400 ms republish nudge and the dead-channel watchdog).
+* xdg-desktop-portal, ready to file: no portal exists for restarting a
+  user service, and the only mechanism today -- flatpak-spawn --host
+  via org.freedesktop.Flatpak -- is arbitrary-code-on-host by design,
+  so every app that installs host-daemon integration ships an
+  instruction sentence instead (ours: the WirePlumber hook needs one
+  `systemctl --user restart wireplumber`). Any proposal must dodge the
+  trap our own case demonstrates: restarting a unit whose inputs the
+  sandbox writes IS executing what you wrote, so the design has to be
+  consent-shaped -- units declared statically in the manifest (the
+  Background/autostart pattern), a dialog naming the unit, remembered
+  per-unit grants, restart-only (no start/stop/enable of arbitrary
+  units), user units only. Precedent for lifecycle portals: the
+  restart-self portal, Flatpak 1.0. The filing-ready issue text is
+  drafted (see the sprint notes); target: flatpak/xdg-desktop-portal.
 * gnome-shell (observed once, repro unknown): the quick-settings output
   picker's checkmark desynced from the actual default sink while
   per-device-eq was active. Capture kit for the next occurrence:
