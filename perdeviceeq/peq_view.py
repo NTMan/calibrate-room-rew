@@ -100,7 +100,7 @@ class PeqView(Gtk.Box):
 
         self.grid = Gtk.Grid(column_spacing=4, row_spacing=4)
         for side in ("top", "bottom", "start", "end"):
-            getattr(self.grid, "set_margin_" + side)(4)
+            getattr(self.grid, "set_margin_" + side)(3)
         self.append(self.grid)
         self._rebuild_table()
 
