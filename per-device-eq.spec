@@ -61,6 +61,8 @@ install -pm0644 -t %{buildroot}%{_datadir}/%{name}/perdeviceeq perdeviceeq/*.py
 # GtkBuilder design for the GUI (resolved at runtime via the package data root)
 install -Dpm0644 data/%{appid}.ui \
         %{buildroot}%{_datadir}/%{name}/data/%{appid}.ui
+install -Dpm0644 data/%{appid}.Measure.ui \
+        %{buildroot}%{_datadir}/%{name}/data/%{appid}.Measure.ui
 
 # WirePlumber hook, shipped as data; the app installs it per-user on first run
 install -Dpm0644 wireplumber/90-per-device-eq.lua \
@@ -94,6 +96,7 @@ perdeviceeq.measure_prefs"
 %{_datadir}/%{name}/perdeviceeq/
 %dir %{_datadir}/%{name}/data
 %{_datadir}/%{name}/data/%{appid}.ui
+%{_datadir}/%{name}/data/%{appid}.Measure.ui
 %dir %{_datadir}/%{name}/wireplumber
 %{_datadir}/%{name}/wireplumber/90-per-device-eq.lua
 %{_datadir}/applications/%{appid}.desktop
