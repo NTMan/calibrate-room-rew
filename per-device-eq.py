@@ -22,7 +22,12 @@ import argparse, os, sys
 
 # ---- locate the perdeviceeq package (repo checkout first, then system) -------
 _HERE = os.path.dirname(os.path.abspath(__file__))
-for _cand in (_HERE, "/usr/share/per-device-eq"):
+# next to this file (checkout), <prefix>/share/per-device-eq
+# (installed: /usr and /app alike), then the legacy literal
+for _cand in (_HERE,
+              os.path.join(os.path.dirname(_HERE), "share",
+                           "per-device-eq"),
+              "/usr/share/per-device-eq"):
     if os.path.isdir(os.path.join(_cand, "perdeviceeq")):
         if _cand not in sys.path:
             sys.path.insert(0, _cand)

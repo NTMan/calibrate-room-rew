@@ -1,0 +1,156 @@
+# Flathub manifest for per-device-eq.
+#
+# Local build and install:
+#   flatpak-builder --user --install --force-clean build-flatpak \
+#       build-aux/flatpak/io.github.ntman.PerDeviceEQ.yaml
+# CI builds this manifest on every push and attaches an installable
+# bundle to the run (.github/workflows/flatpak.yml) -- the CI is the
+# referee for everything pinned below.
+#
+# The app source below is `dir` so CI and local builds test the
+# checked-out tree. For the Flathub submission, swap it for the
+# commented tagged-archive stanza at the bottom (x-checker-data keeps
+# the Flathub repo following `tools/bump_version.py` +
+# `gh release create vX.Y.Z`).
+#
+# GNOME runtime 48 ships Python 3.12; the wheels below are cp312,
+# pinned from PyPI with their published sha256 digests. If the
+# runtime moves, regenerate the python3-deps module (the standard
+# tool is flatpak-pip-generator) and update this comment.
+
+app-id: io.github.ntman.PerDeviceEQ
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+command: per-device-eq
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # The PipeWire native socket: the app drives pw-dump, pw-cli,
+  # pw-metadata and pw-cat against the HOST's PipeWire.
+  - --filesystem=xdg-run/pipewire-0
+  # The WirePlumber hook. install_full writes the script and the
+  # conf.d fragment per-user through these binds; both installed
+  # files carry their provenance and the removal command in a
+  # header. WirePlumber restart stays a one-line user action by
+  # design -- no host-command permission.
+  - --filesystem=~/.local/share/wireplumber:create
+  - --filesystem=xdg-config/wireplumber:create
+  # One profile store for every incarnation of the app: RPM,
+  # flatpak and a bare checkout share ~/.config/per-device-eq
+  # (field verdict: the Bitwig way).
+  - --filesystem=xdg-config/per-device-eq:create
+
+modules:
+  - name: pipewire-tools
+    # The GNOME runtime carries libpipewire but none of the CLI
+    # tools the app shells out to; build only the tools from the
+    # matching upstream source, everything optional disabled.
+    buildsystem: meson
+    config-opts:
+      - -Dsession-managers=[]
+      - -Dalsa=disabled
+      - -Dpipewire-alsa=disabled
+      - -Djack=disabled
+      - -Dpipewire-jack=disabled
+      - -Dbluez5=disabled
+      - -Dgstreamer=disabled
+      - -Dgstreamer-device-provider=disabled
+      - -Dsystemd=disabled
+      - -Dselinux=disabled
+      - -Dlibcamera=disabled
+      - -Dx11=disabled
+      - -Dvulkan=disabled
+      - -Dtests=disabled
+      - -Dexamples=disabled
+      - -Dman=disabled
+      - -Ddocs=disabled
+    sources:
+      - type: archive
+        url: https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.8/pipewire-1.6.8.tar.gz
+        sha256: 8181172a1d95131f6af8bbc0b98f90b2a33349b042b84c3ce57dd5d11348cc58
+
+  - name: python3-deps
+    # numpy + scipy + soundfile (and soundfile's cffi/pycparser),
+    # pinned cp312 manylinux wheels for both Flathub arches.
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index
+        --find-links="file://${PWD}" --prefix=${FLATPAK_DEST}
+        --no-build-isolation numpy scipy soundfile
+    sources:
+      - type: file
+        only-arches: [x86_64]
+        url: https://files.pythonhosted.org/packages/b8/a9/6e73d68500f80773f65f0654ea932019d6694329a0eb0ed0533de38df376/numpy-2.5.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+        sha256: 59fda5e192b570217ec2580c96f00e9a7e12ef6866a900eb089b62c1a32545ca
+      - type: file
+        only-arches: [aarch64]
+        url: https://files.pythonhosted.org/packages/a9/4b/a2b32dd94ee9ffbeecb28152240042a3949db33b1c834d44090b80e1b3b8/numpy-2.5.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+        sha256: 61ac47e772e6b8ea489e1d2f441a34c5c3ac17327e7ce294cbdf535795ad4e75
+      - type: file
+        only-arches: [x86_64]
+        url: https://files.pythonhosted.org/packages/dd/aa/1b939f6c67ed68635bb538e6752d3dacc02f66535182e939a89581a44e9c/scipy-1.18.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+        sha256: 1f55797419e16e7f30cf88ffb3113ce0467f00cfe3f70d5c281730b21769bfc2
+      - type: file
+        only-arches: [aarch64]
+        url: https://files.pythonhosted.org/packages/3c/23/21f5e703643d66f21faa6b4c73195bfcad70c55efcb4f1ab327cd7c4101a/scipy-1.18.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl
+        sha256: 52a96e21517c7292375c0e27dd796a811f03fcea5fd4d108fdfea8145dcf17ab
+      - type: file
+        only-arches: [x86_64]
+        url: https://files.pythonhosted.org/packages/7b/a2/70fd4432b924684c372df8b0a45708c36c057ef3596c9eb53e0a806b980b/soundfile-0.14.0-py2.py3-none-manylinux_2_28_x86_64.whl
+        sha256: 1e38bac1853412871318e82a1ba69a8be677619b56025bbfcccdb41b6cafe82d
+      - type: file
+        only-arches: [aarch64]
+        url: https://files.pythonhosted.org/packages/4a/f8/fc39fad6f879633461d27394cd1ddaf1f769ffa0597dca35872f51b16461/soundfile-0.14.0-py2.py3-none-manylinux_2_28_aarch64.whl
+        sha256: e85724a90bc99a6e8062c0b4ddf725f53b2a3b70afd4da875e9d2cfc4e92f377
+      - type: file
+        only-arches: [x86_64]
+        url: https://files.pythonhosted.org/packages/62/f2/c9522a81c32132799a1972c39f5c5f8b4c8b9f00488a23feaa6c06f07741/cffi-2.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+        sha256: 1e9f50d192a3e525b15a75ab5114e442d83d657b7ec29182a991bc9a88fd3a66
+      - type: file
+        only-arches: [aarch64]
+        url: https://files.pythonhosted.org/packages/1b/dc/5620cf930688be01f2d673804291de757a934c90b946dbdc3d84130c2ea4/cffi-2.1.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+        sha256: b6422532152adf4e59b110cb2808cee7a033800952f5c036b4af047ee43199e7
+      - type: file
+        url: https://files.pythonhosted.org/packages/0c/c3/44f3fbbfa403ea2a7c779186dc20772604442dde72947e7d01069cbe98e3/pycparser-3.0-py3-none-any.whl
+        sha256: b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+
+  - name: per-device-eq
+    # Mirrors the RPM layout into /app: the launcher in bin, the
+    # package + data + hook under share/per-device-eq, so
+    # _DATA_ROOT resolves identically in every incarnation.
+    buildsystem: simple
+    build-commands:
+      - install -Dpm0755 per-device-eq.py ${FLATPAK_DEST}/bin/per-device-eq
+      - install -d ${FLATPAK_DEST}/share/per-device-eq/perdeviceeq
+      - install -pm0644 -t ${FLATPAK_DEST}/share/per-device-eq/perdeviceeq
+        perdeviceeq/*.py
+      - install -Dpm0644 data/io.github.ntman.PerDeviceEQ.ui
+        ${FLATPAK_DEST}/share/per-device-eq/data/io.github.ntman.PerDeviceEQ.ui
+      - install -Dpm0644 data/io.github.ntman.PerDeviceEQ.Measure.ui
+        ${FLATPAK_DEST}/share/per-device-eq/data/io.github.ntman.PerDeviceEQ.Measure.ui
+      - install -Dpm0644 wireplumber/90-per-device-eq.lua
+        ${FLATPAK_DEST}/share/per-device-eq/wireplumber/90-per-device-eq.lua
+      - install -Dpm0644 data/io.github.ntman.PerDeviceEQ.desktop
+        ${FLATPAK_DEST}/share/applications/io.github.ntman.PerDeviceEQ.desktop
+      - install -Dpm0644 data/icons/hicolor/scalable/apps/io.github.ntman.PerDeviceEQ.svg
+        ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/io.github.ntman.PerDeviceEQ.svg
+      - install -Dpm0644 data/icons/pde-level-symbolic.svg
+        ${FLATPAK_DEST}/share/icons/hicolor/scalable/actions/pde-level-symbolic.svg
+      - install -Dpm0644 data/io.github.ntman.PerDeviceEQ.metainfo.xml
+        ${FLATPAK_DEST}/share/metainfo/io.github.ntman.PerDeviceEQ.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..
+      # Flathub submission source -- swap for the `dir` source:
+      # - type: archive
+      #   url: https://github.com/NTMan/per-device-eq/archive/refs/tags/v3.2.0.tar.gz
+      #   sha256: <sha256 of the tagged tarball>
+      #   x-checker-data:
+      #     type: anitya
+      #     project-id: TODO  # or type: json against the GitHub
+      #     # releases API; wired when the submission PR is opened
+      #     url-template: https://github.com/NTMan/per-device-eq/archive/refs/tags/v$version.tar.gz
