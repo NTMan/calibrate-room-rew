@@ -216,6 +216,17 @@ class MeasureWindow(Adw.Window):
         self._refresh_all()
         self._pw_unsub = self._pw.subscribe(self._on_pw_state)
         self._pw.start()
+        # Birth reconcile: PWState notifies on CHANGE only, so a
+        # home already gone at open would stay un-announced until
+        # the graph happens to move -- no banner, no locks, a
+        # split state (reachable since the edit opens on an
+        # absent home). At idle, so every widget the gone costume
+        # touches exists: ordering has bitten this constructor
+        # before. Guarded on a non-empty pump; a still-empty pump
+        # fills on the first poll, which IS a change and
+        # notifies.
+        if self._pw.sinks:
+            GLib.idle_add(self._on_pw_state, self._pw)
 
     # ---- layout -----------------------------------------------------------
     def _build_ui(self):
