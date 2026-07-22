@@ -9,10 +9,10 @@
 
     narrow  one clamped column inside one page scroller: profile name +
             mic + calibration, the ring (the spatial channel selector),
-            the status line, warnings, the pult, the selected channel's
+            the status line, the pult, the selected channel's
             takes, the EQ-range strip. Everything scrolls as one.
 
-    wide    two columns: the left (mic, ring, status, warnings, pult)
+    wide    two columns: the left (mic, ring, status, pult)
             is pinned with no scroll of its own; the right (takes +
             EQ range) carries the single scroller, its bar at the
             window edge.
@@ -38,6 +38,11 @@
     <child type="top">
       <object class="AdwBanner" id="gone_banner">
         <property name="title" translatable="yes">The output device is gone</property>
+      </object>
+    </child>
+    <child type="top">
+      <object class="AdwBanner" id="mic_banner">
+        <property name="title" translatable="yes">The measurement mic is gone</property>
       </object>
     </child>
     <child>
@@ -69,11 +74,6 @@
                         <child>
                           <object class="AdwLayoutSlot">
                             <property name="id">ring</property>
-                          </object>
-                        </child>
-                        <child>
-                          <object class="AdwLayoutSlot">
-                            <property name="id">warning</property>
                           </object>
                         </child>
                         <child>
@@ -124,11 +124,6 @@
                     <child>
                       <object class="AdwLayoutSlot">
                         <property name="id">ring</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="AdwLayoutSlot">
-                        <property name="id">warning</property>
                       </object>
                     </child>
                       </object>
@@ -226,17 +221,6 @@
                 </child>
               </object>
             </child>
-          </object>
-        </child>
-        <child type="warning">
-          <object class="GtkLabel" id="warning">
-            <property name="visible">false</property>
-            <property name="xalign">0</property>
-            <property name="wrap">true</property>
-            <property name="max-width-chars">46</property>
-            <style>
-              <class name="dim-label"/>
-            </style>
           </object>
         </child>
         <child type="channel">

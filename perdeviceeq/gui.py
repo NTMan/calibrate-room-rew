@@ -39,7 +39,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, Gio, GLib, Gdk, Adw, Pango
 
 from . import __version__, config, eq, pipewire, integration
-from .picker import SinkPicker
+from .picker import NodePicker
 from .config import (APP_ID, CLEAN_ID, FAVORITES_FILE, UI_STATE_FILE,
                      UI_FILE_CANDIDATES)
 from .peq_view import CollapsibleCard, PeqView
@@ -275,7 +275,7 @@ class EqWindow(Adw.ApplicationWindow):
         self.profile_button.connect("notify::active", self._on_picker_toggle)
         self.follow_btn.connect("toggled", self._on_follow_toggled)
 
-        self.picker = SinkPicker(self.device_dd, self._on_sink_pick)
+        self.picker = NodePicker(self.device_dd, self._on_sink_pick)
         self._init_devices()
         self.current_pid = self.store.binding_for(self.node) or CLEAN_ID
         # apply=True primes the session metadata key for the startup device.

@@ -146,7 +146,7 @@ def _shell(monkeypatch, veto=False, ellipsis=None, on_pick=None):
     gi.repository = repo
     monkeypatch.setitem(sys.modules, "gi", gi)
     monkeypatch.setitem(sys.modules, "gi.repository", repo)
-    from perdeviceeq.picker import SinkPicker
+    from perdeviceeq.picker import NodePicker
     dd = FakeDropDown()
     picks = []
 
@@ -157,7 +157,7 @@ def _shell(monkeypatch, veto=False, ellipsis=None, on_pick=None):
         if veto:
             return False
 
-    return SinkPicker(dd, cb, ellipsis=ellipsis), dd, picks, idle
+    return NodePicker(dd, cb, ellipsis=ellipsis), dd, picks, idle
 
 
 def _run_idle(idle):

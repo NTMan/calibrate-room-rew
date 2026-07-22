@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""The sink picker, shared by the main window and the Measure
-window.
+"""The node picker: one doctrine for every graph-node chooser
+-- the sink pickers of both windows and the Measure window's
+mic picker.
 
 Both headers carry the same widget with the same doctrine: the
 picker mirrors the graph, but the current node is always
@@ -21,7 +22,7 @@ PWState heartbeat.
 
 Split in the pipewire.py tradition: PickerCore is plain data and
 plain rules, importable and testable with no GTK at all;
-SinkPicker is the thin GTK shell around a GtkDropDown. The shell
+NodePicker is the thin GTK shell around a GtkDropDown. The shell
 owns every model touch and never performs one inside the
 dropdown's own notify::selected emission -- set_model there
 tears down the model the widget is still walking (a field
@@ -90,7 +91,7 @@ class PickerCore:
         return node, desc
 
 
-class SinkPicker:
+class NodePicker:
     """The GTK shell around a GtkDropDown, one per window.
 
     The shell owns every touch of the widget's model. refresh()

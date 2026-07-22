@@ -27,7 +27,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Gdk, Adw       # noqa: E402
 
 from . import config, pipewire, measure_build       # noqa: E402
-from .picker import SinkPicker                       # noqa: E402
+from .picker import NodePicker                       # noqa: E402
 from . import measure_core as mc                    # noqa: E402
 from . import measure_session as ms                 # noqa: E402
 from . import measure_prefs                         # noqa: E402
@@ -186,6 +186,7 @@ class MeasureWindow(Adw.Window):
         self._canvas_ids = {}       # (ch, live rec.id) -> canvas id
         self._canvas_session = None  # one session entry per sitting
         self._rig_blocked = False   # profile belongs to another rig
+        self._mic_gone = False      # selected rig left the graph
         self._relevel_pending = False
         self._sink_gone = False
         self.fit_lo, self.fit_hi = FIT_FLO, FMAX_PLOT
@@ -212,6 +213,7 @@ class MeasureWindow(Adw.Window):
         self._select_channel(0)
         self.connect("close-request", self._on_close)
         self._prefill_from_memory()
+        self._select_profile_rig()
         self._ensure_session(arm=False, quiet=True)
         self._refresh_all()
         self._pw_unsub = self._pw.subscribe(self._on_pw_state)
@@ -252,21 +254,14 @@ class MeasureWindow(Adw.Window):
         # arrive with the profile's own home; this switches to
         # any other route without losing the sitting.
         self.gone_banner = b.get_object("gone_banner")
+        self.mic_banner = b.get_object("mic_banner")
         self.sink_dd = b.get_object("sink_dd")
-        self.picker = SinkPicker(self.sink_dd, self._on_sink_pick,
+        self.picker = NodePicker(self.sink_dd, self._on_sink_pick,
                                  ellipsis=34)
         self._tame_scroll(self.sink_dd)
         self.picker.select(self.sink_node, self.sink_desc)
         self._refresh_sinks_from(self._pw)
         self.center = b.get_object("status")
-        self.warning = b.get_object("warning")
-
-        def _warn(txt):
-            # visibility rides the text: an empty visible label
-            # still charges the column its box spacing
-            self.warning.set_text(txt)
-            self.warning.set_visible(bool(txt))
-        self._warn = _warn
         self.name_row = b.get_object("name_row")
         self.name_row.set_text(
             (self.edit_prof or {}).get("name") or self.sink_desc)
@@ -330,12 +325,13 @@ class MeasureWindow(Adw.Window):
         # the full name, the row ellipsizes the selected one --
         # the ellipsis cap stays so a monster ALSA description
         # never dictates the window's minimum width
-        names = [(n if len(n) <= 34 else n[:33] + "\u2026")
-                 for n in ([s["desc"] for s in self.sources]
-                           or ["(no sources found)"])]
         self.source_dd = source_row
-        self.source_dd.set_model(Gtk.StringList.new(names))
-        self.source_dd.connect("notify::selected", self._on_source_changed)
+        self._mic_subtitle = source_row.get_subtitle()
+        self.mic_picker = NodePicker(self.source_dd,
+                                     self._on_mic_pick,
+                                     ellipsis=34)
+        self.mic_picker.refresh(self.sources)
+        self.source_dd.set_sensitive(bool(self.sources))
         self._tame_scroll(self.source_dd)
         self.chan_dd = chan_row
         self.chan_dd.set_model(Gtk.StringList.new(["Mono", "Stereo"]))
@@ -800,10 +796,6 @@ class MeasureWindow(Adw.Window):
     def _prefill_from_memory(self):
         pid = self.memory.mic_for(self.sink_node)
         prof = self.mic_store.get(pid) if pid else None
-        idx = None
-        if prof and prof.get("node_match"):
-            idx = next((k for k, s in enumerate(self.sources)
-                        if s["name"] == prof["node_match"]), None)
         if prof:
             # cal BEFORE the dropdown: set_selected fires the
             # source-change handler synchronously, and
@@ -816,9 +808,30 @@ class MeasureWindow(Adw.Window):
                     self.cal[int(k)] = path
                 except (TypeError, ValueError):
                     pass
-        if idx is not None:
-            self.source_dd.set_selected(idx)
+        if prof and prof.get("node_match"):
+            self.mic_picker.select(
+                prof["node_match"],
+                next((s["desc"] for s in self.sources
+                      if s["name"] == prof["node_match"]),
+                     prof.get("name") or prof["node_match"]))
+            self._adopt_selected_source()
         self._sync_cal_labels()
+
+    def _select_profile_rig(self):
+        """An edit belongs to its rig: the profile's stored mic
+        is selected at birth, present or gone -- substituting
+        another mic would hide the measured takes (field
+        doctrine). Per-sink memory still rules new profiles."""
+        m = ((self.edit_prof or {}).get("measurement") or {})
+        stored = m.get("source") or {}
+        node = stored.get("node_match")
+        if not node:
+            return
+        self.mic_picker.select(
+            node, next((s["desc"] for s in self.sources
+                        if s["name"] == node),
+                       stored.get("name") or node))
+        self._adopt_selected_source()
 
     def _sync_cal_labels(self):
         """Set and unset must read apart at a glance: the row's
@@ -854,10 +867,14 @@ class MeasureWindow(Adw.Window):
             btn.set_label("Change\u2026")
 
     def _selected_source(self):
-        i = self.source_dd.get_selected()
-        if 0 <= i < len(self.sources):
-            return self.sources[i]
-        return None
+        """The LIVE source entry behind the picker's choice; None
+        when nothing is chosen or the chosen rig is gone (callers
+        that can live with a gone rig ask the picker itself)."""
+        name = self.mic_picker.core.node
+        if name is None:
+            return None
+        return next((s for s in self.sources
+                     if s["name"] == name), None)
 
     def _source_name(self):
         s = self._selected_source()
@@ -1176,6 +1193,7 @@ class MeasureWindow(Adw.Window):
         input list current, then reconcile the target sink against the
         graph. One pipewire poll feeds this instead of a window timer."""
         self._refresh_sources_from(st.sources)
+        self._reconcile_source(st)
         self._refresh_sinks_from(st)
         self._reconcile_sink(st)
         return False
@@ -1243,25 +1261,42 @@ class MeasureWindow(Adw.Window):
         self._set_sink_gone(not alive)
 
     def _refresh_sources_from(self, sources):
+        """The mic picker wears the sink picker's doctrine: the
+        selected rig is never substituted. An unplugged mic
+        keeps its row, the mic banner names the state, and only
+        the user (or the rig's return) moves anything --
+        auto-falling to row 0 is how a foreign mic used to hide
+        the measured takes."""
         prev = [s["name"] for s in self.sources]
-        new = [s["name"] for s in sources]
-        if new == prev:
-            return                           # nothing plugged/unplugged
-        cur = self._source_name()
-        self.sources = sources
-        names = [s["desc"] for s in sources] or ["(no sources found)"]
-        self.source_dd.handler_block_by_func(self._on_source_changed)
-        self.source_dd.set_model(Gtk.StringList.new(names))
-        idx = next((i for i, s in enumerate(sources)
-                    if s["name"] == cur), 0)
-        self.source_dd.set_selected(idx)
-        self.source_dd.handler_unblock_by_func(self._on_source_changed)
-        if not sources or sources[idx]["name"] != cur:
-            self._on_source_changed()        # selection actually changed
-        self._refresh_all()
+        self.sources = list(sources)
+        self.mic_picker.refresh(self.sources)
+        self.source_dd.set_sensitive(
+            bool(self.sources or self.mic_picker.core.node))
+        if [s["name"] for s in self.sources] != prev:
+            self._refresh_all()
 
     def _sink_present(self):
         return any(s["name"] == self.sink_node for s in self._pw.sinks)
+
+    def _source_present(self):
+        name = self.mic_picker.core.node
+        return bool(name) and any(
+            s["name"] == name for s in self._pw.sources)
+
+    def _reconcile_source(self, st):
+        """The rig is never substituted: a vanished mic keeps
+        the selection, the banner names the state, measuring
+        waits. On the rig's return the mic state re-derives and
+        an unarmed session rebuilds against it."""
+        name = self.mic_picker.core.node
+        gone = bool(name) and not any(
+            s["name"] == name for s in st.sources)
+        if gone == self._mic_gone:
+            return
+        self._mic_gone = gone
+        self.mic_banner.set_revealed(gone)
+        if not gone and name:
+            self._adopt_selected_source()
 
     def _set_sink_gone(self, gone):
         if gone == self._sink_gone:
@@ -1278,7 +1313,16 @@ class MeasureWindow(Adw.Window):
         if not gone:
             self._refresh_all()
 
-    def _on_source_changed(self, *_):
+    def _on_mic_pick(self, node, desc):
+        """A deliberate re-pick from the mic picker: the pick IS
+        the exit from the gone state (field doctrine: only the
+        user or the rig's return moves the mic)."""
+        if self._mic_gone:
+            self._mic_gone = False
+            self.mic_banner.set_revealed(False)
+        self._adopt_selected_source()
+
+    def _adopt_selected_source(self):
         src = self._selected_source()
         if not src:
             return
@@ -1308,7 +1352,7 @@ class MeasureWindow(Adw.Window):
         self._canvas_ids = {}
         self._canvas_session = None
         self._rig_blocked = False
-        self._warn("")
+        self.source_dd.set_subtitle(self._mic_subtitle)
         self._ensure_session(arm=False, quiet=True)
         self._refresh_all()
 
@@ -1514,16 +1558,16 @@ class MeasureWindow(Adw.Window):
         suppresses the dialogs for the opportunistic open-time
         attempt -- no mic picked yet is not an error there."""
         if self.session is None:
-            src = self._selected_source()
-            if not src:
+            mic = self.mic_picker.core.node
+            if not mic:
                 if not quiet:
                     self._error("Pick a measurement mic first.")
                 return False
             remembered = self.memory.volume_for(self.sink_node,
-                                                src["name"])
+                                                mic)
             use_auto = remembered is None or self._relevel_pending
             cfg = ms.SessionConfig(
-                sink=self.sink_node, source=src["name"],
+                sink=self.sink_node, source=mic,
                 channels=self.mic_ch, auto_level=use_auto,
                 mute_others=True, device=self.sink_desc,
                 start_volume=(None if use_auto else remembered))
@@ -1534,7 +1578,8 @@ class MeasureWindow(Adw.Window):
                 # parking works; the graph (and every live
                 # precondition, now FRESH) waits for arming
                 self.session = ms.MeasureSession(
-                    cfg, resolve=self._sink_present())
+                    cfg, resolve=(self._sink_present()
+                                  and self._source_present()))
             except ms.RefusalError as e:
                 self.session = None
                 if not quiet:
@@ -1735,15 +1780,16 @@ class MeasureWindow(Adw.Window):
         stored_src = m.get("source")
         if stored_src and not measure_build.rig_matches(
                 stored_src, src.get("serial"), node):
-            self._warn(
-                "This profile was measured with %s; its stored "
-                "takes stay hidden and measuring here is blocked."
+            self.source_dd.set_subtitle(
+                "Measured with %s -- its stored takes stay "
+                "hidden and measuring here is blocked"
                 % (stored_src.get("name")
                    or stored_src.get("node_match")
                    or "another rig"))
             self._rig_blocked = True
             return
         self._rig_blocked = False
+        self.source_dd.set_subtitle(self._mic_subtitle)
         g = m.get("grid") or {}
         freqs = mc.log_grid(float(g.get("f_lo", mc.GRID_F_LO)),
                             float(g.get("f_hi", mc.GRID_F_HI)),
@@ -1841,11 +1887,11 @@ class MeasureWindow(Adw.Window):
         name and serial (from the saved mic profile matching the
         selected source, when one exists). Feeds measure_build's
         source block; called on the main thread before the worker."""
-        src = self._selected_source()
-        if not src:
+        name = self.mic_picker.core.node
+        if not name:
             return None
-        existing = self.mic_store.match(src["name"])
-        return {"name": src["desc"],
+        existing = self.mic_store.match(name)
+        return {"name": self.mic_picker.core.desc,
                 "serial": ((existing or {}).get("serial", "")
                            or measure_prefs.serial_from_cal(
                                self.cal.values()))}

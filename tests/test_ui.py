@@ -1,20 +1,21 @@
-"""One gone state, one voice: both windows announce it with the
-same AdwBanner under their header. The HIG banner pattern is for
-persistent view states (its own examples: offline, read-only --
-gone is the same species), one short title, an optional button;
-events belong to toasts. The ratchet keeps the two windows from
-drifting apart one wording at a time."""
+"""One state, one voice, per state: both windows announce a
+gone OUTPUT with the same AdwBanner, and the Measure window
+announces a gone RIG with its own -- the HIG banner pattern is
+for persistent view states (offline, read-only -- and gone),
+one short factual title each; two independent states may hold
+at once and their banners come and go independently. The
+ratchet keeps the wordings from drifting apart."""
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent.parent / "data"
-UIS = ["io.github.ntman.PerDeviceEQ.ui",
-       "io.github.ntman.PerDeviceEQ.Measure.ui"]
+MAIN = "io.github.ntman.PerDeviceEQ.ui"
+MEASURE = "io.github.ntman.PerDeviceEQ.Measure.ui"
 
 
 def _banners(path):
     root = ET.parse(path).getroot()
-    hits = []
+    hits = {}
     for tv in root.iter("object"):
         if tv.get("class") != "AdwToolbarView":
             continue
@@ -24,16 +25,17 @@ def _banners(path):
             for o in child.findall("object"):
                 if o.get("class") == "AdwBanner":
                     t = o.find("property[@name='title']")
-                    hits.append((o.get("id"),
-                                 None if t is None else t.text))
+                    hits[o.get("id")] = (None if t is None
+                                         else t.text)
     return hits
 
 
-def test_both_windows_announce_gone_in_one_voice():
-    per_ui = {ui: _banners(DATA / ui) for ui in UIS}
-    for ui, hits in per_ui.items():
-        assert len(hits) == 1, "%s: expected one top banner" % ui
-    ids = {hits[0][0] for hits in per_ui.values()}
-    assert ids == {"gone_banner"}, ids
-    titles = {hits[0][1] for hits in per_ui.values()}
-    assert len(titles) == 1 and None not in titles, titles
+def test_gone_banners_speak_one_language_per_state():
+    main = _banners(DATA / MAIN)
+    measure = _banners(DATA / MEASURE)
+    assert set(main) == {"gone_banner"}, main
+    assert set(measure) == {"gone_banner", "mic_banner"}, measure
+    assert main["gone_banner"] == measure["gone_banner"]
+    assert main["gone_banner"]
+    assert measure["mic_banner"]
+    assert measure["mic_banner"] != measure["gone_banner"]
