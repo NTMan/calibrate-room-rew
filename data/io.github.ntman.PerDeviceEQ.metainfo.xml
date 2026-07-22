@@ -60,6 +60,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="3.2.0" date="2026-07-22">
+      <description>
+        <p>Add export to external PEQ/GEQ</p>
+      </description>
+    </release>
     <release version="3.0.0" date="2026-07-17">
       <description>
         <p>The app is the instrument now: built-in sweep measurement
