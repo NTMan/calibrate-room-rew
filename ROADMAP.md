@@ -144,6 +144,14 @@ listener, headroom that never lies.
 
 ## Parked
 
+- **Measure-window Undo, sitting-scoped.** One undo stack for the whole
+  window, alive from open to close: take deletion, cal reassignment,
+  re-fits -- every destructive gesture joins it, and the stack dies with
+  the window (the profile on disk stays the artifact). The cal-reassign
+  dialog deliberately shipped without a toast-Undo because a single
+  orphan Undo raises worse questions than it answers; once the stack
+  exists, per-action Undo toasts become legitimate and can return.
+  Ctrl+Z binding rides along.
 - **Profile state journal** (old Task 4): log band edits / bypass / preamp
   changes with timestamps; `--dump-state` for measurement notes.
 - **Hardware: 711-clone coupler** (old Task 5): buy an IEC 60318-4 clone,
