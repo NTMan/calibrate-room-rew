@@ -2,7 +2,10 @@
 --
 -- Part of per-device-eq (https://github.com/NTMan/per-device-eq).
 -- This script is STATIC: it ships in the repository and is installed verbatim;
--- per-device-eq.py never generates it. It is the single writer of the in-node
+-- per-device-eq.py never generates it. It is installed PER-USER, so no package
+-- manager owns or removes the installed copy: remove it with
+-- `per-device-eq.py --uninstall` (Flatpak: `flatpak run
+-- io.github.ntman.PerDeviceEQ --uninstall`). It is the single writer of the in-node
 -- EQ filter-graph on each sink, and the sole owner of the persisted state.
 --
 -- How it works:

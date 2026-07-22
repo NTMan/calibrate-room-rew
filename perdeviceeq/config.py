@@ -101,6 +101,11 @@ CLEAN_ID = "clean"
 #
 # Two components: WP's own metadata.lua creates our named object; our hook reads it.
 HOOK_CONF = (
+    '# Installed per-user by per-device-eq; no package manager\n'
+    '# owns this file, so no package manager will remove it.\n'
+    '# Remove with: per-device-eq.py --uninstall\n'
+    '# (Flatpak: flatpak run io.github.ntman.PerDeviceEQ'
+    ' --uninstall)\n'
     'wireplumber.components = [\n'
     '  { name = metadata.lua, type = script/lua, provides = metadata.%(meta)s,\n'
     '    arguments = { metadata.name = %(meta)s } }\n'
