@@ -4,7 +4,12 @@
 The rules live in perdeviceeq.hig and run on plain dicts; this
 tool is the thin GTK side: describe() maps a realized widget
 tree into that shape, main() builds what it can of the app and
-lints it. Needs a display -- in CI that is xvfb:
+lints it. Nothing is ever presented, so locally it runs on your
+session display as-is -- no xvfb, no flicker:
+
+    python3 tools/hig_audit.py --peq-view
+
+Headless CI has no session; there, and only there, wrap it:
 
     xvfb-run -a python3 tools/hig_audit.py --peq-view
 
@@ -109,6 +114,11 @@ def _peq_view():
 
 
 def main(argv):
+    if not Gtk.init_check():
+        print("hig_audit: no display available -- run inside "
+              "your session (nothing is shown), or under "
+              "xvfb-run in headless CI", file=sys.stderr)
+        return 2
     Adw.init()
     if "--peq-view" in argv:
         root = _peq_view()
