@@ -1545,11 +1545,14 @@ class MeasureWindow(Adw.Window):
         """The pult is the shared gone lock (field verdict): a
         sweep needs a speaker AND a mic, so both sweep triggers
         -- play and the releveler -- obey both ends of the
-        chain. The speakers stay free: takes are per channel,
-        and browsing the neighbor's pile must survive a gone
+        chain and the rig-identity block (a foreign rig may
+        browse and refit the stored history, never add to it).
+        The speakers stay free: takes are per channel, and
+        browsing the neighbor's pile must survive a gone
         device."""
         live = (self._sink_present() and not self._sink_gone
-                and self._source_present() and not self._mic_gone)
+                and self._source_present() and not self._mic_gone
+                and not self._rig_blocked)
         self.play_btn.set_sensitive(not self._busy and live)
         if getattr(self, "relevel_btn", None) is not None:
             self.relevel_btn.set_sensitive(not self._busy and live)
@@ -1777,10 +1780,11 @@ class MeasureWindow(Adw.Window):
     def _adopt_canvas(self):
         """Seed the fresh session with the profile's stored takes so
         the counts, the spread statistics and the take list span the
-        whole history instead of one sitting. Only under a matching
-        rig; adopted takes come back as records without samples (the
-        canvas magnitudes on the canvas grid) and their trash cans
-        delete from the profile."""
+        whole history instead of one sitting. Adoption is
+        unconditional -- a foreign rig blocks ADDING, not viewing
+        -- and adopted takes come back as records without samples
+        (the canvas magnitudes on the canvas grid); their trash
+        cans delete from the profile."""
         if not self.edit_pid or self.session is None:
             return
         prof = self.parent.store.get(self.edit_pid) or {}
@@ -1791,18 +1795,24 @@ class MeasureWindow(Adw.Window):
         src = self._source_info() or {}
         node = self.session.source_ident.get("name")
         stored_src = m.get("source")
-        if stored_src and not measure_build.rig_matches(
-                stored_src, src.get("serial"), node):
+        # The rig-identity block gates ADDING, never viewing:
+        # while the rig is foreign no new take can be born, so
+        # the adopted history stays one-rig by construction --
+        # its spread and its fit are legitimate, and hiding it
+        # only read as data loss (field doctrine: takes are the
+        # profile's history, the canvas is the artifact).
+        self._rig_blocked = bool(
+            stored_src and not measure_build.rig_matches(
+                stored_src, src.get("serial"), node))
+        if self._rig_blocked:
             self.source_dd.set_subtitle(
-                "Measured with %s -- its stored takes stay "
-                "hidden and measuring here is blocked"
+                "Measured with %s -- measuring here is blocked"
                 % (stored_src.get("name")
                    or stored_src.get("node_match")
                    or "another rig"))
-            self._rig_blocked = True
-            return
-        self._rig_blocked = False
-        self.source_dd.set_subtitle(self._mic_subtitle)
+        else:
+            self.source_dd.set_subtitle(self._mic_subtitle)
+        self._update_pult()
         g = m.get("grid") or {}
         freqs = mc.log_grid(float(g.get("f_lo", mc.GRID_F_LO)),
                             float(g.get("f_hi", mc.GRID_F_HI)),
