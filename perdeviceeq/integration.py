@@ -114,18 +114,32 @@ def uninstall_hook():
 
 
 def uninstall_full():
-    """The mirror of install_full, for the GUI trigger: remove
-    the hook and try one restart so the engine actually unloads.
-    Returns {"removed": bool, "restarted": True|False|None} --
+    """The FULL mirror of install_full, for the GUI trigger:
+    the hook (with one restart attempt so the engine actually
+    unloads) AND the desktop half -- the field caught the
+    asymmetry when a menu Remove left the user-local .desktop
+    behind and GNOME search later launched the wrong incarnation
+    through it. Under a Flatpak the desktop half is "exported"
+    (Flatpak owns the entry and removes it with the app);
+    elsewhere the user-local entry + icon are removed --
+    uninstall_desktop_integration never touches the system
+    /usr/share files, so a packaged entry survives a per-user
+    remove. Returns {"removed", "desktop", "restarted"};
     restarted False means the files are gone but WirePlumber
-    still runs the loaded copy until a restart (a sandbox, or a
-    system without systemd --user), and the caller MUST say so.
-    The hook's saved EQ state stays on disk either way."""
+    still runs the loaded copy until a restart, and the caller
+    MUST say so. The hook's saved EQ state stays on disk either
+    way."""
     removed = uninstall_hook()
     restarted = None
     if removed:
         restarted = restart_wireplumber()
-    return {"removed": removed, "restarted": restarted}
+    if os.environ.get("FLATPAK_ID"):
+        desk = "exported"
+    else:
+        desk = ("removed" if uninstall_desktop_integration()
+                else "none")
+    return {"removed": removed, "desktop": desk,
+            "restarted": restarted}
 
 
 def restart_wireplumber():
