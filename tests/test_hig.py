@@ -62,6 +62,22 @@ def test_h1_the_letter_a_linked_box_has_no_spacing():
     assert "no spacing" in got[0]["msg"]
 
 
+def test_h8_labels_dress_from_the_type_scale():
+    def lab(css):
+        return {"class": "GtkLabel",
+                "props": {"css": list(css)}, "children": []}
+    for good in ((), ("heading",), ("caption", "dim-label"),
+                 ("title-2",), ("error", "caption"),
+                 ("measure-count", "caption")):
+        assert hig.lint(lab(good)) == []
+    got = hig.lint(lab(("big-text",)))
+    assert _rules(got) == ["H8"]
+    assert "big-text" in got[0]["msg"]
+    got = hig.lint(lab(("heading", "hero")))
+    assert _rules(got) == ["H8"]
+    assert "hero" in got[0]["msg"]
+
+
 def test_h2_action_row_anchors_to_an_edge():
     floats = _box([_btn("Add"), _btn("Replace")], halign="center")
     got = hig.lint(floats)

@@ -186,6 +186,35 @@ def _findings_h6(node, path, out):
                        "editing -- the HIG bans Yes/No pairs"})
 
 
+# the type scale: every costume a Gtk.Label may wear. Size and
+# style come from this wardrobe or the label goes bare (body
+# text); anything else is a hand-rolled style the HIG never
+# issued. Minted from the architect's verdict: "I do not trust
+# eyes" -- the floor polices the wardrobe, the words stay the
+# author's pen.
+_WARDROBE = frozenset((
+    "title-1", "title-2", "title-3", "title-4", "heading",
+    "caption", "caption-heading", "dim-label", "numeric",
+    "monospace", "accent", "error", "warning", "success",
+    "measure-count"))
+
+
+def _findings_h8(node, path, out):
+    """H8: a label dresses from the type scale."""
+    if node.get("class") != "GtkLabel":
+        return
+    css = set(node.get("props", {}).get("css") or ())
+    alien = sorted(css - _WARDROBE)
+    if alien:
+        out.append({
+            "rule": "H8", "path": path,
+            "msg": "label wears an unsanctioned costume: %s"
+                   % ", ".join(alien),
+            "fix": "dress it from the type scale (title-*, "
+                   "heading, caption, dim-label, or a stock "
+                   "color class), or take the class off"})
+
+
 def _findings_h7(node, path, out):
     """H7: prose belongs to a card, a banner, or a toast --
     never loose in a bare column."""
@@ -216,7 +245,7 @@ def _findings_h7(node, path, out):
 
 _RULES = (_findings_h1, _findings_h2, _findings_h3,
           _findings_h4, _findings_h5, _findings_h6,
-          _findings_h7)
+          _findings_h7, _findings_h8)
 
 
 def lint(tree):

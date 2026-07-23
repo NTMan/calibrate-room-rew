@@ -131,6 +131,49 @@ def _ensure_css():
     _CSS_INSTALLED = True
 
 
+class _RingFixed(Gtk.Fixed):
+    """A Fixed whose Tab order is the pult grammar, not the
+    geometry. GTK4 sorts Tab focus by allocation; the ring's
+    meaning is groups -- speakers, then the center pult -- so
+    this container walks an explicit order and hands the
+    default everything else (arrows, clicks)."""
+
+    def __init__(self):
+        super().__init__()
+        self._order = []
+
+    def set_focus_order(self, widgets):
+        self._order = list(widgets)
+
+    def do_focus(self, direction):
+        if direction not in (Gtk.DirectionType.TAB_FORWARD,
+                             Gtk.DirectionType.TAB_BACKWARD):
+            return Gtk.Fixed.do_focus(self, direction)
+        order = [w for w in self._order
+                 if w.get_mapped() and w.get_sensitive()]
+        if not order:
+            return False
+        if direction == Gtk.DirectionType.TAB_BACKWARD:
+            order = list(reversed(order))
+        cur = None
+        root = self.get_root()
+        focus = root.get_focus() if root else None
+        if focus is not None:
+            for i, w in enumerate(order):
+                if focus is w or focus.is_ancestor(w):
+                    cur = i
+                    break
+        if cur is None:
+            return order[0].child_focus(direction)
+        # let the current stop finish its own interior first
+        if order[cur].child_focus(direction):
+            return True
+        for w in order[cur + 1:]:
+            if w.child_focus(direction):
+                return True
+        return False
+
+
 class MeasureWindow(Adw.Window):
     """Measurement wizard for one output sink."""
 
@@ -340,7 +383,7 @@ class MeasureWindow(Adw.Window):
         self._rebuild_cal_row()
 
     def _build_ring(self):
-        self.ring = Gtk.Fixed()
+        self.ring = _RingFixed()
         self.ring.set_size_request(RING, RING)
         self.ring.set_halign(Gtk.Align.CENTER)
         disc = Gtk.DrawingArea()
@@ -415,6 +458,15 @@ class MeasureWindow(Adw.Window):
         self.stop_btn.set_sensitive(False)
         center_box.append(self._center_grid)
         self.ring.put(center_box, SPEAKER, int(RING / 2 - 56))
+        # Tab walks the pult grammar, not the geometry: the
+        # speakers first (the targets you set up), then the
+        # center -- capsule map, then transport. GTK sorts Tab
+        # by position, which put the mics before the speakers;
+        # the grammar is groups, and it survives surround
+        # (field verdict from the keyboard walk).
+        self.ring.set_focus_order(
+            [self._speakers[i]
+             for i in sorted(self._speakers)] + [center_box])
 
         # The volume is a fader now, on the ring's left; auto-level
         # sits under it -- the two speak the same language, and the

@@ -173,7 +173,11 @@ spacing;
 H2 an action group anchors to an edge; H3 flat needs a
 structured container; H4 an icon-only button describes itself;
 H5 spacing sits on the 6px grid; H6 dialog buttons name the
-action. H1-H3 are the .pdeq sprint's earned rules; H4-H6 are the
+action; H8 a label dresses from the type scale (the wardrobe:
+title-1..4, heading, caption, caption-heading, dim-label,
+numeric, monospace, accent, the stock colors, measure-count --
+anything else on a GtkLabel is a hand-rolled style and a
+finding). H1-H3 are the .pdeq sprint's earned rules; H4-H6 are the
 HIG's own letter. Run: `xvfb-run -a python3 tools/hig_audit.py
 --peq-view` for the band card alone, `--window` for the whole
 house: both windows in both channel costumes, the command
@@ -216,10 +220,19 @@ same way rounds do.
 - [ ] OPEN, one sweep: width appetites -- data-fed labels must
   yield (the take-row info line learned it in the field); the
   floor cannot read geometry, so the sweep is by hand.
-- [ ] OPEN, one walk: focus order, keyboard-only, both
-  windows; the floor cannot press Tab.
-- [ ] OPEN, one read: every label and subtitle against the
-  HIG's sentence-case and terminology letter.
+- [~] Focus order, from the field walk: the ring's Tab now
+  speaks the pult grammar (speakers, then capsule map, then
+  transport -- groups survive surround; a custom focus beats
+  GTK's positional sort); the auto-level stays after the pult,
+  its home under the fader is a settled axis. OPEN residue:
+  the peq-view first stop (a checkbox before the filter type)
+  awaits one clarifying word -- which checkbox the walk met.
+- [x] The costume floor -- converted from a read to a rule on
+  the architect's word ("I do not trust eyes"): H8 polices
+  every label's size and style against the type-scale wardrobe
+  under the CI ratchet. The words themselves -- case,
+  terminology -- stay the author's pen, applied as text is
+  written or touched.
 - [ ] Documented gap: take rows with live takes -- the audit
   session is empty by design; their builder already walks the
   grid.
