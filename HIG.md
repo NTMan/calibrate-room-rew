@@ -236,7 +236,11 @@ same way rounds do.
   grammar disposes. Amended by the field once already: the
   first cut lacked a FORWARD neighbor on the ring's exit and
   looped play -> auto-level; neighbors now cover both exits,
-  and the loop class is H9's to police.
+  and the loop class is H9's to police. Amended by the field
+  twice: the forward neighbor's first aim skipped the takes
+  list (a wrap can be round and still wrong), so the ring now
+  hands the takes card, and H9 grew a coverage half -- a full
+  wrap must have visited every reachable stop.
 - [x] The costume floor -- converted from a read to a rule on
   the architect's word ("I do not trust eyes"): H8 polices
   every label's size and style against the type-scale wardrobe

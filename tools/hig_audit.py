@@ -159,6 +159,42 @@ def _stop_name(w):
     return "%s(%s)" % (name, (tip or "")[:24])
 
 
+def _coverage(win, visited):
+    """Reachable focus stops the walk never met. A candidate is
+    an outermost focusable (no focusable ancestor); it counts as
+    visited when focus landed on it or anywhere inside it."""
+    missing = []
+
+    def rec(w, under):
+        mine = (w is not win and w.get_focusable()
+                and w.get_mapped() and w.get_sensitive())
+        if mine and not under:
+            hit = any(v is w or v.is_ancestor(w)
+                      for v in visited)
+            if not hit:
+                missing.append(w)
+        c = w.get_first_child()
+        while c is not None:
+            rec(c, under or mine)
+            c = c.get_next_sibling()
+
+    rec(win, False)
+    if not missing:
+        return []
+    names = ", ".join(_stop_name(w) for w in missing[:6])
+    if len(missing) > 6:
+        names += ", ..."
+    return [{
+        "rule": "H9",
+        "path": "%s (keyboard walk)" % win.__class__.__name__,
+        "msg": "the walk wraps but skips %d reachable "
+               "stop%s: %s"
+               % (len(missing),
+                  "" if len(missing) == 1 else "s", names),
+        "fix": "re-aim the forward neighbor to include them, "
+               "or check what pulls focus past the group"}]
+
+
 def _tab_walk(win, limit=400):
     """H9, the dynamic half of the floor: the Tab walk must
     round the room. The audit presses Tab itself, records the
@@ -178,7 +214,11 @@ def _tab_walk(win, limit=400):
         key = id(f)
         if key in index:
             if index[key] == 0:
-                return []      # full wrap: the healthy shape
+                # full wrap -- now prove it ROUNDED the room:
+                # every reachable stop must have been visited
+                # (the field's second lesson: a wrap that skips
+                # the takes list is round and still wrong)
+                return _coverage(win, seen)
             cycle = seen[index[key]:]
             names = " -> ".join(_stop_name(w)
                                 for w in cycle[:6])

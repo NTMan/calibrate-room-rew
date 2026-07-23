@@ -343,8 +343,14 @@ class MeasureWindow(Adw.Window):
 
         b.get_object("channel_host").append(self._build_page())
         fa = self._build_fit_area()
+        # the ring's forward exit hands the whole takes card,
+        # not the fit area past it: the walk enters the takes
+        # top-down (a row, its delete, the next row) and reaches
+        # the fit area last, inside the same card. The first aim
+        # skipped every take -- field-caught, second lesson of
+        # the same neighbor.
         self.ring.set_focus_neighbors(prev=self.relevel_btn,
-                                      nxt=fa)
+                                      nxt=self._page["card"])
         for side in ("start", "end", "bottom"):
             getattr(fa, "set_margin_" + side)(12)
         fa.set_margin_top(6)
