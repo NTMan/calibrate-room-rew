@@ -68,7 +68,11 @@ def test_h8_labels_dress_from_the_type_scale():
                 "props": {"css": list(css)}, "children": []}
     for good in ((), ("heading",), ("caption", "dim-label"),
                  ("title-2",), ("error", "caption"),
-                 ("measure-count", "caption")):
+                 ("measure-count", "caption"),
+                 ("measure-count", "done"),
+                 ("title",), ("subtitle",), ("dimmed", "title"),
+                 ("body", "description", "dimmed"), ("h4",),
+                 ("bottom",)):
         assert hig.lint(lab(good)) == []
     got = hig.lint(lab(("big-text",)))
     assert _rules(got) == ["H8"]

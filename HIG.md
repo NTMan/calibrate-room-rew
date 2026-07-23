@@ -177,7 +177,13 @@ action; H8 a label dresses from the type scale (the wardrobe:
 title-1..4, heading, caption, caption-heading, dim-label,
 numeric, monospace, accent, the stock colors, measure-count --
 anything else on a GtkLabel is a hand-rolled style and a
-finding); H9 the Tab walk must round the room -- the audit
+finding; the toolkit's own dress -- .title/.subtitle of Adw
+rows and AdwWindowTitle, EntryRow's floating .dimmed title,
+.body/.description of group headers, heading levels, GtkScale's
+value position -- is the toolkit's business and exempt, and the
+app stylesheet's state trio done/warn/bad on the speaker count
+is sanctioned; the first live run taught both); H9 the Tab walk
+must round the room -- the audit
 presses Tab itself, and a walk that repeats a stop without
 returning to its first is a trapped subset (born from the
 field's play -> auto-level loop; a custom jump without a

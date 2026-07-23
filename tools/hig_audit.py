@@ -159,13 +159,28 @@ def _stop_name(w):
     return "%s(%s)" % (name, (tip or "")[:24])
 
 
+def _lineage(w, depth=3):
+    """ClassA/ClassB/Widget -- enough ancestry to find a
+    nameless stop in the source."""
+    parts = [w.__gtype__.name]
+    p = w.get_parent()
+    while p is not None and len(parts) < depth:
+        parts.append(p.__gtype__.name)
+        p = p.get_parent()
+    return "/".join(reversed(parts))
+
+
 def _coverage(win, visited):
     """Reachable focus stops the walk never met. A candidate is
     an outermost focusable (no focusable ancestor); it counts as
-    visited when focus landed on it or anywhere inside it."""
+    visited when focus landed on it or anywhere inside it. The
+    descent honors the same ownership seals as the snapshot --
+    the first live run flagged a toolkit-internal button the
+    static walk would never have judged."""
     missing = []
 
     def rec(w, under):
+        t = w.__gtype__.name
         mine = (w is not win and w.get_focusable()
                 and w.get_mapped() and w.get_sensitive())
         if mine and not under:
@@ -173,15 +188,14 @@ def _coverage(win, visited):
                       for v in visited)
             if not hit:
                 missing.append(w)
-        c = w.get_first_child()
-        while c is not None:
+        for c in _own_children(w, t):
             rec(c, under or mine)
-            c = c.get_next_sibling()
 
     rec(win, False)
     if not missing:
         return []
-    names = ", ".join(_stop_name(w) for w in missing[:6])
+    names = ", ".join("%s [%s]" % (_stop_name(w), _lineage(w))
+                      for w in missing[:6])
     if len(missing) > 6:
         names += ", ..."
     return [{

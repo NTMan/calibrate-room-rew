@@ -196,7 +196,21 @@ _WARDROBE = frozenset((
     "title-1", "title-2", "title-3", "title-4", "heading",
     "caption", "caption-heading", "dim-label", "numeric",
     "monospace", "accent", "error", "warning", "success",
-    "measure-count"))
+    # the app stylesheet's own issue: the speaker count and
+    # its three states
+    "measure-count", "done", "warn", "bad"))
+
+# dresses the TOOLKIT puts on labels it builds itself -- the
+# .title/.subtitle of Adw rows and AdwWindowTitle, the floating
+# .dimmed title of AdwEntryRow, the .body/.description of
+# AdwPreferencesGroup headers, heading levels, GtkScale's value
+# position. The first live run accused all of them; the floor
+# judges what WE placed, and the toolkit's wardrobe is the
+# toolkit's business.
+_TOOLKIT_DRESS = frozenset((
+    "title", "subtitle", "dimmed", "body", "description",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "top", "bottom", "left", "right"))
 
 
 def _findings_h8(node, path, out):
@@ -204,7 +218,7 @@ def _findings_h8(node, path, out):
     if node.get("class") != "GtkLabel":
         return
     css = set(node.get("props", {}).get("css") or ())
-    alien = sorted(css - _WARDROBE)
+    alien = sorted(css - _WARDROBE - _TOOLKIT_DRESS)
     if alien:
         out.append({
             "rule": "H8", "path": path,
