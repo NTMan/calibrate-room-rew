@@ -1,5 +1,5 @@
 %global appid    io.github.ntman.PerDeviceEQ
-%global reponame per-device-eq
+%global reponame PerDeviceEQ
 
 Name:           per-device-eq
 Version:        4.0.0

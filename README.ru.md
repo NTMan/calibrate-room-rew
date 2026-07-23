@@ -76,7 +76,7 @@ sudo dnf install per-device-eq
 sudo dnf install gtk4 libadwaita python3-gobject python3-cairo \
     python3-numpy python3-scipy python3-soundfile \
     pipewire pipewire-utils wireplumber
-git clone https://github.com/NTMan/per-device-eq.git
+git clone https://github.com/NTMan/PerDeviceEQ.git
 cd per-device-eq
 chmod +x per-device-eq.py
 ./per-device-eq.py

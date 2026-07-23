@@ -1,6 +1,6 @@
 -- 90-per-device-eq.lua — per-output-device EQ for PipeWire.
 --
--- Part of per-device-eq (https://github.com/NTMan/per-device-eq).
+-- Part of per-device-eq (https://github.com/NTMan/PerDeviceEQ).
 -- This script is STATIC: it ships in the repository and is installed verbatim;
 -- per-device-eq.py never generates it. It is installed PER-USER, so no package
 -- manager owns or removes the installed copy: remove it with

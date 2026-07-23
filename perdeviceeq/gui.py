@@ -1059,8 +1059,8 @@ class EqWindow(Adw.ApplicationWindow):
             application_icon=APP_ID,
             developer_name="Mikhail Gavrilov",
             version=__version__,
-            website="https://github.com/NTMan/per-device-eq",
-            issue_url="https://github.com/NTMan/per-device-eq"
+            website="https://github.com/NTMan/PerDeviceEQ",
+            issue_url="https://github.com/NTMan/PerDeviceEQ"
                       "/issues",
             license_type=Gtk.License.GPL_3_0)
         d.present(self)
