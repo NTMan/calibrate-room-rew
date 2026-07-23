@@ -38,7 +38,7 @@ jobs:
           gobject-introspection
           cairo-gobject python3-cairo
           gtk4 gtk4-devel libadwaita
-          python3-numpy python3-scipy python3-soundfile
+          python3-numpy python3-scipy python3-soundfile libsndfile
           xorg-x11-server-Xvfb
       - name: pyflakes
         run: python3 -m pyflakes perdeviceeq tests tools per-device-eq.py
