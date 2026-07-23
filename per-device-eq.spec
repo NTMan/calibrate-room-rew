@@ -65,6 +65,10 @@ install -Dpm0644 data/%{appid}.Measure.ui \
         %{buildroot}%{_datadir}/%{name}/data/%{appid}.Measure.ui
 
 # WirePlumber hook, shipped as data; the app installs it per-user on first run
+# The hook SOURCE only: a package must not touch user homes.
+# Activation is per-user, done by the app as the user (first-run
+# dialog, the menu switch, or --install) into ~/.local/share and
+# ~/.config -- deliberately not system-activated.
 install -Dpm0644 wireplumber/90-per-device-eq.lua \
         %{buildroot}%{_datadir}/%{name}/wireplumber/90-per-device-eq.lua
 
