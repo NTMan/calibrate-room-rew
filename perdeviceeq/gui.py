@@ -1274,6 +1274,16 @@ class EqWindow(Adw.ApplicationWindow):
             btn.connect("toggled", self._make_chan_cb(k))
             self.channel_bar.append(btn)
             self._chan_buttons[k] = btn
+        # the [All] tab rides alone by design while channels are
+        # linked -- and a lone segment needs no linked dress: the
+        # style groups siblings, one child is costume (the CI
+        # floor called it on the default apply-all profile). The
+        # dress follows the POPULATION, not the device: [All] is
+        # one tab even on an 8-channel sink.
+        if len(keys) > 1:
+            self.channel_bar.add_css_class("linked")
+        else:
+            self.channel_bar.remove_css_class("linked")
         self.channel_row.set_visible(len(self.ch_keys) > 1)
         self._rebuild_meter_rows(show_meters)
 
