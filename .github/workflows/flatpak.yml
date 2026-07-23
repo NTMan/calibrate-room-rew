@@ -1,10 +1,15 @@
 # Build the Flatpak on every push and PR; the manifest lives in
 # build-aux/flatpak/. Each run attaches an installable bundle
-# (per-device-eq.flatpak) to the workflow -- download, then:
-#   flatpak install --user ./per-device-eq.flatpak
+# (per-device-eq-<arch>.flatpak) to the workflow -- download, then:
+#   flatpak install --user ./per-device-eq-x86_64.flatpak
 # The aarch64 leg runs on a native ARM runner (no emulation).
+# On a published release the same bundles are attached to the
+# release itself, so the Releases block carries installable
+# builds for both arches.
 name: Flatpak
 on:
+  release:
+    types: [published]
   push:
     branches: [main]
     # docs, tests and repo tools never enter the bundle; the
@@ -19,6 +24,10 @@ on:
       - "tests/**"
       - "tools/**"
   workflow_dispatch:
+
+# the release-upload step needs write on contents
+permissions:
+  contents: write
 
 # rapid pushes: the newest run supersedes the older one
 concurrency:
@@ -44,7 +53,16 @@ jobs:
       - uses: actions/checkout@v5
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: per-device-eq.flatpak
+          bundle: per-device-eq-${{ matrix.variant.arch }}.flatpak
           manifest-path: build-aux/flatpak/io.github.ntman.PerDeviceEQ.yaml
           cache-key: flatpak-builder-${{ github.sha }}
           arch: ${{ matrix.variant.arch }}
+      - name: Attach the bundle to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release upload
+          "${{ github.event.release.tag_name }}"
+          per-device-eq-${{ matrix.variant.arch }}.flatpak
+          --clobber
