@@ -36,7 +36,7 @@
                       <object class="GtkBox">
                         <property name="hexpand">true</property>
                         <property name="halign">end</property>
-                        <property name="spacing">8</property>
+                        <property name="spacing">6</property>
                         <child>
                           <object class="GtkLabel">
                             <property name="label" translatable="yes">Separate channels</property>

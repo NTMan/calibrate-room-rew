@@ -346,7 +346,7 @@ class EqWindow(Adw.ApplicationWindow):
         fit_lbl = Gtk.Label(label="Calculating new fit")
         fit_lbl.add_css_class("title-4")
         self.fit_overlay = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.fit_overlay.add_css_class("osd")
         self.fit_overlay.set_halign(Gtk.Align.CENTER)
         self.fit_overlay.set_valign(Gtk.Align.CENTER)
@@ -360,7 +360,7 @@ class EqWindow(Adw.ApplicationWindow):
         over.add_overlay(self.fit_overlay)
         self._fitting = False
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
-                       spacing=4)
+                       spacing=6)
         wrap.append(over)
         self.bands_group.add(wrap)
 
@@ -629,9 +629,9 @@ class EqWindow(Adw.ApplicationWindow):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         card.add_css_class("card")
         hdr = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                      spacing=8)
+                      spacing=6)
         for side in ("top", "bottom"):
-            getattr(hdr, "set_margin_" + side)(8)
+            getattr(hdr, "set_margin_" + side)(6)
         for side in ("start", "end"):
             getattr(hdr, "set_margin_" + side)(12)
         pt = Gtk.Label(label="Preamp", xalign=0.0)
@@ -677,7 +677,7 @@ class EqWindow(Adw.ApplicationWindow):
         # (rows are rebuilt whenever the channel set changes)
         self.meters_grid = Gtk.Grid(column_spacing=10, row_spacing=4)
         for side in ("top", "bottom", "start", "end"):
-            getattr(self.meters_grid, "set_margin_" + side)(10)
+            getattr(self.meters_grid, "set_margin_" + side)(12)
         self._meters_row = self.meters_grid
         self._meters_row.set_visible(False)
         card.append(self.meters_grid)
@@ -2067,8 +2067,9 @@ class EqWindow(Adw.ApplicationWindow):
         pid = p["id"]
         row = Gtk.ListBoxRow()
         row.pid = pid
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        box.set_margin_top(4); box.set_margin_bottom(4)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                      spacing=6)
+        box.set_margin_top(3); box.set_margin_bottom(3)
         box.set_margin_start(6); box.set_margin_end(6)
 
         check = Gtk.Image.new_from_icon_name("object-select-symbolic")
