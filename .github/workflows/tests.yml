@@ -1,0 +1,57 @@
+# The referee that sees the GUI (ROADMAP: "CI that sees the
+# GUI"). Runs on Fedora with real GTK4/libadwaita so the two
+# classes of breakage that have shipped past the dev sandbox --
+# a bad .ui, an import-time error in the Gtk modules -- turn
+# the build red:
+#   * pyflakes over the tree
+#   * gtk4-builder-tool validate over every .ui design
+#   * a headless import smoke of the Gtk modules
+#   * the full pytest suite (under xvfb: with gi present, the
+#     widget-building tests wake up and need a display)
+name: Tests
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (Fedora)
+    runs-on: ubuntu-24.04
+    container:
+      image: registry.fedoraproject.org/fedora:latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install the toolchain
+        run: >
+          dnf install -y --setopt=install_weak_deps=False
+          python3 python3-pytest python3-pyflakes python3-gobject
+          gtk4 gtk4-devel libadwaita
+          python3-numpy python3-scipy python3-soundfile
+          xorg-x11-server-Xvfb
+      - name: pyflakes
+        run: python3 -m pyflakes perdeviceeq tests tools per-device-eq.py
+      - name: Validate every .ui design
+        run: |
+          for ui in data/*.ui; do
+            echo "validate $ui"
+            gtk4-builder-tool validate "$ui"
+          done
+      - name: Import smoke of the Gtk modules
+        run: >
+          xvfb-run -a python3 -c "from perdeviceeq import gui,
+          measure_window, peq_view, export_wizard;
+          print('gtk modules import clean')"
+      - name: Test suite
+        run: |
+          export PATH="$PWD/tests/shims:$PATH"
+          xvfb-run -a python3 -m pytest -q
