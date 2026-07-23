@@ -739,13 +739,15 @@ class EqWindow(Adw.ApplicationWindow):
         uninstall."""
         if integration.hook_installed():
             return False
+        flatpak = bool(os.environ.get("FLATPAK_ID"))
+        extra = ("" if flatpak else
+                 ", plus a menu entry and icon")
         dlg = Adw.AlertDialog(
             heading="Install system integration?",
             body="per-device-eq keeps your EQ across reboots and "
                  "reconnects through a small WirePlumber hook in "
-                 "your user session, plus a menu entry and icon "
-                 "(everything under ~/.local and ~/.config). "
-                 "Install it now?")
+                 "your user session%s (everything under ~/.local "
+                 "and ~/.config). Install it now?" % extra)
         dlg.add_response("no", "Quit")
         dlg.add_response("yes", "Install")
         dlg.set_response_appearance("yes",

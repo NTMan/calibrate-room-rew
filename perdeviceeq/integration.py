@@ -65,17 +65,23 @@ def install_full():
     """One source of truth for --install and the GUI dialog: the
     hook (with one WirePlumber restart when it changed), then the
     desktop entry unless a system package owns it. Returns
-    {"hook": changed, "desktop": "packaged"|"installed"|"missing",
-    "restarted": True|False|None} for the caller to narrate its
-    own way -- False means the hook landed but the service kept
-    running the old world (a sandbox, or a system without
-    systemd --user), and the caller MUST say so: a silently
-    unloaded hook is the app doing nothing."""
+    {"hook": changed, "desktop": "packaged"|"installed"|"missing"
+    |"exported", "restarted": True|False|None} for the caller to
+    narrate its own way -- restarted False means the hook landed
+    but the service kept running the old world (a sandbox, or a
+    system without systemd --user), and the caller MUST say so: a
+    silently unloaded hook is the app doing nothing. Inside a
+    Flatpak the desktop half is skipped ("exported"): Flatpak
+    already exports the entry and icon from /app/share, and a
+    hand-copied entry would carry Exec=per-device-eq -- a command
+    that does not exist on the host."""
     changed = install_hook()
     restarted = None
     if changed:
         restarted = restart_wireplumber()
-    if os.path.exists(SYS_DESKTOP_FILE):
+    if os.environ.get("FLATPAK_ID"):
+        desk = "exported"          # Flatpak owns the entry + icon
+    elif os.path.exists(SYS_DESKTOP_FILE):
         desk = "packaged"
     else:
         try:
