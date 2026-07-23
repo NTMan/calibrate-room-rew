@@ -8,6 +8,16 @@ listener, headroom that never lies.
 
 ## Shipped
 
+- **Profile package.** The architect's ruling shaped it: the exchange
+  artifact is the store's own canonical body, bare -- no envelope, no
+  wrapper version, the profile's own schema version is the one
+  contract (design review peeled off the embedded sha and the wrapper
+  before a line shipped). pack() writes deterministic bytes and the
+  file's sha256 IS its address; unpack() refuses directionally (newer
+  body -> newer build, older -> the migration tool); absorb() never
+  destroys -- byte-identical keep, spoken no-op on the same address,
+  remint with provenance on collision; the import dialog shows the
+  package_report passport. Byte-stable roundtrip is pinned by test.
 - **CI that sees the GUI.** Two Actions lanes. Tests: Fedora container
   with the real toolkit -- pyflakes over the whole tree, every `.ui`
   loaded by GtkBuilder after `Adw.init()` (a stricter judge than
@@ -54,13 +64,7 @@ listener, headroom that never lies.
 
 ## Next (the sprint)
 
-1. **Profile package.** One-file `.pdeq` bundle: profile + measurement +
-   fit provenance + rig fingerprint + content sha. Import validates and
-   shows provenance. Accept when export→import roundtrips byte-stable.
-   This is the foundation the exchange service stands on.
-   Taste presets become their own shareable artifacts later, on
-   demand -- the ideal world where both layers travel separately.
-2. **GNOME HIG pass.** A written checklist in-repo (spacing scale, focus
+1. **GNOME HIG pass.** A written checklist in-repo (spacing scale, focus
    order, keyboard mnemonics, symbolic icons, header-bar patterns,
    dialog vs popover usage, About window), every deviation fixed or
    argued in place. Accept when each line carries a check or a commit.
