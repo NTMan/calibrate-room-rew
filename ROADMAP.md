@@ -137,6 +137,18 @@ listener, headroom that never lies.
 
 ## Parked
 
+- **The foreign hand.** Gated on PipeWire's filter-graph read-back
+  shipping in a release and reaching Fedora (master already exposes
+  applied graphs on the properties -- pipewire#5345 carries our
+  use case). Then: read `filter-graph.0` before writing; non-empty
+  and not what we last wrote means another writer -- surface a
+  takeover-or-leave choice, per device, remembered. Ownership of a
+  sink's EQ belongs to the user; the tool's job is to make the
+  contest visible and the choice durable. Rejected in advance:
+  silent clobber (a war nobody sees), silent yield (breaks the
+  persistence promise silently), and chaining into `.1` (two
+  competing corrections are acoustic garbage; chaining is for
+  complementary filters).
 - **Measure-window Undo, sitting-scoped.** One undo stack for the whole
   window, alive from open to close: take deletion, cal reassignment,
   re-fits -- every destructive gesture joins it, and the stack dies with
