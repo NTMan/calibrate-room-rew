@@ -64,8 +64,6 @@ listener, headroom that never lies.
    order, keyboard mnemonics, symbolic icons, header-bar patterns,
    dialog vs popover usage, About window), every deviation fixed or
    argued in place. Accept when each line carries a check or a commit.
-3. **Flathub.** Manifest, metainfo, screenshots, release notes.
-   Popularity starts with installability.
 
 ## Direction
 
@@ -137,6 +135,15 @@ listener, headroom that never lies.
 
 ## Parked
 
+- **Flathub, parked at the door.** Submission flathub/flathub#9484
+  was closed under Flathub's Generative AI policy, which covers
+  AI-assisted code and content -- a line this project's development
+  openly falls under, so the closure is not contested. The manifest
+  is real, CI-built for both arches, and ships as bundles on every
+  release already; what a store would add is auto-updates and
+  discovery. Re-engage if the policy matures the way its own
+  "mature, well-maintained projects" exception hints, or ship an
+  own OSTree repository instead and owe nobody a door.
 - **The foreign hand.** Gated on PipeWire's filter-graph read-back
   shipping in a release and reaching Fedora (master already exposes
   applied graphs on the properties -- pipewire#5345 carries our
