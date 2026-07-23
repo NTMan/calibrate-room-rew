@@ -309,6 +309,14 @@ class EqWindow(Adw.ApplicationWindow):
         menu = Gio.Menu()
         menu.append("Export EQ\u2026", "win.export-eq")
         menu.append("About Per-Device EQ", "win.about")
+        if os.environ.get("FLATPAK_ID"):
+            # The portable build gets the integration switch in
+            # the menu: `flatpak run ... --install` is nobody's
+            # muscle memory. One item, labeled by the CURRENT
+            # hook state, acting as a trigger.
+            self._integ_menu = Gio.Menu()
+            menu.append_section(None, self._integ_menu)
+            self._refresh_integration_menu()
         self.menu_btn = Gtk.MenuButton(icon_name="open-menu-symbolic")
         self.menu_btn.set_tooltip_text("Main menu")
         self.menu_btn.set_menu_model(menu)
@@ -769,21 +777,8 @@ class EqWindow(Adw.ApplicationWindow):
                 err.add_response("ok", "OK")
                 err.present(self)
                 return
-            body = ("To remove it later, run:\n"
-                    "per-device-eq.py --uninstall")
-            if result.get("restarted") is False:
-                where = (" on the host"
-                         if os.environ.get("FLATPAK_ID") else "")
-                body = ("The WirePlumber hook is installed but "
-                        "the service was not restarted, so it is "
-                        "not loaded yet. Run once%s:\n"
-                        "  systemctl --user restart wireplumber"
-                        "\n\n%s" % (where, body))
-            info = Adw.AlertDialog(
-                heading="Integration installed",
-                body=body)
-            info.add_response("ok", "OK")
-            info.present(self)
+            self._refresh_integration_menu()
+            self._show_install_result(result)
         dlg.connect("response", done)
         dlg.present(self)
         return False
@@ -824,12 +819,102 @@ class EqWindow(Adw.ApplicationWindow):
                                  ("redo", self._redo,
                                   ["<Control><Shift>z", "<Control>y"]),
                                  ("export-eq", self._on_export_eq, []),
+                                 ("integration",
+                                  self._on_integration, []),
                                  ("about", self._on_about, [])):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _p, cb=cb: cb())
             self.add_action(action)
             if accels:
                 app.set_accels_for_action("win." + name, accels)
+
+    def _refresh_integration_menu(self):
+        """The portable build's integration item states the
+        opposite of the CURRENT hook state. Refreshed at build
+        and after each trigger; an external change (CLI in a
+        parallel shell) is picked up on the next toggle."""
+        m = getattr(self, "_integ_menu", None)
+        if m is None:
+            return
+        m.remove_all()
+        m.append("Remove integration"
+                 if integration.hook_installed()
+                 else "Install integration", "win.integration")
+
+    def _show_install_result(self, result):
+        """One narration for both install faces: the first-run
+        dialog and the portable menu trigger."""
+        if os.environ.get("FLATPAK_ID"):
+            hint = ("To remove it later, use Remove integration "
+                    "in the main menu.")
+        else:
+            hint = ("To remove it later, run:\n"
+                    "per-device-eq.py --uninstall")
+        body = hint
+        if result.get("restarted") is False:
+            where = (" on the host"
+                     if os.environ.get("FLATPAK_ID") else "")
+            body = ("The WirePlumber hook is installed but "
+                    "the service was not restarted, so it is "
+                    "not loaded yet. Run once%s:\n"
+                    "  systemctl --user restart wireplumber"
+                    "\n\n%s" % (where, body))
+        info = Adw.AlertDialog(
+            heading="Integration installed",
+            body=body)
+        info.add_response("ok", "OK")
+        info.present(self)
+
+    def _on_integration(self):
+        """The menu trigger (portable builds): install or remove
+        by the CURRENT hook state."""
+        if not integration.hook_installed():
+            try:
+                result = integration.install_full()
+            except FileNotFoundError as e:
+                err = Adw.AlertDialog(heading="Install failed",
+                                      body=str(e))
+                err.add_response("ok", "OK")
+                err.present(self)
+                return
+            self._refresh_integration_menu()
+            self._show_install_result(result)
+            return
+        ask = Adw.AlertDialog(
+            heading="Remove system integration?",
+            body="The WirePlumber hook and its config leave "
+                 "your user session; the EQ stops applying once "
+                 "the service restarts. Profiles and the saved "
+                 "EQ state stay on disk.")
+        ask.add_response("cancel", "Cancel")
+        ask.add_response("remove", "Remove")
+        ask.set_response_appearance(
+            "remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        ask.set_default_response("cancel")
+        ask.set_close_response("cancel")
+
+        def done(_d, resp):
+            if resp != "remove":
+                return
+            result = integration.uninstall_full()
+            self._refresh_integration_menu()
+            if result.get("restarted") is False:
+                where = (" on the host"
+                         if os.environ.get("FLATPAK_ID") else "")
+                body = ("The files are removed, but WirePlumber "
+                        "still runs the loaded hook. Run "
+                        "once%s:\n"
+                        "  systemctl --user restart wireplumber"
+                        % where)
+            else:
+                body = ("The hook is gone; the EQ no longer "
+                        "applies.")
+            info = Adw.AlertDialog(
+                heading="Integration removed", body=body)
+            info.add_response("ok", "OK")
+            info.present(self)
+        ask.connect("response", done)
+        ask.present(self)
 
     def _on_export_eq(self):
         """Open the export wizard (primary menu). Imported lazily:

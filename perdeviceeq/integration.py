@@ -113,6 +113,21 @@ def uninstall_hook():
     return removed
 
 
+def uninstall_full():
+    """The mirror of install_full, for the GUI trigger: remove
+    the hook and try one restart so the engine actually unloads.
+    Returns {"removed": bool, "restarted": True|False|None} --
+    restarted False means the files are gone but WirePlumber
+    still runs the loaded copy until a restart (a sandbox, or a
+    system without systemd --user), and the caller MUST say so.
+    The hook's saved EQ state stays on disk either way."""
+    removed = uninstall_hook()
+    restarted = None
+    if removed:
+        restarted = restart_wireplumber()
+    return {"removed": removed, "restarted": restarted}
+
+
 def restart_wireplumber():
     return _run(["systemctl", "--user", "restart", "wireplumber"]).returncode == 0
 
