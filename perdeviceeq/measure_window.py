@@ -24,7 +24,7 @@ import numpy as np
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, GLib, Gdk, Adw       # noqa: E402
+from gi.repository import Gtk, GLib, Gdk, Adw, Pango  # noqa: E402
 
 from . import config, pipewire, measure_build       # noqa: E402
 from .picker import NodePicker                       # noqa: E402
@@ -649,6 +649,13 @@ class MeasureWindow(Adw.Window):
         if mark:
             info += "  \u00b7  %s" % mark
         lbl = Gtk.Label(label=info, xalign=0.0, hexpand=True)
+        # the info line must never dictate the window's width:
+        # with a foreign-rig mark appended, its natural width
+        # exceeded the window and AdwToolbarView complained on
+        # every resize (requested 1110, 1100 available). The
+        # mark yields first -- ellipsis at the end -- and the
+        # row's tooltip already carries the full passport.
+        lbl.set_ellipsize(Pango.EllipsizeMode.END)
         lbl.add_css_class("caption")
         lbl.add_css_class("warning" if drives else "dim-label")
         if drives:
