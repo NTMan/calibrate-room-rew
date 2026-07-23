@@ -4,8 +4,10 @@
 The rules live in perdeviceeq.hig and run on plain dicts; this
 tool is the thin GTK side: describe() maps a realized widget
 tree into that shape, main() builds what it can of the app and
-lints it. Nothing is ever presented, so locally it runs on your
-session display as-is -- no xvfb, no flicker:
+lints it. The snapshots present nothing; the H9 walk phase at
+the end DOES present both windows for live focus, so a local
+run flashes them briefly -- the price of a keyboard the tool
+can press. It still runs on your session display as-is:
 
     python3 tools/hig_audit.py --peq-view
 
@@ -34,7 +36,14 @@ suggested replacement, because an audit that cannot propose a
 fix is a complaint.
 """
 
+import os
 import sys
+
+# The walk phase presents the windows (live focus needs mapped
+# widgets), and presenting wakes GSK's renderer; CI containers
+# ship no libGLESv2 and the GL path aborts. The audit needs
+# correctness, not frames -- default to cairo, overridable.
+os.environ.setdefault("GSK_RENDERER", "cairo")
 
 import gi
 gi.require_version("Gtk", "4.0")
