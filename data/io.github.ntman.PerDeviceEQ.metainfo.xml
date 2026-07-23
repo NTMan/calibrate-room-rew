@@ -60,6 +60,20 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="4.0.0" date="2026-07-23">
+      <description>
+        <p>Measurement schema v4: per-take calibration passports, and the app arrives as a Flatpak</p>
+        <p>Every take now carries its own calibration -- rig stamps
+        live on sessions, calibration curves in an append-only
+        library -- so the statistics judge calibrated curves and
+        recorded calibrations can be reassigned in bulk. Existing
+        profiles convert once with the bundled migration tool.</p>
+        <p>The Flatpak ships scoped permissions, full PipeWire
+        control from inside the sandbox, and a system-integration
+        switch in the main menu: one-click install and removal,
+        with a copyable restart command.</p>
+      </description>
+    </release>
     <release version="3.2.0" date="2026-07-22">
       <description>
         <p>Add export to external PEQ/GEQ</p>
