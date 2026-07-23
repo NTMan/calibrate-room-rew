@@ -27,6 +27,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Gdk, Adw, Pango  # noqa: E402
 
 from . import config, pipewire, measure_build       # noqa: E402
+from . import focus                                  # noqa: E402
 from .picker import NodePicker                       # noqa: E402
 from . import measure_core as mc                    # noqa: E402
 from . import measure_session as ms                 # noqa: E402
@@ -129,49 +130,6 @@ def _ensure_css():
         Gtk.StyleContext.add_provider_for_display(
             disp, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     _CSS_INSTALLED = True
-
-
-class _RingFixed(Gtk.Fixed):
-    """A Fixed whose Tab order is the pult grammar, not the
-    geometry. GTK4 sorts Tab focus by allocation; the ring's
-    meaning is groups -- speakers, then the center pult -- so
-    this container walks an explicit order and hands the
-    default everything else (arrows, clicks)."""
-
-    def __init__(self):
-        super().__init__()
-        self._order = []
-
-    def set_focus_order(self, widgets):
-        self._order = list(widgets)
-
-    def do_focus(self, direction):
-        if direction not in (Gtk.DirectionType.TAB_FORWARD,
-                             Gtk.DirectionType.TAB_BACKWARD):
-            return Gtk.Fixed.do_focus(self, direction)
-        order = [w for w in self._order
-                 if w.get_mapped() and w.get_sensitive()]
-        if not order:
-            return False
-        if direction == Gtk.DirectionType.TAB_BACKWARD:
-            order = list(reversed(order))
-        cur = None
-        root = self.get_root()
-        focus = root.get_focus() if root else None
-        if focus is not None:
-            for i, w in enumerate(order):
-                if focus is w or focus.is_ancestor(w):
-                    cur = i
-                    break
-        if cur is None:
-            return order[0].child_focus(direction)
-        # let the current stop finish its own interior first
-        if order[cur].child_focus(direction):
-            return True
-        for w in order[cur + 1:]:
-            if w.child_focus(direction):
-                return True
-        return False
 
 
 class MeasureWindow(Adw.Window):
@@ -348,6 +306,34 @@ class MeasureWindow(Adw.Window):
         # on the fader's trough axis.
         lead.set_homogeneous(True)
         lead.append(self.relevel_btn)
+        # The architect's word on the walk: auto-level rides
+        # SECOND, right after the fader -- the two speak the
+        # same language. The widget keeps its settled home
+        # under the fader; the jump is focus-only: Tab off the
+        # fader lands on auto-level, Tab off auto-level enters
+        # the ring, and the ring's backward exit returns here.
+        self.ring.set_focus_prev(self.relevel_btn)
+
+        def _tab(kv, back_to, fwd_to):
+            def on_key(_c, keyval, _code, state):
+                shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+                if keyval == Gdk.KEY_Tab and not shift:
+                    return fwd_to()
+                if (keyval == Gdk.KEY_ISO_Left_Tab
+                        or (keyval == Gdk.KEY_Tab and shift)):
+                    return back_to()
+                return False
+            c = Gtk.EventControllerKey()
+            c.connect("key-pressed", on_key)
+            kv.add_controller(c)
+
+        _tab(self.vol_spin,
+             back_to=lambda: False,
+             fwd_to=lambda: self.relevel_btn.grab_focus())
+        _tab(self.relevel_btn,
+             back_to=lambda: self.vol_spin.grab_focus(),
+             fwd_to=lambda: self.ring.child_focus(
+                 Gtk.DirectionType.TAB_FORWARD))
         sg = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
         sg.add_widget(self.vol_spin)
         sg.add_widget(lead)
@@ -383,7 +369,7 @@ class MeasureWindow(Adw.Window):
         self._rebuild_cal_row()
 
     def _build_ring(self):
-        self.ring = _RingFixed()
+        self.ring = focus.OrderedFixed()
         self.ring.set_size_request(RING, RING)
         self.ring.set_halign(Gtk.Align.CENTER)
         disc = Gtk.DrawingArea()

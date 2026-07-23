@@ -220,13 +220,16 @@ same way rounds do.
 - [ ] OPEN, one sweep: width appetites -- data-fed labels must
   yield (the take-row info line learned it in the field); the
   floor cannot read geometry, so the sweep is by hand.
-- [~] Focus order, from the field walk: the ring's Tab now
-  speaks the pult grammar (speakers, then capsule map, then
-  transport -- groups survive surround; a custom focus beats
-  GTK's positional sort); the auto-level stays after the pult,
-  its home under the fader is a settled axis. OPEN residue:
-  the peq-view first stop (a checkbox before the filter type)
-  awaits one clarifying word -- which checkbox the walk met.
+- [x] Focus order, from the field walk, all three verdicts:
+  the ring's Tab speaks the pult grammar (speakers, capsule
+  map, transport -- groups survive surround); the auto-level
+  rides SECOND, right after the fader, by the architect's word
+  -- the widget keeps its settled home, the jump is
+  focus-only, backward included; and the band grid reads as
+  written -- type, freq, gain, Q, on/off second to last,
+  delete -- through the same grammar walker, now a module
+  (focus.py) both instruments share. Geometry proposes, the
+  grammar disposes.
 - [x] The costume floor -- converted from a read to a rule on
   the architect's word ("I do not trust eyes"): H8 polices
   every label's size and style against the type-scale wardrobe

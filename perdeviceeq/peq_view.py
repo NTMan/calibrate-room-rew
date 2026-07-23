@@ -19,6 +19,7 @@ frequency guard for sub-plot trim bands, remove on right click.
 import math
 
 import gi
+from . import focus
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk
 
@@ -101,7 +102,9 @@ class PeqView(Gtk.Box):
         self.graph.add_controller(rclick)
         self.append(self.graph)
 
-        self.grid = Gtk.Grid(column_spacing=4, row_spacing=4)
+        self.grid = focus.OrderedGrid(column_spacing=4,
+                                      row_spacing=4)
+        self._focus_stops = []
         for side in ("top", "bottom", "start", "end"):
             getattr(self.grid, "set_margin_" + side)(3)
         self.append(self.grid)
@@ -379,6 +382,7 @@ class PeqView(Gtk.Box):
 
     # ---- the band table -------------------------------------------------
     def _rebuild_table(self):
+        self._focus_stops = []
         child = self.grid.get_first_child()
         while child is not None:
             nxt = child.get_next_sibling()
@@ -427,6 +431,11 @@ class PeqView(Gtk.Box):
                          lambda *_: self._on_import_file())
             acts.append(repl)
         self.grid.attach(acts, 1, len(self._bands) + 1, 7, 1)
+        # the walk's verdict: Tab reads a band row as written --
+        # type, freq, gain, Q, on/off, delete -- the on/off is
+        # second to last, not first, whatever geometry says
+        self._focus_stops.append(acts)
+        self.grid.set_focus_order(self._focus_stops)
 
     def _attach_band(self, i, b):
         row = i + 1
@@ -447,6 +456,7 @@ class PeqView(Gtk.Box):
                    self._write(b, "type", _TYPES[d.get_selected()]))
         _tame_scroll(dd, self._on_widget_scroll)
         self.grid.attach(dd, 1, row, 1, 1)
+        self._focus_stops.append(dd)
         col = 2
         for key, lo, hi, step, dig, tip in (
                 ("freq", 10.0, 20000.0, 1.0, 0, "Frequency, Hz"),
@@ -464,6 +474,7 @@ class PeqView(Gtk.Box):
                        self._write(b, key, spb.get_value()))
             _tame_scroll(sp, self._on_widget_scroll)
             self.grid.attach(sp, col, row, 1, 1)
+            self._focus_stops.append(sp)
             col += 1
         sw = Gtk.CheckButton()
         sw.set_valign(Gtk.Align.CENTER)
@@ -473,6 +484,7 @@ class PeqView(Gtk.Box):
                    lambda swb, b=b:
                    self._write(b, "enabled", swb.get_active()))
         self.grid.attach(sw, 5, row, 1, 1)
+        self._focus_stops.append(sw)
         sep = Gtk.Separator(
             orientation=Gtk.Orientation.VERTICAL)
         self.grid.attach(sep, 6, row, 1, 1)
@@ -481,6 +493,7 @@ class PeqView(Gtk.Box):
         tr.set_tooltip_text("Delete this band")
         tr.connect("clicked", lambda *_a, b=b: self._on_del(b))
         self.grid.attach(tr, 7, row, 1, 1)
+        self._focus_stops.append(tr)
 
     def _make_dot_draw(self, b):
         def draw(_a, cr, w, h, *_):
