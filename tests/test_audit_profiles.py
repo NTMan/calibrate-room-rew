@@ -3,7 +3,6 @@
 --profile NAME resolution against the app's saved profiles, the 0.1 dB
 ceil on suggestions, and byte-stable --demo output."""
 import json
-import math
 
 import numpy as np
 import pytest
