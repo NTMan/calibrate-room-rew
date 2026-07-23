@@ -15,8 +15,16 @@ Headless CI has no session; there, and only there, wrap it:
 
 --peq-view audits the band card (PeqView) standalone -- the
 surface that minted rules H2 and H3 in the field. --window
-attempts the full main window and is expected to grow teeth on
-the CI day, when the PipeWire shims from tests/shims ride along.
+builds the REAL main window inside an application cycle and
+audits the whole tree, header to band card; it needs a PipeWire
+to talk to -- the live one on a workstation, or the shims:
+
+    PATH="$PWD/tests/shims:$PATH" \
+        xvfb-run -a python3 tools/hig_audit.py --window
+
+Nothing is asked and nothing is shown: the audit application
+overrides activation, skips the first-run dialog and the
+present, walks the tree and quits.
 
 Exit code 1 on any finding; the findings name rule, path, and a
 suggested replacement, because an audit that cannot propose a
@@ -28,7 +36,7 @@ import sys
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw  # noqa: E402
+from gi.repository import Gtk, Adw, Gio, GLib  # noqa: E402
 
 sys.path.insert(0, ".")
 from perdeviceeq import hig  # noqa: E402
@@ -113,6 +121,34 @@ def _peq_view():
                    on_import_file=lambda: None)
 
 
+def _window_audit():
+    """Build the real EqWindow inside an application cycle and
+    audit it. NON_UNIQUE keeps the audit local even when the
+    real app is running on the same session -- without it the
+    second instance remote-activates the first and this
+    function would audit nothing."""
+    from perdeviceeq import gui as G
+    out = {}
+
+    class AuditApp(G.EqApplication):
+        def do_activate(self):
+            self.win = G.EqWindow(self)
+
+            def grab():
+                out["result"] = audit_widget(self.win)
+                self.quit()
+                return False
+            GLib.idle_add(grab)
+
+    app = AuditApp()
+    app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
+    app.run([])
+    if "result" not in out:
+        raise SystemExit("hig_audit: the activation cycle never "
+                         "reached the audit")
+    return out["result"]
+
+
 def main(argv):
     if not Gtk.init_check():
         print("hig_audit: no display available -- run inside "
@@ -122,17 +158,14 @@ def main(argv):
     Adw.init()
     if "--peq-view" in argv:
         root = _peq_view()
+        win = Gtk.Window()
+        win.set_child(root)
+        findings, lines = audit_widget(root)
     elif "--window" in argv:
-        print("hig_audit: --window lands with the CI day "
-              "(needs the PipeWire shims and an Adw.Application "
-              "activation cycle)", file=sys.stderr)
-        return 2
+        findings, lines = _window_audit()
     else:
         print(__doc__)
         return 2
-    win = Gtk.Window()
-    win.set_child(root)
-    findings, lines = audit_widget(root)
     for ln in lines:
         print(ln)
     print("hig_audit: %d finding%s"
