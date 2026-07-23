@@ -41,14 +41,26 @@ jobs:
       - name: pyflakes
         run: python3 -m pyflakes perdeviceeq tests tools per-device-eq.py
       - name: Validate every .ui design
-        # the validator instantiates real widget classes, so it
-        # wants a display just like the suite does
+        # gtk4-builder-tool knows only GTK's own types and cannot
+        # load libadwaita, so it rejects every Adw* class on
+        # sight. The honest judge is the toolkit pair we actually
+        # ship against: load each design with GtkBuilder after
+        # Adw.init() -- any unknown class, malformed XML or bad
+        # property fails the load. Display still required: the
+        # builder instantiates real widgets.
         run: |
-          xvfb-run -a sh -ec '
-            for ui in data/*.ui; do
-              echo "validate $ui"
-              gtk4-builder-tool validate "$ui"
-            done'
+          xvfb-run -a python3 - <<'PY'
+          import glob
+          import gi
+          gi.require_version("Gtk", "4.0")
+          gi.require_version("Adw", "1")
+          from gi.repository import Gtk, Adw
+          Adw.init()
+          for ui in sorted(glob.glob("data/*.ui")):
+              print("validate", ui, flush=True)
+              Gtk.Builder().add_from_file(ui)
+          print("all designs load clean")
+          PY
       - name: Import smoke of the Gtk modules
         run: >
           xvfb-run -a python3 -c "from perdeviceeq import gui,
