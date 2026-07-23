@@ -27,6 +27,11 @@
 
 local log   = Log.open_topic("pde")
 local META  = "per-device-eq"   -- metadata object name (live edits from the app)
+local PROTOCOL = "1"            -- channel protocol; stamped into the metadata on
+                                -- activation, compared by the app (bump together
+                                -- with PROTOCOL in perdeviceeq/config.py on any
+                                -- breaking change to the graph string or the
+                                -- metadata contract)
 local STATE = "per-device-eq"   -- WpState name -> ~/.local/state/wireplumber/per-device-eq
 
 -- identity / flat graph: a single 0 dB filter. Applied to strip EQ when a device
@@ -79,7 +84,11 @@ md_om:connect("object-added", function(_, m)
   m:activate(feat, function(_, err)
     if err then log.warning("metadata activate: " .. tostring(err)); return end
     md = m
+    -- stamp the channel protocol; the app compares it at startup
+    -- and offers a one-click reinstall on mismatch
+    m:set(0, "protocol", "Spa:String:JSON", PROTOCOL)
     m:connect("changed", function(_, subject, key, typ, value)
+      if key == "protocol" then return end
       if value ~= nil and value ~= "" then
         graphs[key] = value
         local n = nodes[key]; if n then set_graph(n, value) end

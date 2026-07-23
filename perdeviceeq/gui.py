@@ -746,7 +746,7 @@ class EqWindow(Adw.ApplicationWindow):
         promise of persistence), Yes installs and says how to
         uninstall."""
         if integration.hook_installed():
-            return False
+            return self._check_hook_protocol()
         flatpak = bool(os.environ.get("FLATPAK_ID"))
         extra = ("" if flatpak else
                  ", plus a menu entry and icon")
@@ -904,6 +904,63 @@ class EqWindow(Adw.ApplicationWindow):
         overlay.set_child(tv)
         dlg.set_child(overlay)
         dlg.present(self)
+
+    def _check_hook_protocol(self):
+        """Once per launch, when the hook is installed: the
+        LOADED hook stamps its channel protocol into the
+        metadata; compare with ours. No metadata object = the
+        hook is not up (other narrations own that story);
+        object without the stamp = a pre-versioning hook --
+        the same one-click offer, honestly labeled."""
+        found, ver = pipewire.hook_protocol()
+        if not found or ver == config.PROTOCOL:
+            return False
+        try:
+            newer = (ver is not None
+                     and float(ver) > float(config.PROTOCOL))
+        except ValueError:
+            newer = True
+        shown = ver if ver is not None else "pre-1 (no stamp)"
+        if newer:
+            body = ("The installed WirePlumber hook speaks "
+                    "protocol %s -- newer than this app (%s), "
+                    "likely written by a newer build. Update "
+                    "the app, or reinstall the integration "
+                    "from this one to match it."
+                    % (shown, config.PROTOCOL))
+            label = "Reinstall integration"
+        else:
+            body = ("The installed WirePlumber hook speaks "
+                    "protocol %s, this app speaks %s -- live "
+                    "edits may not apply until they match. "
+                    "One click rewrites the hook from this "
+                    "app." % (shown, config.PROTOCOL))
+            label = "Update integration"
+        dlg = Adw.AlertDialog(
+            heading="Integration version mismatch", body=body)
+        dlg.add_response("later", "Not now")
+        dlg.add_response("update", label)
+        dlg.set_response_appearance(
+            "update", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("update")
+        dlg.set_close_response("later")
+
+        def done(_d, resp):
+            if resp != "update":
+                return
+            try:
+                result = integration.install_full()
+            except FileNotFoundError as e:
+                err = Adw.AlertDialog(heading="Install failed",
+                                      body=str(e))
+                err.add_response("ok", "OK")
+                err.present(self)
+                return
+            self._refresh_integration_menu()
+            self._show_install_result(result)
+        dlg.connect("response", done)
+        dlg.present(self)
+        return False
 
     def _refresh_integration_menu(self):
         """The integration item states the opposite of the

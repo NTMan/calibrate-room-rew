@@ -66,3 +66,28 @@ def test_monitor_capture_pins_the_tap(monkeypatch):
     assert "node.dont-reconnect = true" in props
     assert "stream.capture.sink = true" in props
     assert cmd[cmd.index("--target") + 1] == "some.sink"
+
+
+def test_hook_protocol_states(monkeypatch):
+    """Stamped, legacy (object without the stamp), and no
+    metadata object at all."""
+    import subprocess as sp
+
+    def fake(out):
+        def run(cmd, timeout=2.0):
+            return sp.CompletedProcess(cmd, 0, out, "")
+        return run
+
+    monkeypatch.setattr(pipewire, "_run", fake(
+        'Found "per-device-eq" metadata 99\n'
+        "update: id:0 key:'protocol' value:'1' "
+        "type:'Spa:String:JSON'\n"))
+    assert pipewire.hook_protocol() == (True, "1")
+
+    monkeypatch.setattr(
+        pipewire, "_run",
+        fake('Found "per-device-eq" metadata 99\n'))
+    assert pipewire.hook_protocol() == (True, None)
+
+    monkeypatch.setattr(pipewire, "_run", fake(""))
+    assert pipewire.hook_protocol() == (False, None)

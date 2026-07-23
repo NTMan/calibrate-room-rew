@@ -198,6 +198,18 @@ def metadata_set(node_name, graph):
     r = _run(["pw-metadata", "-n", METADATA_NAME, "0", node_name, graph])
     return r.returncode == 0 and "Found" in (r.stdout + r.stderr)
 
+def hook_protocol():
+    """The protocol the LOADED hook stamped into the channel.
+    Returns (found, version): found False = no metadata object
+    (WirePlumber or the hook is not up -- the install/restart
+    narrations own that story, say nothing extra); found True
+    with version None = a pre-versioning hook."""
+    r = _run(["pw-metadata", "-n", METADATA_NAME, "0", "protocol"])
+    out = (r.stdout or "") + (r.stderr or "")
+    m = re.search(r"key:'protocol'\s+value:'([^']*)'", out)
+    return ("Found" in out), (m.group(1) if m else None)
+
+
 def metadata_clear(node_name):
     """Delete a device's key (Clean / unbound). The hook flattens the live node."""
     r = _run(["pw-metadata", "-n", METADATA_NAME, "-d", "0", node_name])

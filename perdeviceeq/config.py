@@ -39,6 +39,14 @@ WP_SCRIPT_STALE = os.path.expanduser(  # removed: an earlier build wrote here to
 WP_CONF_DIR    = os.path.expanduser("~/.config/wireplumber/wireplumber.conf.d")
 WP_CONF        = os.path.join(WP_CONF_DIR, "90-per-device-eq.conf")
 METADATA_NAME  = "per-device-eq"
+
+# Channel protocol between the app and the LOADED hook. The hook
+# stamps this into the metadata on activation (local PROTOCOL in
+# wireplumber/90-per-device-eq.lua -- keep them equal); the GUI
+# compares at startup and offers a one-click reinstall on
+# mismatch. Bump on any breaking change to the graph string or
+# the metadata contract; additive changes ride free.
+PROTOCOL = "1"
 # the static hook is shipped next to the package (repo) or system-wide (package)
 HOOK_SRC_CANDIDATES = [os.path.join(_DATA_ROOT, "wireplumber", WP_SCRIPT_NAME),
                        "/usr/share/per-device-eq/wireplumber/" + WP_SCRIPT_NAME]
