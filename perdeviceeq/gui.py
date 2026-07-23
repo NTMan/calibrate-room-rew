@@ -830,6 +830,35 @@ class EqWindow(Adw.ApplicationWindow):
 
     _WP_RESTART_CMD = "systemctl --user restart wireplumber"
 
+    _chip_css_installed = False
+
+    @classmethod
+    def _install_chip_css(cls):
+        """The command chip borrows the accent, the way About's
+        version pill does -- and follows the system accent color
+        the same way (field verdict, shown live by switching the
+        accent to pink)."""
+        if cls._chip_css_installed:
+            return
+        cls._chip_css_installed = True
+        css = Gtk.CssProvider()
+        data = """
+        .command-chip {
+          background-color: alpha(@accent_bg_color, .15);
+          color: @accent_color;
+        }
+        .command-chip:hover {
+          background-color: alpha(@accent_bg_color, .25);
+        }
+        """
+        if hasattr(css, "load_from_string"):
+            css.load_from_string(data)
+        else:
+            css.load_from_data(data.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
     def _command_dialog(self, heading, body, command):
         """The command dialog, built the way About is built
         inside (field verdict: the toast must come from the same
@@ -856,9 +885,11 @@ class EqWindow(Adw.ApplicationWindow):
         head.add_css_class("title-2")
         text = Gtk.Label(label=body, wrap=True,
                          justify=Gtk.Justification.CENTER)
+        self._install_chip_css()
         chip = Gtk.Button(label=command)
         chip.add_css_class("pill")
         chip.add_css_class("monospace")
+        chip.add_css_class("command-chip")
         chip.set_halign(Gtk.Align.CENTER)
         chip.set_tooltip_text("Copy to clipboard")
 
