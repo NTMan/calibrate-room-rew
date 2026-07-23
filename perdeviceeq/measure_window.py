@@ -311,8 +311,10 @@ class MeasureWindow(Adw.Window):
         # same language. The widget keeps its settled home
         # under the fader; the jump is focus-only: Tab off the
         # fader lands on auto-level, Tab off auto-level enters
-        # the ring, and the ring's backward exit returns here.
-        self.ring.set_focus_prev(self.relevel_btn)
+        # the ring, the ring's backward exit returns here, and
+        # its FORWARD exit hands the fit area -- without that
+        # neighbor GTK fell back to positional sort and looped
+        # play -> auto-level (field-caught).
 
         def _tab(kv, back_to, fwd_to):
             def on_key(_c, keyval, _code, state):
@@ -341,6 +343,8 @@ class MeasureWindow(Adw.Window):
 
         b.get_object("channel_host").append(self._build_page())
         fa = self._build_fit_area()
+        self.ring.set_focus_neighbors(prev=self.relevel_btn,
+                                      nxt=fa)
         for side in ("start", "end", "bottom"):
             getattr(fa, "set_margin_" + side)(12)
         fa.set_margin_top(6)
@@ -1686,6 +1690,7 @@ class MeasureWindow(Adw.Window):
                 lb.append(row)
         refill()
         dlg.present(self)
+        return dlg
 
     def _make_reassign_cb(self, sha, fname, count, refill):
         """Chooser, then a plain-words confirmation, then the

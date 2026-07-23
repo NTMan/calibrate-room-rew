@@ -145,6 +145,65 @@ def describe(w, in_bar=False):
                          for c in _own_children(w, t)]}
 
 
+def _stop_name(w):
+    """A short human handle for a focus stop."""
+    name = w.__class__.__name__
+    tip = None
+    if hasattr(w, "get_tooltip_text"):
+        tip = w.get_tooltip_text()
+    if not tip and hasattr(w, "get_label"):
+        try:
+            tip = w.get_label()
+        except Exception:
+            tip = None
+    return "%s(%s)" % (name, (tip or "")[:24])
+
+
+def _tab_walk(win, limit=400):
+    """H9, the dynamic half of the floor: the Tab walk must
+    round the room. The audit presses Tab itself, records the
+    stops, and whistles when the walk repeats a stop without
+    ever returning to the first -- a trapped subset, the loop
+    class the field caught (play -> auto-level). A full wrap
+    (back to stop one) is the healthy shape; a walk that never
+    repeats within the limit is a finding too."""
+    win.set_focus(None)
+    seen = []
+    index = {}
+    for _ in range(limit):
+        moved = win.child_focus(Gtk.DirectionType.TAB_FORWARD)
+        f = win.get_focus()
+        if not moved or f is None:
+            return []          # walked out cleanly
+        key = id(f)
+        if key in index:
+            if index[key] == 0:
+                return []      # full wrap: the healthy shape
+            cycle = seen[index[key]:]
+            names = " -> ".join(_stop_name(w)
+                                for w in cycle[:6])
+            if len(cycle) > 6:
+                names += " ..."
+            return [{
+                "rule": "H9",
+                "path": "%s (keyboard walk)"
+                        % win.__class__.__name__,
+                "msg": "Tab traps in a cycle of %d stops "
+                       "away from the walk's start: %s"
+                       % (len(cycle), names),
+                "fix": "give the trapping container focus "
+                       "neighbors (focus.set_focus_neighbors) "
+                       "or drop the custom jump"}]
+        index[key] = len(seen)
+        seen.append(f)
+    return [{
+        "rule": "H9",
+        "path": "%s (keyboard walk)" % win.__class__.__name__,
+        "msg": "Tab walk did not settle in %d steps" % limit,
+        "fix": "the focus graph never repeats or exits; check "
+               "dynamic focus handlers"}]
+
+
 def audit_widget(root):
     """(findings, lines) for a realized widget."""
     findings = hig.lint(describe(root))
@@ -177,7 +236,7 @@ def _window_audit():
                 # mounted into THIS window's host; on the
                 # audit's empty canvas it shows its honest
                 # empty list, which is a UI state too
-                self.mwin._open_cal_manager()
+                self._dlgs.append(self.mwin._open_cal_manager())
                 f2, _ = audit_widget(self.mwin)
                 f1, _ = out["result"]
                 seen = set()
@@ -189,6 +248,24 @@ def _window_audit():
                         continue
                     seen.add(key)
                     fs.append(f)
+                out["result"] = (fs, None)
+                # the walk phase: H9 needs LIVE focus, so the
+                # door dialogs close (a modal dialog owns the
+                # window's focus and would be all the walk
+                # sees) and the windows present
+                for d in self._dlgs:
+                    if d is not None:
+                        d.force_close()
+                self.win.present()
+                self.mwin.present()
+                GLib.idle_add(walk_all)
+                return False
+
+            def walk_all():
+                fs, _ = out["result"]
+                fs = list(fs)
+                fs += _tab_walk(self.win)
+                fs += _tab_walk(self.mwin)
                 out["result"] = (fs, hig.report(fs))
                 self.quit()
                 return False
@@ -198,14 +275,15 @@ def _window_audit():
                 # restart-WirePlumber window) mounts into this
                 # window's AdwDialogHost, so one snapshot holds
                 # the window and the dialog together
-                self.win._command_dialog(
+                self._dlgs = []
+                self._dlgs.append(self.win._command_dialog(
                     "System integration",
                     "The hook is installed. Restart WirePlumber "
                     "to load it.",
-                    "systemctl --user restart wireplumber")
+                    "systemctl --user restart wireplumber"))
                 # the fourth door: About (sealed type -- the
                 # walk proves it builds and mounts)
-                self.win._on_about()
+                self._dlgs.append(self.win._on_about())
                 # the fifth: the export wizard, targets page
                 # plus EVERY target's preview page pushed --
                 # NavigationView keeps the whole stack in the
@@ -217,6 +295,7 @@ def _window_audit():
                 from perdeviceeq import export_peq as xp
                 xdlg = ExportDialog(self.win)
                 xdlg.present(self.win)
+                self._dlgs.append(xdlg)
                 for t in xp.load_targets():
                     xdlg._on_target(None, t)
                 f1, l1 = audit_widget(self.win)

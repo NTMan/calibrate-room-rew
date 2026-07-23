@@ -177,7 +177,11 @@ action; H8 a label dresses from the type scale (the wardrobe:
 title-1..4, heading, caption, caption-heading, dim-label,
 numeric, monospace, accent, the stock colors, measure-count --
 anything else on a GtkLabel is a hand-rolled style and a
-finding). H1-H3 are the .pdeq sprint's earned rules; H4-H6 are the
+finding); H9 the Tab walk must round the room -- the audit
+presses Tab itself, and a walk that repeats a stop without
+returning to its first is a trapped subset (born from the
+field's play -> auto-level loop; a custom jump without a
+forward neighbor is the classic cause). H1-H3 are the .pdeq sprint's earned rules; H4-H6 are the
 HIG's own letter. Run: `xvfb-run -a python3 tools/hig_audit.py
 --peq-view` for the band card alone, `--window` for the whole
 house: both windows in both channel costumes, the command
@@ -229,7 +233,10 @@ same way rounds do.
   written -- type, freq, gain, Q, on/off second to last,
   delete -- through the same grammar walker, now a module
   (focus.py) both instruments share. Geometry proposes, the
-  grammar disposes.
+  grammar disposes. Amended by the field once already: the
+  first cut lacked a FORWARD neighbor on the ring's exit and
+  looped play -> auto-level; neighbors now cover both exits,
+  and the loop class is H9's to police.
 - [x] The costume floor -- converted from a read to a rule on
   the architect's word ("I do not trust eyes"): H8 polices
   every label's size and style against the type-scale wardrobe

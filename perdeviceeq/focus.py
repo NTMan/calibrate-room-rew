@@ -12,9 +12,11 @@ behavior. A stop may be a leaf or a container; child_focus()
 handles both, including a container finishing its own interior
 before the walk advances.
 
-set_focus_prev() names an outside widget that BACKWARD Tab
-lands on when the walk exits at its head -- for the pult, the
-auto-level under the fader.
+set_focus_neighbors() names outside widgets for BOTH exits:
+backward Tab off the walk's head, and forward Tab off its tail
+-- without the forward neighbor GTK falls back to positional
+sort at the exit, which is how the field caught a play ->
+auto-level -> ring loop.
 """
 
 import gi
@@ -22,7 +24,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # noqa: E402
 
 
-def _walk(widget, order, prev, direction, default):
+def _walk(widget, order, prev, nxt, direction, default):
     if direction not in (Gtk.DirectionType.TAB_FORWARD,
                          Gtk.DirectionType.TAB_BACKWARD):
         return default(widget, direction)
@@ -51,6 +53,8 @@ def _walk(widget, order, prev, direction, default):
             return True
     if back and prev is not None:
         return prev.grab_focus()
+    if not back and nxt is not None:
+        return nxt.child_focus(direction) or nxt.grab_focus()
     return False
 
 
@@ -61,12 +65,14 @@ class _Ordered:
     def _init_order(self):
         self._order = []
         self._prev = None
+        self._next = None
 
     def set_focus_order(self, widgets):
         self._order = list(widgets)
 
-    def set_focus_prev(self, widget):
-        self._prev = widget
+    def set_focus_neighbors(self, prev=None, nxt=None):
+        self._prev = prev
+        self._next = nxt
 
 
 class OrderedFixed(Gtk.Fixed, _Ordered):
@@ -75,8 +81,8 @@ class OrderedFixed(Gtk.Fixed, _Ordered):
         self._init_order()
 
     def do_focus(self, direction):
-        return _walk(self, self._order, self._prev, direction,
-                     Gtk.Fixed.do_focus)
+        return _walk(self, self._order, self._prev, self._next,
+                     direction, Gtk.Fixed.do_focus)
 
 
 class OrderedGrid(Gtk.Grid, _Ordered):
@@ -85,5 +91,5 @@ class OrderedGrid(Gtk.Grid, _Ordered):
         self._init_order()
 
     def do_focus(self, direction):
-        return _walk(self, self._order, self._prev, direction,
-                     Gtk.Grid.do_focus)
+        return _walk(self, self._order, self._prev, self._next,
+                     direction, Gtk.Grid.do_focus)

@@ -1070,6 +1070,7 @@ class EqWindow(Adw.ApplicationWindow):
                       "/issues",
             license_type=Gtk.License.GPL_3_0)
         d.present(self)
+        return d
 
     # ---- scroll taming (wheel must not change spin/dropdown values) --------
     def _tame_scroll(self, widget):
