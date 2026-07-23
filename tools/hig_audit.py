@@ -173,9 +173,23 @@ def _window_audit():
             self.win = G.EqWindow(self)
 
             def grab_measure():
-                f2, l2 = audit_widget(self.mwin)
-                f1, l1 = out["result"]
-                out["result"] = (f1 + f2, l1 + l2)
+                # the cal-history door: a hand-built dialog,
+                # mounted into THIS window's host; on the
+                # audit's empty canvas it shows its honest
+                # empty list, which is a UI state too
+                self.mwin._open_cal_manager()
+                f2, _ = audit_widget(self.mwin)
+                f1, _ = out["result"]
+                seen = set()
+                fs = []
+                for f in f1 + f2:
+                    key = (f.get("rule"), f.get("path"),
+                           f.get("msg"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    fs.append(f)
+                out["result"] = (fs, hig.report(fs))
                 self.quit()
                 return False
 
@@ -205,11 +219,26 @@ def _window_audit():
                 xdlg.present(self.win)
                 for t in xp.load_targets():
                     xdlg._on_target(None, t)
-                out["result"] = audit_widget(self.win)
+                f1, l1 = audit_widget(self.win)
+                # the same window in its second costume: the
+                # separated-channels mode populates the linked
+                # FL|FR bar and the per-channel band cards --
+                # strictly more widgets; the merge dedups what
+                # both snapshots share
+                try:
+                    self.win.sep_switch.set_active(True)
+                except Exception:
+                    pass
+                f2, l2 = audit_widget(self.win)
+                out["result"] = (f1 + f2, l1 + l2)
                 # the second door: the Measure window births on
                 # any node (born-gone), unpresented, unresolved
                 node = getattr(self.win, "node", "") or "audit"
-                self.mwin = MeasureWindow(self.win, node, node)
+                # Edit mode: the cal-manager door guards on an
+                # edited profile, and Edit builds strictly more
+                pid = getattr(self.win, "current_pid", None)
+                self.mwin = MeasureWindow(self.win, node, node,
+                                          edit_pid=pid)
                 GLib.idle_add(grab_measure)
                 return False
             GLib.idle_add(grab)
