@@ -8,6 +8,20 @@ listener, headroom that never lies.
 
 ## Shipped
 
+- **CI that sees the GUI.** Two Actions lanes. Tests: Fedora container
+  with the real toolkit -- pyflakes over the whole tree, every `.ui`
+  loaded by GtkBuilder after `Adw.init()` (a stricter judge than
+  `gtk4-builder-tool`, which cannot see libadwaita types), a headless
+  import smoke of the Gtk modules, and the full suite under Xvfb.
+  Flatpak: manifest built for both arches on every push, bundles
+  attached to releases. Acceptance met in the field: the lane turned
+  red on a real import-time error (a missing typelib) before it ever
+  went green.
+- **Export wizard.** One window-level action (the primary menu is its
+  home) that bakes the COMPOSED chain -- device + active taste, preamp
+  included -- and asks one question: where is this going? Shipped in
+  3.2.0 with the writer classes and the null-test acceptance the sprint
+  wrote for it.
 - **Measurement.** The app is the instrument: Farina sweep out through the
   selected sink, capture from the rig, per-capsule calibration, impulse
   windowing, magnitude-RMS averaging across seatings, SNR-targeted
@@ -40,38 +54,17 @@ listener, headroom that never lies.
 
 ## Next (the sprint)
 
-1. **Export wizard.** One window-level action (the primary menu is its
-   home) that bakes the COMPOSED chain -- device + active taste, preamp
-   included -- and asks one question: where is this going? A registry of
-   known external equalizers drives the rest, three writer classes:
-   (a) native import files for targets that have import (REW /
-   EqualizerAPO-style parametric text, Wavelet GraphicEQ, RootlessJamesDSP);
-   (b) a constrained fit for fixed-band vendor graphics (Soundcore-class
-   companion apps) -- fixed frequencies, gains solved by least squares,
-   against a MEASURED basis where we have one, with the residual curve
-   shown BEFORE export so nobody carries a surprise; (c) a hand-transfer
-   sheet for targets with no import at all: a readable table, values
-   rounded to the target's step, one screen. Accept when parametric
-   exports null-test against the in-app chain within 0.1 dB across the
-   fit band with the per-channel collapse policy stated in the header,
-   and the fixed-band path never exports without having shown its
-   residual.
-2. **Profile package.** One-file `.pdeq` bundle: profile + measurement +
+1. **Profile package.** One-file `.pdeq` bundle: profile + measurement +
    fit provenance + rig fingerprint + content sha. Import validates and
    shows provenance. Accept when export→import roundtrips byte-stable.
    This is the foundation the exchange service stands on.
    Taste presets become their own shareable artifacts later, on
    demand -- the ideal world where both layers travel separately.
-3. **GNOME HIG pass.** A written checklist in-repo (spacing scale, focus
+2. **GNOME HIG pass.** A written checklist in-repo (spacing scale, focus
    order, keyboard mnemonics, symbolic icons, header-bar patterns,
    dialog vs popover usage, About window), every deviation fixed or
    argued in place. Accept when each line carries a check or a commit.
-4. **CI that sees the GUI.** Actions running pytest + pyflakes +
-   `gtk4-builder-tool validate` over every `.ui`, plus a headless import
-   smoke of the Gtk modules. Accept when the classes of breakage we have
-   actually shipped past the sandbox (bad `.ui`, import-time errors) turn
-   the build red.
-5. **Flathub.** Manifest, metainfo, screenshots, release notes.
+3. **Flathub.** Manifest, metainfo, screenshots, release notes.
    Popularity starts with installability.
 
 ## Direction
