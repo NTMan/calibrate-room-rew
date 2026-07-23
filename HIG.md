@@ -164,7 +164,12 @@ and so do we. The tiers connect by a RATCHET: every judgment
 call this file settles gets minted into a tier-one rule, so the
 gate grows stricter with every dispute instead of re-arguing it.
 
-Rules on the floor today: H1 linked means facets of one control;
+Rules on the floor today: H1 linked means one instrument --
+facets of one control, or one value control with its
+ToggleButton modifiers (the --window round's verdict; a spin
+with its Auto, a picker with its follow pin) -- and, the letter
+of the libadwaita style-classes doc, a linked box carries no
+spacing;
 H2 an action group anchors to an edge; H3 flat needs a
 structured container; H4 an icon-only button describes itself;
 H5 spacing sits on the 6px grid; H6 dialog buttons name the

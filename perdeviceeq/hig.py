@@ -54,22 +54,53 @@ _MUTE_VERBS = ("yes", "no")
 
 
 def _findings_h1(node, path, out):
-    """H1: linked means facets of ONE control."""
-    css = node.get("props", {}).get("css") or []
+    """H1: linked means ONE instrument.
+
+    Facets of one control (undo/redo, segmented toggles), or --
+    the --window round's verdict -- one value control with its
+    ToggleButton modifiers: a spin whose Auto hands the value to
+    automation, a picker whose pin follows the default. A plain
+    action button with a toggle stays a violation: the modifier
+    pattern is about a VALUE under automation, not two actions
+    glued together. And the one letter the libadwaita
+    style-classes doc actually writes: a linked box carries no
+    spacing."""
+    props = node.get("props", {})
+    css = props.get("css") or []
     if "linked" not in css:
         return
+    spacing = props.get("spacing")
+    if spacing not in (None, 0):
+        out.append({
+            "rule": "H1", "path": path,
+            "msg": "linked box carries spacing %s (the letter: "
+                   "the box must have no spacing)" % spacing,
+            "fix": "set spacing 0; the linked style draws the "
+                   "group as one piece"})
     kids = node.get("children") or []
     classes = {k.get("class") for k in kids}
-    if len(kids) < 2 or len(classes) > 1:
+    facets = len(classes) == 1
+    toggles = [k for k in kids
+               if k.get("class") == "GtkToggleButton"]
+    values = [k for k in kids
+              if k.get("class") != "GtkToggleButton"]
+    # value controls, not action clickers: a *Button suffix
+    # cannot decide this (GtkSpinButton and GtkColorButton are
+    # values), so plain action classes are named outright
+    _actions = ("GtkButton", "GtkMenuButton", "GtkLinkButton")
+    instrument = (len(values) == 1 and toggles
+                  and values[0].get("class") not in _actions)
+    if len(kids) < 2 or not (facets or instrument):
         out.append({
             "rule": "H1", "path": path,
             "msg": "linked group does not hold facets of one "
                    "control (%d children, classes: %s)"
                    % (len(kids), ", ".join(sorted(
                        c or "?" for c in classes)) or "none"),
-            "fix": "unlink into a plain box (spacing 6), or make "
+            "fix": "unlink into a plain box (spacing 6), make "
                    "the children the same control (undo/redo, "
-                   "spin +/-)"})
+                   "spin +/-), or pair one value control with "
+                   "its ToggleButton modifiers"})
 
 
 def _findings_h2(node, path, out):

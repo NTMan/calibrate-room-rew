@@ -117,28 +117,33 @@
              grouped and centered; the app name says nothing the
              icon does not -->
         <property name="title-widget">
-          <object class="GtkBox" id="device_box">
-            <property name="spacing">0</property>
+          <object class="GtkBox">
+            <property name="spacing">6</property>
             <property name="valign">center</property>
-            <style>
-              <class name="linked"/>
-            </style>
             <child>
-              <object class="GtkDropDown" id="device_dd">
-                <property name="tooltip-text" translatable="yes">Output device</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkToggleButton" id="follow_btn">
-                <property name="icon-name">view-pin-symbolic</property>
-                <property name="tooltip-text" translatable="yes">Follow the system default output</property>
-                <property name="active">true</property>
+              <object class="GtkBox" id="device_box">
+                <property name="spacing">0</property>
+                <property name="valign">center</property>
+                <style>
+                  <class name="linked"/>
+                </style>
+                <child>
+                  <object class="GtkDropDown" id="device_dd">
+                    <property name="tooltip-text" translatable="yes">Output device</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton" id="follow_btn">
+                    <property name="icon-name">view-pin-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Follow the system default output</property>
+                    <property name="active">true</property>
+                  </object>
+                </child>
               </object>
             </child>
             <child>
               <object class="GtkLabel" id="header_note">
                 <property name="visible">false</property>
-                <property name="margin-start">8</property>
                 <style>
                   <class name="error"/>
                   <class name="caption"/>

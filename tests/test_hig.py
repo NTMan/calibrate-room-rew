@@ -34,8 +34,32 @@ def test_h1_linked_holds_facets_of_one_control():
     assert _rules(hig.lint(mixed)) == ["H1"]
     lone = _box([_btn("Undo")], css=["linked"])
     assert _rules(hig.lint(lone)) == ["H1"]
-    pair = _box([_btn("Undo"), _btn("Redo")], css=["linked"])
+    pair = _box([_btn("Undo"), _btn("Redo")], css=["linked"],
+                spacing=0)
     assert hig.lint(pair) == []
+
+
+def test_h1_one_value_control_with_its_toggles_is_an_instrument():
+    spin = {"class": "GtkSpinButton", "props": {}, "children": []}
+    tog = {"class": "GtkToggleButton", "props": {}, "children": []}
+    inst = _box([spin, tog], css=["linked"], spacing=0)
+    assert hig.lint(inst) == []
+    dd = {"class": "GtkDropDown", "props": {}, "children": []}
+    picker = _box([dd, tog], css=["linked"], spacing=0)
+    assert hig.lint(picker) == []
+    lbl = {"class": "GtkLabel", "props": {}, "children": []}
+    trio = _box([dd, lbl, tog], css=["linked"], spacing=0)
+    assert _rules(hig.lint(trio)) == ["H1"]
+    action = _box([_btn("Apply"), tog], css=["linked"], spacing=0)
+    assert _rules(hig.lint(action)) == ["H1"]
+
+
+def test_h1_the_letter_a_linked_box_has_no_spacing():
+    spaced = _box([_btn("Undo"), _btn("Redo")], css=["linked"],
+                  spacing=6)
+    got = hig.lint(spaced)
+    assert _rules(got) == ["H1"]
+    assert "no spacing" in got[0]["msg"]
 
 
 def test_h2_action_row_anchors_to_an_edge():
