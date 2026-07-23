@@ -62,13 +62,17 @@ _SEALED = ("GtkSpinButton", "GtkDropDown", "GtkWindowControls",
 
 def _own_children(w, t):
     """The children the app placed. A MenuButton contributes
-    only its popover -- that content is ours, the internal
-    toggle is chrome the toolkit answers for."""
+    only its popover, an AlertDialog only its extra child --
+    that content is ours, the rest is assembled by the toolkit
+    from properties and is the toolkit's to answer for."""
     if t in _SEALED:
         return []
     if isinstance(w, Gtk.MenuButton):
         return [c for c in _kids(w)
                 if isinstance(c, Gtk.Popover)]
+    if isinstance(w, Adw.AlertDialog):
+        extra = w.get_extra_child()
+        return [extra] if extra is not None else []
     return list(_kids(w))
 
 
@@ -173,6 +177,15 @@ def _window_audit():
                 return False
 
             def grab():
+                # the third door first: the command dialog (the
+                # restart-WirePlumber window) mounts into this
+                # window's AdwDialogHost, so one snapshot holds
+                # the window and the dialog together
+                self.win._command_dialog(
+                    "System integration",
+                    "The hook is installed. Restart WirePlumber "
+                    "to load it.",
+                    "systemctl --user restart wireplumber")
                 out["result"] = audit_widget(self.win)
                 # the second door: the Measure window births on
                 # any node (born-gone), unpresented, unresolved

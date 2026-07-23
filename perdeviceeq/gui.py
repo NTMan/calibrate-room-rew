@@ -904,6 +904,7 @@ class EqWindow(Adw.ApplicationWindow):
         overlay.set_child(tv)
         dlg.set_child(overlay)
         dlg.present(self)
+        return dlg
 
     def _check_hook_protocol(self):
         """Once per launch, when the hook is installed: the
