@@ -57,7 +57,7 @@ _ALIGN = {Gtk.Align.FILL: "fill", Gtk.Align.START: "start",
 # its subtree to itself (a SpinButton's +/- chrome, a
 # DropDown's innards, the window controls, the back button).
 _SEALED = ("GtkSpinButton", "GtkDropDown", "GtkWindowControls",
-           "AdwBackButton")
+           "AdwSheetControls", "AdwBackButton")
 
 
 def _own_children(w, t):
