@@ -5,7 +5,12 @@
 -- per-device-eq.py never generates it. It is installed PER-USER, so no package
 -- manager owns or removes the installed copy: remove it with
 -- `per-device-eq.py --uninstall` (Flatpak: `flatpak run
--- io.github.ntman.PerDeviceEQ --uninstall`). It is the single writer of the in-node
+-- io.github.ntman.PerDeviceEQ --uninstall`). If the app itself is already
+-- gone (package removed first), remove this hook by hand:
+--   rm ~/.local/share/wireplumber/scripts/90-per-device-eq.lua
+--   rm ~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf
+--   systemctl --user restart wireplumber
+-- It is the single writer of the in-node
 -- EQ filter-graph on each sink, and the sole owner of the persisted state.
 --
 -- How it works:

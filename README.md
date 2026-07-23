@@ -66,6 +66,24 @@ session (restarting WirePlumber once); remove everything later with
 `per-device-eq --uninstall`. After that the EQ is restored automatically on
 every reboot and reconnect.
 
+### The hook outlives the package
+
+Removing the package (`dnf remove per-device-eq`,
+`flatpak uninstall io.github.ntman.PerDeviceEQ`) does NOT remove
+the per-user hook: an RPM must not touch user homes, and Flatpak
+has no uninstall scripts at all -- this is platform design, and
+it is the same for both. Remove the integration BEFORE removing
+the package (*Remove integration* in the main menu, or
+`--uninstall`). If the package is already gone, the hook keeps
+applying the last EQ; both installed files carry these removal
+instructions in their headers:
+
+```
+rm ~/.local/share/wireplumber/scripts/90-per-device-eq.lua
+rm ~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf
+systemctl --user restart wireplumber
+```
+
 ### Run from source
 
 ```
