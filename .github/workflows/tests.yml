@@ -72,3 +72,9 @@ jobs:
         run: |
           export PATH="$PWD/tests/shims:$PATH"
           xvfb-run -a python3 -m pytest -q
+      - name: HIG audit of the live window
+        # the mechanical floor over the real widget tree; any
+        # finding is red -- the ratchet the HIG pass stands on
+        run: |
+          export PATH="$PWD/tests/shims:$PATH"
+          xvfb-run -a python3 tools/hig_audit.py --window
