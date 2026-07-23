@@ -828,6 +828,26 @@ class EqWindow(Adw.ApplicationWindow):
             if accels:
                 app.set_accels_for_action("win." + name, accels)
 
+    _WP_RESTART_CMD = "systemctl --user restart wireplumber"
+
+    def _command_dialog(self, heading, body, command):
+        """An info dialog whose body names a shell command: a
+        suggested Copy-command response puts it on the clipboard
+        (field verdict: nobody should retype it), OK just
+        closes."""
+        info = Adw.AlertDialog(heading=heading, body=body)
+        info.add_response("copy", "Copy command")
+        info.add_response("ok", "OK")
+        info.set_response_appearance(
+            "copy", Adw.ResponseAppearance.SUGGESTED)
+        info.set_default_response("copy")
+
+        def done(_d, resp):
+            if resp == "copy":
+                self.get_clipboard().set(command)
+        info.connect("response", done)
+        info.present(self)
+
     def _refresh_integration_menu(self):
         """The portable build's integration item states the
         opposite of the CURRENT hook state. Refreshed at build
@@ -850,18 +870,20 @@ class EqWindow(Adw.ApplicationWindow):
         else:
             hint = ("To remove it later, run:\n"
                     "per-device-eq.py --uninstall")
-        body = hint
         if result.get("restarted") is False:
             where = (" on the host"
                      if os.environ.get("FLATPAK_ID") else "")
             body = ("The WirePlumber hook is installed but "
                     "the service was not restarted, so it is "
                     "not loaded yet. Run once%s:\n"
-                    "  systemctl --user restart wireplumber"
-                    "\n\n%s" % (where, body))
+                    "  %s\n\n%s"
+                    % (where, self._WP_RESTART_CMD, hint))
+            self._command_dialog("Integration installed", body,
+                                 self._WP_RESTART_CMD)
+            return
         info = Adw.AlertDialog(
             heading="Integration installed",
-            body=body)
+            body=hint)
         info.add_response("ok", "OK")
         info.present(self)
 
@@ -903,14 +925,15 @@ class EqWindow(Adw.ApplicationWindow):
                          if os.environ.get("FLATPAK_ID") else "")
                 body = ("The files are removed, but WirePlumber "
                         "still runs the loaded hook. Run "
-                        "once%s:\n"
-                        "  systemctl --user restart wireplumber"
-                        % where)
-            else:
-                body = ("The hook is gone; the EQ no longer "
-                        "applies.")
+                        "once%s:\n  %s"
+                        % (where, self._WP_RESTART_CMD))
+                self._command_dialog("Integration removed", body,
+                                     self._WP_RESTART_CMD)
+                return
             info = Adw.AlertDialog(
-                heading="Integration removed", body=body)
+                heading="Integration removed",
+                body="The hook is gone; the EQ no longer "
+                     "applies.")
             info.add_response("ok", "OK")
             info.present(self)
         ask.connect("response", done)
