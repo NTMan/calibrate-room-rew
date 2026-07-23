@@ -44,14 +44,15 @@ def _profile():
                 "takes": ["t1", "t2"], "edited": False},
         "measurement": {
             "grid": {"f_lo": 20.0, "f_hi": 20000.0, "ppo": 96},
-            "sessions": [{"id": "s1"}],
-            "takes": [{"id": "t1", "channel": "FL"},
-                      {"id": "t2", "channel": "FR"}],
-            "source": {"name": "E.A.R.S Gain 0dB",
-                       "cal": {"1": {"file": "R.txt",
-                                     "sha256": "af45a026" + "0" * 56},
-                               "2": {"file": "L.txt",
-                                     "sha256": "bc56b137" + "0" * 56}}}},
+            "sessions": {"s1": {
+                "source": {"name": "E.A.R.S Gain 0dB"}}},
+            "takes": [{"id": "t1", "channel": "FL", "session": "s1",
+                       "cal_sha": "af45a026" + "0" * 56},
+                      {"id": "t2", "channel": "FR", "session": "s1",
+                       "cal_sha": "bc56b137" + "0" * 56}],
+            "cal_library": {
+                "af45a026" + "0" * 56: {"file": "R.txt"},
+                "bc56b137" + "0" * 56: {"file": "L.txt"}}},
         # runtime keys the packer must strip
         "builtin": False, "path": "/tmp/somewhere.json",
     }

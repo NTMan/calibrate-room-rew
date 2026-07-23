@@ -169,16 +169,19 @@ def package_report(profile, sha):
                             grid.get("f_hi", 0.0),
                             grid.get("ppo", "?"),
                             len(meas.get("takes") or [])))
-        src = meas.get("source") or {}
-        if src.get("name"):
-            rig = "Rig: %s" % src["name"]
-            cal = src.get("cal") or {}
-            shas = sorted(str((c or {}).get("sha256", ""))[:8]
-                          for c in cal.values() if c)
-            shas = [s for s in shas if s]
-            if shas:
-                rig += " (cal %s)" % ", ".join(shas)
-            lines.append(rig)
+        sessions = meas.get("sessions") or {}
+        rigs = []
+        for s in (sessions.values()
+                  if isinstance(sessions, dict) else sessions):
+            nm = ((s or {}).get("source") or {}).get("name")
+            if nm and nm not in rigs:
+                rigs.append(nm)
+        if rigs:
+            lines.append("Rig: %s" % ", ".join(rigs))
+        lib = meas.get("cal_library") or {}
+        shas = sorted(str(k)[:8] for k in lib if k)
+        if shas:
+            lines.append("Calibrations: %s" % ", ".join(shas))
     elif not profile.get("measurement"):
         lines.append("No measurement canvas travelled with "
                      "this profile -- bands only.")
