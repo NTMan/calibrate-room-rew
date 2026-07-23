@@ -57,7 +57,10 @@ _ALIGN = {Gtk.Align.FILL: "fill", Gtk.Align.START: "start",
 # its subtree to itself (a SpinButton's +/- chrome, a
 # DropDown's innards, the window controls, the back button).
 _SEALED = ("GtkSpinButton", "GtkDropDown", "GtkWindowControls",
-           "AdwSheetControls", "AdwBackButton")
+           "AdwSheetControls", "AdwBackButton",
+           # assembled from properties end to end, nothing in it
+           # is placed by the app
+           "AdwAboutDialog")
 
 
 def _own_children(w, t):
@@ -186,6 +189,22 @@ def _window_audit():
                     "The hook is installed. Restart WirePlumber "
                     "to load it.",
                     "systemctl --user restart wireplumber")
+                # the fourth door: About (sealed type -- the
+                # walk proves it builds and mounts)
+                self.win._on_about()
+                # the fifth: the export wizard, targets page
+                # plus EVERY target's preview page pushed --
+                # NavigationView keeps the whole stack in the
+                # tree, one snapshot judges them all; on the
+                # audit's empty body the statuses speak their
+                # honest refusals, which are UI states too
+                from perdeviceeq.export_wizard import (
+                    ExportDialog)
+                from perdeviceeq import export_peq as xp
+                xdlg = ExportDialog(self.win)
+                xdlg.present(self.win)
+                for t in xp.load_targets():
+                    xdlg._on_target(None, t)
                 out["result"] = audit_widget(self.win)
                 # the second door: the Measure window births on
                 # any node (born-gone), unpresented, unresolved
