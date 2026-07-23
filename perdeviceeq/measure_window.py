@@ -1516,6 +1516,15 @@ class MeasureWindow(Adw.Window):
                 if path:
                     self.cal[i] = path
         self._rebuild_cal_row()
+        # the rig is row context: take passports compare against
+        # the SELECTED mic, so a rig switch rebuilds the rows.
+        # Field-caught with the liberty profile: opened native
+        # (E.A.R.S), switched to the Umik in place -- the rows
+        # kept their open-time _rig_group=None and no header
+        # appeared, while the tooltip (built unconditionally)
+        # kept telling the truth. The data was clean; the rows
+        # were stale.
+        self._rebuild_page()
         self._rebuild_map_slots()
         self._sync_cal_labels()
         self._persist_mic()
