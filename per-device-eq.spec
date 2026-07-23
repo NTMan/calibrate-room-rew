@@ -92,6 +92,21 @@ import perdeviceeq.config, perdeviceeq.eq, perdeviceeq.profiles, \
 perdeviceeq.pipewire, perdeviceeq.integration, perdeviceeq.cli, \
 perdeviceeq.measure_prefs"
 
+# On full removal (not upgrade), tell the user what the package
+# cannot do for them: the per-user integration, if installed, is
+# outside any package's reach. Knowledge at the moment it is
+# needed most; printing is all a scriptlet may do here.
+%preun
+if [ "$1" -eq 0 ]; then
+    cat << 'MSG'
+per-device-eq: the per-user WirePlumber integration (if you
+installed it) is NOT removed with the package. To remove it:
+  rm ~/.local/share/wireplumber/scripts/90-per-device-eq.lua
+  rm ~/.config/wireplumber/wireplumber.conf.d/90-per-device-eq.conf
+  systemctl --user restart wireplumber
+MSG
+fi
+
 %files
 %license LICENSE
 %doc README.md README.ru.md
