@@ -15,9 +15,12 @@ Headless CI has no session; there, and only there, wrap it:
 
 --peq-view audits the band card (PeqView) standalone -- the
 surface that minted rules H2 and H3 in the field. --window
-builds the REAL main window inside an application cycle and
-audits the whole tree, header to band card; it needs a PipeWire
-to talk to -- the live one on a workstation, or the shims:
+builds the REAL windows inside an application cycle and audits
+both trees: the main window header to band card, then the
+Measure window opened through the same door the Edit button
+uses (born-gone design means it needs no live sink); it needs
+a PipeWire to talk to -- the live one on a workstation, or the
+shims:
 
     PATH="$PWD/tests/shims:$PATH" \
         xvfb-run -a python3 tools/hig_audit.py --window
@@ -156,13 +159,26 @@ def _window_audit():
     from perdeviceeq import gui as G
     out = {}
 
+    from perdeviceeq.measure_window import MeasureWindow
+
     class AuditApp(G.EqApplication):
         def do_activate(self):
             self.win = G.EqWindow(self)
 
+            def grab_measure():
+                f2, l2 = audit_widget(self.mwin)
+                f1, l1 = out["result"]
+                out["result"] = (f1 + f2, l1 + l2)
+                self.quit()
+                return False
+
             def grab():
                 out["result"] = audit_widget(self.win)
-                self.quit()
+                # the second door: the Measure window births on
+                # any node (born-gone), unpresented, unresolved
+                node = getattr(self.win, "node", "") or "audit"
+                self.mwin = MeasureWindow(self.win, node, node)
+                GLib.idle_add(grab_measure)
                 return False
             GLib.idle_add(grab)
 
