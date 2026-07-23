@@ -7,7 +7,23 @@ name: Flatpak
 on:
   push:
     branches: [main]
+    # docs, tests and repo tools never enter the bundle; the
+    # referee sits those commits out
+    paths-ignore:
+      - "**.md"
+      - "tests/**"
+      - "tools/**"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "tests/**"
+      - "tools/**"
+  workflow_dispatch:
+
+# rapid pushes: the newest run supersedes the older one
+concurrency:
+  group: flatpak-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   flatpak:
