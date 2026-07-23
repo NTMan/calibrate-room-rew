@@ -831,21 +831,28 @@ class EqWindow(Adw.ApplicationWindow):
     _WP_RESTART_CMD = "systemctl --user restart wireplumber"
 
     def _command_dialog(self, heading, body, command):
-        """An info dialog whose body names a shell command: a
-        suggested Copy-command response puts it on the clipboard
-        (field verdict: nobody should retype it), OK just
-        closes."""
+        """An info dialog carrying the command as a clickable
+        chip -- the About dialog's version pattern (field
+        verdict): one click copies it and says so in place, the
+        dialog stays, OK closes."""
         info = Adw.AlertDialog(heading=heading, body=body)
-        info.add_response("copy", "Copy command")
-        info.add_response("ok", "OK")
-        info.set_response_appearance(
-            "copy", Adw.ResponseAppearance.SUGGESTED)
-        info.set_default_response("copy")
+        chip = Gtk.Button(label=command)
+        chip.add_css_class("pill")
+        chip.add_css_class("monospace")
+        chip.set_halign(Gtk.Align.CENTER)
+        chip.set_tooltip_text("Copy to clipboard")
 
-        def done(_d, resp):
-            if resp == "copy":
-                self.get_clipboard().set(command)
-        info.connect("response", done)
+        def copied(_b):
+            self.get_clipboard().set(command)
+            chip.set_label("Copied to clipboard")
+
+            def back():
+                chip.set_label(command)
+                return False
+            GLib.timeout_add(1500, back)
+        chip.connect("clicked", copied)
+        info.set_extra_child(chip)
+        info.add_response("ok", "OK")
         info.present(self)
 
     def _refresh_integration_menu(self):
@@ -875,9 +882,8 @@ class EqWindow(Adw.ApplicationWindow):
                      if os.environ.get("FLATPAK_ID") else "")
             body = ("The WirePlumber hook is installed but "
                     "the service was not restarted, so it is "
-                    "not loaded yet. Run once%s:\n"
-                    "  %s\n\n%s"
-                    % (where, self._WP_RESTART_CMD, hint))
+                    "not loaded yet -- run the command below "
+                    "once%s.\n\n%s" % (where, hint))
             self._command_dialog("Integration installed", body,
                                  self._WP_RESTART_CMD)
             return
@@ -924,9 +930,8 @@ class EqWindow(Adw.ApplicationWindow):
                 where = (" on the host"
                          if os.environ.get("FLATPAK_ID") else "")
                 body = ("The files are removed, but WirePlumber "
-                        "still runs the loaded hook. Run "
-                        "once%s:\n  %s"
-                        % (where, self._WP_RESTART_CMD))
+                        "still runs the loaded hook until the "
+                        "command below runs once%s." % where)
                 self._command_dialog("Integration removed", body,
                                      self._WP_RESTART_CMD)
                 return
