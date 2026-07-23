@@ -175,7 +175,50 @@ structured container; H4 an icon-only button describes itself;
 H5 spacing sits on the 6px grid; H6 dialog buttons name the
 action. H1-H3 are the .pdeq sprint's earned rules; H4-H6 are the
 HIG's own letter. Run: `xvfb-run -a python3 tools/hig_audit.py
---peq-view`.
+--peq-view` for the band card alone, `--window` for the whole
+house: both windows in both channel costumes, the command
+dialog, About, the export wizard with every preview, the cal
+history.
+
+## The manual half
+
+The half the floor cannot read. Each line carries its evidence
+or names its sitting; settled sittings get minted above, the
+same way rounds do.
+
+- [x] Spacing and margins -- enforced house-wide by H5 under
+  the CI ratchet (Tests lane, step seven).
+- [x] Symbolic icons only -- the registry greps clean: every
+  icon name in perdeviceeq/ and data/ ends in -symbolic (two
+  multiline call sites verified by eye: pan-down, go-next).
+- [x] Responses name the action -- the inventory: Cancel,
+  Delete, Play sweep, Import, Not now, Quit, Install, Re-fit,
+  Move, Remove, Update/Reinstall integration. One word is OPEN
+  below.
+- [x] Dialog against popover -- pickers ride popovers,
+  confirmations ride alerts, focused surfaces (command, cal
+  history, export) ride Adw.Dialog; the transient/focused
+  split of the HIG.
+- [x] Esc and defaults -- every alert sets a close response
+  and a default; Adw.Dialog closes on Esc by stock.
+- [x] About -- version pinned by test_version_sync, links
+  follow the renamed repository, GPL-3.0, icon by app id.
+- [ ] OPEN, one word: error acknowledgments answer "OK"; the
+  HIG's letter for purely informational alerts is "Close".
+  The architect's taste call.
+- [ ] OPEN, one patch: accessible names for the drawing areas
+  -- meters, take curves, the canvas, the residue plot say
+  nothing to a screen reader today.
+- [ ] OPEN, one sweep: width appetites -- data-fed labels must
+  yield (the take-row info line learned it in the field); the
+  floor cannot read geometry, so the sweep is by hand.
+- [ ] OPEN, one walk: focus order, keyboard-only, both
+  windows; the floor cannot press Tab.
+- [ ] OPEN, one read: every label and subtitle against the
+  HIG's sentence-case and terminology letter.
+- [ ] Documented gap: take rows with live takes -- the audit
+  session is empty by design; their builder already walks the
+  grid.
 
 ## Process
 
