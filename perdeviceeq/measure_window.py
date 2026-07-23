@@ -17,6 +17,7 @@ back with GLib.idle_add, the same pattern meter.py uses for capture.
 """
 import math
 import os
+import re
 import threading
 
 import numpy as np
@@ -130,6 +131,13 @@ def _ensure_css():
         Gtk.StyleContext.add_provider_for_display(
             disp, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     _CSS_INSTALLED = True
+
+
+def _node_identity(node):
+    """A rig's node identity past the usb enumeration tail:
+    alsa_input.usb-X_00002-00.analog-stereo and _00003-00 are
+    the same instrument replugged."""
+    return re.sub(r"_\d+-\d+(?=\.)", "", node or "")
 
 
 class MeasureWindow(Adw.Window):
@@ -649,13 +657,25 @@ class MeasureWindow(Adw.Window):
         stamp = (((m.get("sessions") or {})
                   .get(take.get("session")) or {})
                  .get("source") or {})
+        # Identity law (field-diagnosed on the liberty
+        # profile): the NODE decides, normalized past its usb
+        # instance tail, so a replugged rig stays itself; the
+        # serial speaks only to tell twins apart. Serials copy
+        # through the mic store and serial_from_cal, and a
+        # store entry saved with a foreign cal in the slots
+        # carried the E.A.R.S serial into the Umik -- serial
+        # equality must never veto what the nodes say.
         s = stamp.get("serial") or ""
         cur = (self._source_info() or {}).get("serial") or ""
-        if s and cur:
-            foreign = s != cur
+        same_node = (_node_identity(stamp.get("node_match"))
+                     == _node_identity(
+                         self.mic_picker.core.node))
+        if not same_node:
+            foreign = True
+        elif s and cur and s != cur:
+            foreign = True          # twin models, one node name
         else:
-            foreign = ((stamp.get("node_match") or "")
-                       != (self.mic_picker.core.node or ""))
+            foreign = False
         name = stamp.get("name") or stamp.get("node_match")
         parts = []
         if name:
