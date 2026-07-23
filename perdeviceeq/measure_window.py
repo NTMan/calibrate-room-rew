@@ -313,7 +313,7 @@ class MeasureWindow(Adw.Window):
         b.get_object("channel_host").append(self._build_page())
         fa = self._build_fit_area()
         for side in ("start", "end", "bottom"):
-            getattr(fa, "set_margin_" + side)(10)
+            getattr(fa, "set_margin_" + side)(12)
         fa.set_margin_top(6)
         # always in sight: the range lives on the card, below
         # the fold -- only the take rows tuck away
@@ -463,9 +463,9 @@ class MeasureWindow(Adw.Window):
         face = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                        spacing=6)
         for side in ("top", "bottom", "start", "end"):
-            getattr(face, "set_margin_" + side)(8)
+            getattr(face, "set_margin_" + side)(12)
         trow = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
-                       spacing=8)
+                       spacing=6)
         title = Gtk.Label(xalign=0.0)
         title.add_css_class("heading")
         trow.append(title)
@@ -620,7 +620,7 @@ class MeasureWindow(Adw.Window):
     def _make_take_row(self, ch, rec, lo, hi, driver=None,
                        mean=None, shift=0.0):
         q = ms.take_quality(rec)
-        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         body.set_margin_top(6)
         body.set_margin_bottom(6)
         body.set_margin_start(12)
@@ -691,7 +691,7 @@ class MeasureWindow(Adw.Window):
         return row
 
     def _build_fit_area(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         lbl = Gtk.Label(xalign=0.0)
         lbl.set_markup("<b>EQ range</b>  <span size='small'>red bars "
                        "are the take-to-take spread; the handles "
@@ -710,7 +710,7 @@ class MeasureWindow(Adw.Window):
         drag.connect("drag-update", self._range_drag_update)
         self.range_area.add_controller(drag)
         box.append(self.range_area)
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.range_label = Gtk.Label(xalign=0.0)
         self.range_label.add_css_class("dim-label")
         self.range_label.set_hexpand(True)
@@ -1549,7 +1549,7 @@ class MeasureWindow(Adw.Window):
             for k, slot in ((0, self.map_left_slot),
                             (1, self.map_right_slot)):
                 col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
-                              spacing=2)
+                              spacing=3)
                 dd = Gtk.DropDown.new_from_strings(["L", "R"])
                 dd.set_selected(self.mic_of.get(k, k))
                 dd.set_tooltip_text("Which mic capsule captures %s"
