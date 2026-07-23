@@ -344,6 +344,10 @@ class MeasureWindow(Adw.Window):
         self.ring.set_size_request(RING, RING)
         self.ring.set_halign(Gtk.Align.CENTER)
         disc = Gtk.DrawingArea()
+        disc.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            ["Speaker ring: measured channels around the "
+             "listening position"])
         disc.set_content_width(RING)
         disc.set_content_height(RING)
         disc.set_draw_func(self._draw_disc)
@@ -449,6 +453,9 @@ class MeasureWindow(Adw.Window):
     def _build_page(self):
         col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         summary = Gtk.DrawingArea()
+        summary.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            ["Measured responses of every channel, overlaid"])
         summary.set_content_height(120)
         summary.set_visible(False)
         summary.set_hexpand(True)
@@ -677,6 +684,9 @@ class MeasureWindow(Adw.Window):
         body.append(head)
 
         curve = Gtk.DrawingArea()
+        curve.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            ["Frequency response of this take"])
         curve.set_content_width(150)
         curve.set_content_height(60)
         curve.set_draw_func(
@@ -702,6 +712,9 @@ class MeasureWindow(Adw.Window):
         lbl.set_wrap(True)
         box.append(lbl)
         self.range_area = Gtk.DrawingArea()
+        self.range_area.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            ["EQ range over the take-to-take spread"])
         self.range_area.set_content_height(90)
         self.range_area.set_hexpand(True)
         self.range_area.set_draw_func(self._draw_range)

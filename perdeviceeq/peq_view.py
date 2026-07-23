@@ -84,6 +84,9 @@ class PeqView(Gtk.Box):
         self._active = True
 
         self.graph = Gtk.DrawingArea()
+        self.graph.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            ["EQ curve: band responses and their sum"])
         self.graph.set_content_height(150 if compact else 220)
         self.graph.set_hexpand(True)
         self.graph.set_draw_func(self._draw)
@@ -428,6 +431,9 @@ class PeqView(Gtk.Box):
     def _attach_band(self, i, b):
         row = i + 1
         dot = Gtk.DrawingArea()
+        dot.update_property(
+            [Gtk.AccessibleProperty.LABEL],
+            ["Band color"])
         dot.set_content_width(12)
         dot.set_content_height(12)
         dot.set_valign(Gtk.Align.CENTER)

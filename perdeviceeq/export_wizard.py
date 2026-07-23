@@ -377,6 +377,10 @@ class ExportDialog(Adw.Dialog):
         box.append(st["status"])
         if target["writer"] == "fixed":
             area = Gtk.DrawingArea(content_height=170)
+            area.update_property(
+                [Gtk.AccessibleProperty.LABEL],
+                ["Residual error of the fixed-band bake "
+                 "against the in-app chain"])
             area.set_draw_func(self._draw_resid, st)
             st["resid"] = area
             box.append(area)

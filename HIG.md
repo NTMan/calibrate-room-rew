@@ -208,9 +208,11 @@ same way rounds do.
   matches the stock close-response so Esc lands on it, and
   Enter does too (a default on all twelve sites; ten had
   none before this sitting).
-- [ ] OPEN, one patch: accessible names for the drawing areas
-  -- meters, take curves, the canvas, the residue plot say
-  nothing to a screen reader today.
+- [x] The drawings introduce themselves -- every DrawingArea
+  in the tree carries an accessible label: per-channel output
+  meters, the speaker ring, the overlaid responses, take
+  curves, the EQ range, the EQ curve, band color dots, the
+  export residual.
 - [ ] OPEN, one sweep: width appetites -- data-fed labels must
   yield (the take-row info line learned it in the field); the
   floor cannot read geometry, so the sweep is by hand.

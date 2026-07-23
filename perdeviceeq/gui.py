@@ -1308,6 +1308,9 @@ class EqWindow(Adw.ApplicationWindow):
             lbl.add_css_class("caption")
             self.meters_grid.attach(lbl, 0, i, 1, 1)
             area = Gtk.DrawingArea()
+            area.update_property(
+                [Gtk.AccessibleProperty.LABEL],
+                ["Output level, %s" % k])
             area.set_hexpand(True)
             area.set_content_height(12)
             area.set_valign(Gtk.Align.CENTER)
