@@ -61,8 +61,11 @@ jobs:
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release upload
-          "${{ github.event.release.tag_name }}"
-          per-device-eq-${{ matrix.variant.arch }}.flatpak
-          --clobber
+        # the container checkout belongs to another uid; git calls
+        # it dubious, and gh calls git to guess the repository --
+        # so bless the directory and stop the guessing with -R
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release upload -R "${{ github.repository }}" \
+            "${{ github.event.release.tag_name }}" \
+            per-device-eq-${{ matrix.variant.arch }}.flatpak --clobber
