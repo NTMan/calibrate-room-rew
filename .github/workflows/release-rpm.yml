@@ -1,0 +1,99 @@
+# On a published release, wait for the COPR build of the same
+# version (packit submits it on the very same release event),
+# then attach the built RPMs to the release page -- delivery of
+# what COPR built, never a second build. Field verdict: "вдруг
+# кто-то захочет rpm-ку просто качать".
+#
+# No checkout in this job on purpose: nothing here needs the
+# tree, and gh with -R works from an empty directory -- the
+# dubious-ownership class of failure cannot exist without a
+# repository on disk.
+name: RPM to release
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rpm-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  attach:
+    name: Attach COPR RPMs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Wait for the COPR build and fetch its RPMs
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys, time, urllib.request
+
+          OWNER = PROJECT = PKG = "per-device-eq"
+          OWNER = "mikhail"
+          version = os.environ["TAG"].lstrip("v")
+
+          def get(url, raw=False):
+              req = urllib.request.Request(
+                  url, headers={"User-Agent": "pde-release"})
+              d = urllib.request.urlopen(req, timeout=60).read()
+              return d if raw else json.loads(d)
+
+          def matching_build():
+              builds = get(
+                  "https://copr.fedorainfracloud.org/api_3/build/list/"
+                  "?ownername=%s&projectname=%s&limit=10"
+                  % (OWNER, PROJECT))
+              for b in builds.get("items", []):
+                  ver = (b.get("source_package") or {}).get("version") or ""
+                  if ver.split("-")[0] == version:
+                      return b
+              return None
+
+          deadline = time.time() + 50 * 60
+          build = None
+          while time.time() < deadline:
+              build = matching_build()
+              if build and build["state"] in ("succeeded", "failed",
+                                              "canceled"):
+                  break
+              print("waiting for COPR build of", version,
+                    "state:", build and build["state"], flush=True)
+              time.sleep(60)
+          if not build:
+              sys.exit("no COPR build for %s appeared in time" % version)
+          if build["state"] != "succeeded":
+              sys.exit("COPR build %s ended as %s"
+                       % (build["id"], build["state"]))
+
+          ch = get("https://copr.fedorainfracloud.org/api_3/"
+                   "build-chroot/list/%s" % build["id"])
+          stable = sorted(
+              (c for c in ch["items"]
+               if c["state"] == "succeeded"
+               and re.fullmatch(r"fedora-\d+-x86_64", c["name"])),
+              key=lambda c: int(c["name"].split("-")[1]))
+          if not stable:
+              sys.exit("no succeeded stable-Fedora chroot in %s"
+                       % build["id"])
+          c = stable[-1]
+          dist = ".fc" + c["name"].split("-")[1]
+          relver = build["source_package"]["version"]
+          names = ["%s-%s%s.noarch.rpm" % (PKG, relver, dist),
+                   "%s-%s%s.src.rpm" % (PKG, relver, dist)]
+          for n in names:
+              url = c["result_url"] + n
+              print("fetch", url, flush=True)
+              open(n, "wb").write(get(url, raw=True))
+          print("fetched:", *names)
+          PY
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release upload -R "${{ github.repository }}"
+          "${{ github.event.release.tag_name }}" *.rpm --clobber
