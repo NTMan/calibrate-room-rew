@@ -227,9 +227,14 @@ same way rounds do.
   meters, the speaker ring, the overlaid responses, take
   curves, the EQ range, the EQ curve, band color dots, the
   export residual.
-- [ ] OPEN, one sweep: width appetites -- data-fed labels must
-  yield (the take-row info line learned it in the field); the
-  floor cannot read geometry, so the sweep is by hand.
+- [x] Width appetites, the sweep's verdict: data-fed labels
+  yield (take-row metrics ellipsize, tooltips carry the full
+  passport), the CLAMP owns content width so a wider window
+  rightly changes nothing -- and the repeated foreign-rig mark
+  left the rows entirely: rows sharing one rig share ONE
+  full-width ListBox section header, the palette's word for
+  several rows under one dictionary value; the native rig
+  stays headerless.
 - [x] Focus order, from the field walk, all three verdicts:
   the ring's Tab speaks the pult grammar (speakers, capsule
   map, transport -- groups survive surround); the auto-level

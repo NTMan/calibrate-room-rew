@@ -549,6 +549,7 @@ class MeasureWindow(Adw.Window):
             Gtk.RevealerTransitionType.SLIDE_DOWN)
         rev.set_transition_duration(200)
         rev.set_reveal_child(True)
+        lb.set_header_func(self._take_header)
         rev.set_child(lb)
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         card.add_css_class("card")
@@ -623,11 +624,15 @@ class MeasureWindow(Adw.Window):
     def _take_passport(self, ch, rec):
         """The take's provenance off its canvas passport (schema
         v4: the session's rig stamp, the take's own cal). Returns
-        (mark, tooltip): a SHORT rig mark for the row ONLY when
-        the take's rig differs from the current one -- a one-rig
-        canvas stays clean, and a mark per row cannot degrade
-        into the "Measured with A, B, C" enumeration -- plus the
-        full passport for the tooltip, degrading gracefully:
+        (group, tooltip): group is (key, label) for a take
+        whose rig differs from the current one, None otherwise.
+        The label is the FULL rig name for a ListBox section
+        header -- the architect's palette verdict: a truncated
+        mark repeated on every row is the smell, several rows
+        under one dictionary value get ONE full-width title,
+        and the native rig stays headerless (unmarked is the
+        home team). The tooltip keeps the take's own passport,
+        degrading gracefully:
         name falls back to the node, the serial appears when
         known, the cal names its file and sha, raw says raw. The
         serial-else-node comparison is informational; nothing is
@@ -666,11 +671,33 @@ class MeasureWindow(Adw.Window):
         else:
             parts.append("raw capture")
         tip = " \u00b7 ".join(parts) if parts else None
-        mark = None
+        group = None
         if foreign and name:
-            mark = (name if len(name) <= 24
-                    else name[:23] + "\u2026")
-        return mark, tip
+            group = (s or stamp.get("node_match") or name,
+                     head)
+        return group, tip
+
+    def _take_header(self, row, before):
+        """One rig, one header: rows sharing a foreign rig get
+        a single full-width section title instead of a
+        truncated per-row mark. The clamp owns content width,
+        so the header may wrap; the native rig gets no header
+        at all."""
+        group = getattr(row, "_rig_group", None)
+        prev = (getattr(before, "_rig_group", None)
+                if before is not None else None)
+        if group and group != prev:
+            lbl = Gtk.Label(label=group[1], xalign=0.0,
+                            wrap=True)
+            lbl.add_css_class("caption")
+            lbl.add_css_class("dim-label")
+            lbl.set_margin_start(12)
+            lbl.set_margin_end(12)
+            lbl.set_margin_top(6)
+            lbl.set_margin_bottom(3)
+            row.set_header(lbl)
+        else:
+            row.set_header(None)
 
     def _make_take_row(self, ch, rec, lo, hi, driver=None,
                        mean=None, shift=0.0):
@@ -700,9 +727,7 @@ class MeasureWindow(Adw.Window):
         drives = driver is not None and driver[0] == rec.id
         if drives:
             info += "  ·  spread driver"
-        mark, passport = self._take_passport(ch, rec)
-        if mark:
-            info += "  \u00b7  %s" % mark
+        group, passport = self._take_passport(ch, rec)
         lbl = Gtk.Label(label=info, xalign=0.0, hexpand=True)
         # the info line must never dictate the window's width:
         # with a foreign-rig mark appended, its natural width
@@ -746,6 +771,7 @@ class MeasureWindow(Adw.Window):
         row = Gtk.ListBoxRow()
         row.set_activatable(False)
         row.set_child(body)
+        row._rig_group = group
         return row
 
     def _build_fit_area(self):
