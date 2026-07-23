@@ -391,7 +391,7 @@ class ExportDialog(Adw.Dialog):
         sw.add_css_class("card")
         sw.set_child(view)
         box.append(sw)
-        btns = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        btns = Gtk.Box(spacing=6, halign=Gtk.Align.END)
         copy_btn = Gtk.Button(label="Copy")
         copy_btn.connect("clicked", lambda *_: self._copy(st))
         save_btn = Gtk.Button(label="Save\u2026")
