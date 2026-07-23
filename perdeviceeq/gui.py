@@ -309,14 +309,14 @@ class EqWindow(Adw.ApplicationWindow):
         menu = Gio.Menu()
         menu.append("Export EQ\u2026", "win.export-eq")
         menu.append("About Per-Device EQ", "win.about")
-        if os.environ.get("FLATPAK_ID"):
-            # The portable build gets the integration switch in
-            # the menu: `flatpak run ... --install` is nobody's
-            # muscle memory. One item, labeled by the CURRENT
-            # hook state, acting as a trigger.
-            self._integ_menu = Gio.Menu()
-            menu.append_section(None, self._integ_menu)
-            self._refresh_integration_menu()
+        # Every incarnation gets the integration switch (field
+        # verdict v2): on a host run the restart just happens,
+        # no questions asked; in a sandbox the dialog narrates
+        # the one command. One item, labeled by the CURRENT hook
+        # state, acting as a trigger.
+        self._integ_menu = Gio.Menu()
+        menu.append_section(None, self._integ_menu)
+        self._refresh_integration_menu()
         self.menu_btn = Gtk.MenuButton(icon_name="open-menu-symbolic")
         self.menu_btn.set_tooltip_text("Main menu")
         self.menu_btn.set_menu_model(menu)
@@ -831,11 +831,31 @@ class EqWindow(Adw.ApplicationWindow):
     _WP_RESTART_CMD = "systemctl --user restart wireplumber"
 
     def _command_dialog(self, heading, body, command):
-        """An info dialog carrying the command as a clickable
-        chip -- the About dialog's version pattern (field
-        verdict): one click copies it and says so in place, the
-        dialog stays, OK closes."""
-        info = Adw.AlertDialog(heading=heading, body=body)
+        """The command dialog, built the way About is built
+        inside (field verdict: the toast must come from the same
+        shelf): Adw.Dialog + ToastOverlay, a header bar whose
+        close button is the only chrome, the command as a pill
+        chip, and a REAL Adw.Toast rising from the bottom on
+        copy. AlertDialog offers no room for an overlay, so this
+        one dialog composes the stock parts by hand."""
+        dlg = Adw.Dialog()
+        dlg.set_title(heading)
+        dlg.set_content_width(420)
+        overlay = Adw.ToastOverlay()
+        tv = Adw.ToolbarView()
+        hb = Adw.HeaderBar()
+        hb.set_show_title(False)
+        tv.add_top_bar(hb)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                      spacing=12)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        box.set_margin_bottom(24)
+        head = Gtk.Label(label=heading, wrap=True,
+                         justify=Gtk.Justification.CENTER)
+        head.add_css_class("title-2")
+        text = Gtk.Label(label=body, wrap=True,
+                         justify=Gtk.Justification.CENTER)
         chip = Gtk.Button(label=command)
         chip.add_css_class("pill")
         chip.add_css_class("monospace")
@@ -844,22 +864,21 @@ class EqWindow(Adw.ApplicationWindow):
 
         def copied(_b):
             self.get_clipboard().set(command)
-            chip.set_label("Copied to clipboard")
-
-            def back():
-                chip.set_label(command)
-                return False
-            GLib.timeout_add(1500, back)
+            overlay.add_toast(Adw.Toast.new("Copied to clipboard"))
         chip.connect("clicked", copied)
-        info.set_extra_child(chip)
-        info.add_response("ok", "OK")
-        info.present(self)
+        box.append(head)
+        box.append(text)
+        box.append(chip)
+        tv.set_content(box)
+        overlay.set_child(tv)
+        dlg.set_child(overlay)
+        dlg.present(self)
 
     def _refresh_integration_menu(self):
-        """The portable build's integration item states the
-        opposite of the CURRENT hook state. Refreshed at build
-        and after each trigger; an external change (CLI in a
-        parallel shell) is picked up on the next toggle."""
+        """The integration item states the opposite of the
+        CURRENT hook state. Refreshed at build and after each
+        trigger; an external change (CLI in a parallel shell)
+        is picked up on the next toggle."""
         m = getattr(self, "_integ_menu", None)
         if m is None:
             return
@@ -870,13 +889,9 @@ class EqWindow(Adw.ApplicationWindow):
 
     def _show_install_result(self, result):
         """One narration for both install faces: the first-run
-        dialog and the portable menu trigger."""
-        if os.environ.get("FLATPAK_ID"):
-            hint = ("To remove it later, use Remove integration "
-                    "in the main menu.")
-        else:
-            hint = ("To remove it later, run:\n"
-                    "per-device-eq.py --uninstall")
+        dialog and the menu trigger."""
+        hint = ("To remove it later, use Remove integration "
+                "in the main menu.")
         if result.get("restarted") is False:
             where = (" on the host"
                      if os.environ.get("FLATPAK_ID") else "")
@@ -894,8 +909,8 @@ class EqWindow(Adw.ApplicationWindow):
         info.present(self)
 
     def _on_integration(self):
-        """The menu trigger (portable builds): install or remove
-        by the CURRENT hook state."""
+        """The menu trigger: install or remove by the CURRENT
+        hook state."""
         if not integration.hook_installed():
             try:
                 result = integration.install_full()
