@@ -49,6 +49,25 @@ _BARS = ("GtkHeaderBar", "AdwHeaderBar", "GtkActionBar",
 _ALIGN = {Gtk.Align.FILL: "fill", Gtk.Align.START: "start",
           Gtk.Align.CENTER: "center", Gtk.Align.END: "end"}
 
+# Children the toolkit assembles are not the app's to answer
+# for: the floor judges what WE placed. A sealed widget keeps
+# its subtree to itself (a SpinButton's +/- chrome, a
+# DropDown's innards, the window controls, the back button).
+_SEALED = ("GtkSpinButton", "GtkDropDown", "GtkWindowControls",
+           "AdwBackButton")
+
+
+def _own_children(w, t):
+    """The children the app placed. A MenuButton contributes
+    only its popover -- that content is ours, the internal
+    toggle is chrome the toolkit answers for."""
+    if t in _SEALED:
+        return []
+    if isinstance(w, Gtk.MenuButton):
+        return [c for c in _kids(w)
+                if isinstance(c, Gtk.Popover)]
+    return list(_kids(w))
+
 
 def _gtype(w):
     try:
@@ -105,8 +124,15 @@ def describe(w, in_bar=False):
         label, icon_only = _button_face(w)
         props["label"] = label
         props["icon_only"] = icon_only
+    elif isinstance(w, Gtk.MenuButton):
+        # not a Gtk.Button subclass, but H4 judges it by face:
+        # an icon-only menu opener needs a tooltip too
+        label = w.get_label()
+        props["label"] = label
+        props["icon_only"] = bool(w.get_icon_name()) and not label
     return {"class": t, "props": props,
-            "children": [describe(c, in_bar) for c in _kids(w)]}
+            "children": [describe(c, in_bar)
+                         for c in _own_children(w, t)]}
 
 
 def audit_widget(root):
