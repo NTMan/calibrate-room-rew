@@ -2155,8 +2155,8 @@ class MeasureWindow(Adw.Window):
 
     def _error(self, text):
         dlg = Adw.AlertDialog(heading="Measurement", body=text)
-        dlg.add_response("ok", "OK")
-        dlg.set_default_response("ok")
+        dlg.add_response("close", "Close")
+        dlg.set_default_response("close")
         dlg.present(self)
 
     def _on_parent_close(self, *_):

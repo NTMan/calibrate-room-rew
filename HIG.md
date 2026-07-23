@@ -203,9 +203,11 @@ same way rounds do.
   and a default; Adw.Dialog closes on Esc by stock.
 - [x] About -- version pinned by test_version_sync, links
   follow the renamed repository, GPL-3.0, icon by app id.
-- [ ] OPEN, one word: error acknowledgments answer "OK"; the
-  HIG's letter for purely informational alerts is "Close".
-  The architect's taste call.
+- [x] Acknowledgments say Close -- the architect's word: every
+  informational alert answers a single Close, response id
+  matches the stock close-response so Esc lands on it, and
+  Enter does too (a default on all twelve sites; ten had
+  none before this sitting).
 - [ ] OPEN, one patch: accessible names for the drawing areas
   -- meters, take curves, the canvas, the residue plot say
   nothing to a screen reader today.

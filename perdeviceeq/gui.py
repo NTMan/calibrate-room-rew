@@ -592,9 +592,9 @@ class EqWindow(Adw.ApplicationWindow):
                 dlg = Adw.AlertDialog(
                     heading="Could not fit",
                     body=str(res["err"]))
-                dlg.add_response("ok", "OK")
-                dlg.set_default_response("ok")
-                dlg.set_close_response("ok")
+                dlg.add_response("close", "Close")
+                dlg.set_default_response("close")
+                dlg.set_close_response("close")
                 dlg.present(self)
             elif self.current_pid == pid:
                 self._load_profile(pid)
@@ -774,7 +774,8 @@ class EqWindow(Adw.ApplicationWindow):
             except FileNotFoundError as e:
                 err = Adw.AlertDialog(heading="Install failed",
                                       body=str(e))
-                err.add_response("ok", "OK")
+                err.add_response("close", "Close")
+                err.set_default_response("close")
                 err.present(self)
                 return
             self._refresh_integration_menu()
@@ -954,7 +955,8 @@ class EqWindow(Adw.ApplicationWindow):
             except FileNotFoundError as e:
                 err = Adw.AlertDialog(heading="Install failed",
                                       body=str(e))
-                err.add_response("ok", "OK")
+                err.add_response("close", "Close")
+                err.set_default_response("close")
                 err.present(self)
                 return
             self._refresh_integration_menu()
@@ -994,7 +996,8 @@ class EqWindow(Adw.ApplicationWindow):
         info = Adw.AlertDialog(
             heading="Integration installed",
             body=hint)
-        info.add_response("ok", "OK")
+        info.add_response("close", "Close")
+        info.set_default_response("close")
         info.present(self)
 
     def _on_integration(self):
@@ -1006,7 +1009,8 @@ class EqWindow(Adw.ApplicationWindow):
             except FileNotFoundError as e:
                 err = Adw.AlertDialog(heading="Install failed",
                                       body=str(e))
-                err.add_response("ok", "OK")
+                err.add_response("close", "Close")
+                err.set_default_response("close")
                 err.present(self)
                 return
             self._refresh_integration_menu()
@@ -1043,7 +1047,8 @@ class EqWindow(Adw.ApplicationWindow):
                 heading="Integration removed",
                 body="The hook is gone; the EQ no longer "
                      "applies.")
-            info.add_response("ok", "OK")
+            info.add_response("close", "Close")
+            info.set_default_response("close")
             info.present(self)
         ask.connect("response", done)
         ask.present(self)
@@ -2208,7 +2213,8 @@ class EqWindow(Adw.ApplicationWindow):
                 heading="Editing needs extra packages",
                 body="The measurement window needs python3-numpy, "
                      "python3-scipy and python3-soundfile.\n\n%s" % e)
-            dlg.add_response("ok", "OK")
+            dlg.add_response("close", "Close")
+            dlg.set_default_response("close")
             dlg.present(self)
             return
         p = self.store.get(pid) or {}
@@ -2275,7 +2281,8 @@ class EqWindow(Adw.ApplicationWindow):
                 heading="Measurement needs extra packages",
                 body="The measurement wizard needs python3-numpy, "
                      "python3-scipy and python3-soundfile.\n\n%s" % e)
-            dlg.add_response("ok", "OK")
+            dlg.add_response("close", "Close")
+            dlg.set_default_response("close")
             dlg.present(self)
             return
         desc = next((s["desc"] for s in self.sinks
@@ -2352,7 +2359,8 @@ class EqWindow(Adw.ApplicationWindow):
                        "file. Nothing was changed.")
                 err = Adw.AlertDialog(heading="Cannot import",
                                       body=msg)
-                err.add_response("ok", "OK")
+                err.add_response("close", "Close")
+                err.set_default_response("close")
                 err.present(self)
                 return
             self._apply_rew_import(preamp, bands)
@@ -2407,7 +2415,8 @@ class EqWindow(Adw.ApplicationWindow):
             except (OSError, ValueError) as e:
                 err = Adw.AlertDialog(heading="Import failed",
                                       body=str(e))
-                err.add_response("ok", "OK")
+                err.add_response("close", "Close")
+                err.set_default_response("close")
                 err.present(self)
                 return
             taken = str(prof.get("name") or "") in {
@@ -2431,7 +2440,8 @@ class EqWindow(Adw.ApplicationWindow):
                         heading="Already in the store",
                         body="An identical copy of this package "
                              "is already here.")
-                    info.add_response("ok", "OK")
+                    info.add_response("close", "Close")
+                    info.set_default_response("close")
                     info.present(self)
                     self._load_profile(pid)
                     return
