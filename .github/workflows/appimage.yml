@@ -79,7 +79,8 @@ jobs:
       - name: Smoke (the GUI opens a window)
         working-directory: packaging/appimage
         run: |
-          dnf -y install xorg-x11-server-Xvfb dbus-daemon
+          dnf -y install xorg-x11-server-Xvfb dbus-daemon \
+            fontconfig
           # alive at the timeout (124) = the window stood; a
           # segfault or import death exits first. cairo: the
           # container has no GPU worth waking.

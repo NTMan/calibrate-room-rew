@@ -121,15 +121,16 @@ rm -f "$APPDIR"/usr/lib64/libgbm.so* \
       "$APPDIR"/usr/lib64/libdrm*.so* \
       "$APPDIR"/usr/lib64/libglapi.so*
 
-# the font and display-client platform: fontconfig reads the
-# HOST /etc/fonts, so the host's own library must be the one
-# reading it; freetype and the X/Wayland client libs travel
-# with it
-rm -f "$APPDIR"/usr/lib64/libfontconfig.so* \
-      "$APPDIR"/usr/lib64/libfreetype.so* \
-      "$APPDIR"/usr/lib64/libX11*.so* \
-      "$APPDIR"/usr/lib64/libxcb*.so* \
-      "$APPDIR"/usr/lib64/libwayland-*.so*
+# the razor is HOST-STATE COUPLING, not neighborhood.
+# fontconfig alone is host-borrowed: it must parse the HOST's
+# /etc/fonts (the warning wall), pango hard-needs it, and any
+# functioning GUI host has it by definition -- the smoke
+# container installs it to be an honest minimal desktop. The
+# protocol client libs (X11, xcb, wayland) and freetype carry
+# NO host-state coupling, are skew-stable both ways, and our
+# own GTK DT_NEEDs them outright (field catch: the smoke died
+# on libwayland-client) -- they STAY BUNDLED.
+rm -f "$APPDIR"/usr/lib64/libfontconfig.so*
 rm -rf "$APPDIR"/usr/etc/fonts "$APPDIR"/etc/fonts \
        "$APPDIR"/usr/share/fontconfig "$APPDIR"/usr/share/fonts
 

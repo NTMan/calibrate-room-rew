@@ -21,7 +21,8 @@ exec "$RUN" run --rm -it \
             -u "gh-releases-zsync|NTMan|PerDeviceEQ|latest|PerDeviceEQ-*x86_64.AppImage.zsync" \
             AppDir "PerDeviceEQ-${APP_VERSION}-x86_64.AppImage"
         ./PerDeviceEQ-*.AppImage --list-profiles
-        dnf -y install xorg-x11-server-Xvfb dbus-daemon
+        dnf -y install xorg-x11-server-Xvfb dbus-daemon \
+            fontconfig
         rc=0
         GSK_RENDERER=cairo timeout 10 xvfb-run -a \
             ./PerDeviceEQ-*.AppImage || rc=$?
