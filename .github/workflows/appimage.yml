@@ -71,6 +71,18 @@ jobs:
         run: |
           ./PerDeviceEQ-*.AppImage --list-profiles
 
+      - name: Smoke (the GUI opens a window)
+        working-directory: packaging/appimage
+        run: |
+          dnf -y install xorg-x11-server-Xvfb dbus-daemon
+          # alive at the timeout (124) = the window stood; a
+          # segfault or import death exits first. cairo: the
+          # container has no GPU worth waking.
+          rc=0
+          GSK_RENDERER=cairo timeout 10 xvfb-run -a \
+            ./PerDeviceEQ-*.AppImage || rc=$?
+          test "$rc" = 124
+
       - name: Attach to the release
         if: github.event_name == 'release'
         working-directory: packaging/appimage

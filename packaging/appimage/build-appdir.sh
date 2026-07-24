@@ -86,8 +86,17 @@ rm -f "$APPDIR"/usr/lib64/ld-linux-* \
       "$APPDIR"/usr/lib64/libdl.so* \
       "$APPDIR"/usr/lib64/libpthread.so* \
       "$APPDIR"/usr/lib64/librt.so* \
-      "$APPDIR"/usr/lib64/libresolv.so*
+      "$APPDIR"/usr/lib64/libresolv.so* \
+      "$APPDIR"/usr/lib64/libnss_*
 rm -rf "$APPDIR/lib" "$APPDIR/lib64" 2>/dev/null || true
+
+# the C++ runtime rides with the GPU family: the host's mesa,
+# once dlopened, resolves ITS OWN needs through our
+# LD_LIBRARY_PATH first -- an old bundled libstdc++ lacks the
+# GLIBCXX symbols radeonsi asks for, and that is the half of
+# the segfault the GPU pruning alone does not kill
+rm -f "$APPDIR"/usr/lib64/libstdc++.so* \
+      "$APPDIR"/usr/lib64/libgcc_s.so*
 
 # the GPU platform: drivers, dispatch and their kernel-facing
 # spine belong to the host that owns the hardware
