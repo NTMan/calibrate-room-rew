@@ -34,6 +34,13 @@ RELEASEVER="${RELEASEVER:-43}"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR"
 
+# gobject-introspection is load-bearing, not tooling: since
+# glib2 >= 2.80 the GLib/GObject/Gio typelibs live in glib2
+# itself, but cairo-1.0.typelib and the freedesktop base set
+# stayed in gobject-introspection -- without it the image
+# leans on the HOST's copy through GI_TYPELIB_PATH's default
+# fallback, which every developer machine has and a bare
+# container does not (the GUI smoke's first catch).
 dnf -y install --installroot="$APPDIR" \
     --releasever="$RELEASEVER" \
     --setopt=install_weak_deps=False \
@@ -41,7 +48,8 @@ dnf -y install --installroot="$APPDIR" \
     python3 python3-gobject python3-cairo \
     python3-numpy python3-scipy python3-soundfile \
     gtk4 libadwaita librsvg2 \
-    adwaita-icon-theme shared-mime-info glib2
+    adwaita-icon-theme shared-mime-info glib2 \
+    gobject-introspection
 
 # the app, in the installed layout the launcher already
 # searches: <prefix>/share/per-device-eq, data checkout-shaped
