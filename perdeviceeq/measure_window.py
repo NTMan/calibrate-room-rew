@@ -521,7 +521,10 @@ class MeasureWindow(Adw.Window):
         # included; a click anywhere on the face folds the take
         # rows underneath.
         lb = Gtk.ListBox()
-        lb.set_show_separators(True)
+        # the architect's grammar: the dot and the SNR line
+        # already separate take from take, so the drawn line
+        # keeps ONE job -- dividing the cal groups
+        lb.set_show_separators(False)
         lb.set_selection_mode(Gtk.SelectionMode.NONE)
         face = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
                        spacing=6)
@@ -698,42 +701,51 @@ class MeasureWindow(Adw.Window):
         return group, tip
 
     def _take_header(self, row, before):
-        """One rig, one header: rows sharing a foreign rig get
-        a single full-width section title instead of a
-        truncated per-row mark. The clamp owns content width,
-        so the header may wrap; the native rig gets no header
-        at all."""
+        """The architect's three-rule grammar: a group OPENS
+        with its capsule information, right-aligned; take is
+        separated from take by its own signal line (the list
+        draws no separators of its own); a group CLOSES with a
+        gray rule. The closer lives in the NEXT group's header
+        slot, so a boundary between two groups stacks rule
+        then title. The native rig stays untitled -- the home
+        team opens implicitly and closes like everyone."""
         group = getattr(row, "_rig_group", None)
         prev = (getattr(before, "_rig_group", None)
                 if before is not None else None)
-        if group and group != prev:
-            head = group[1]
-            n = getattr(row, "_rig_run_len", 0)
-            if n:
-                head += " \u00b7 %d take%s" % (
-                    n, "" if n == 1 else "s")
-            lbl = Gtk.Label(label=head, xalign=0.0,
-                            wrap=True)
-            lbl.add_css_class("caption")
-            lbl.add_css_class("dim-label")
-            lbl.set_margin_start(12)
-            lbl.set_margin_end(12)
-            lbl.set_margin_top(6)
-            lbl.set_margin_bottom(3)
-            row.set_header(lbl)
-        elif group is None and prev is not None:
-            # the closer: returning to the native rig after a
-            # foreign run draws a thin rule -- the separator is
-            # set_header_func's own documented second purpose,
-            # so the section ends in native grammar and the
-            # tail is no longer adopted by the foreign title
+
+        def _rule():
             sep = Gtk.Separator(
                 orientation=Gtk.Orientation.HORIZONTAL)
             sep.set_margin_start(12)
             sep.set_margin_end(12)
             sep.set_margin_top(6)
             sep.set_margin_bottom(3)
-            row.set_header(sep)
+            return sep
+
+        if group and group != prev:
+            head = group[1]
+            n = getattr(row, "_rig_run_len", 0)
+            if n:
+                head += " \u00b7 %d take%s" % (
+                    n, "" if n == 1 else "s")
+            lbl = Gtk.Label(label=head, xalign=1.0,
+                            wrap=True)
+            lbl.add_css_class("caption")
+            lbl.add_css_class("dim-label")
+            lbl.set_margin_start(12)
+            lbl.set_margin_end(12)
+            lbl.set_margin_top(3)
+            lbl.set_margin_bottom(3)
+            if before is None:
+                row.set_header(lbl)
+            else:
+                box = Gtk.Box(
+                    orientation=Gtk.Orientation.VERTICAL)
+                box.append(_rule())
+                box.append(lbl)
+                row.set_header(box)
+        elif group is None and prev is not None:
+            row.set_header(_rule())
         else:
             row.set_header(None)
 
