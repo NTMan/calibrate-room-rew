@@ -106,19 +106,20 @@ rm -rf "$APPDIR/lib" "$APPDIR/lib64" 2>/dev/null || true
 rm -f "$APPDIR"/usr/lib64/libstdc++.so* \
       "$APPDIR"/usr/lib64/libgcc_s.so*
 
-# the GPU platform: drivers, dispatch and their kernel-facing
-# spine belong to the host that owns the hardware
+# the GPU platform: DRIVERS GO, DISPATCH STAYS. What faces
+# the kernel and the hardware -- dri drivers, gbm, libdrm,
+# mesa's glapi -- belongs to the host that owns them (that
+# pairing was the original segfault). The neutral dispatch
+# loaders -- the glvnd quartet and the vulkan loader -- stay
+# BUNDLED: they are built to tolerate version skew, they find
+# the host's ICDs through XDG_DATA_DIRS, and our own
+# libgtk-4.so.1 DT_NEEDs libvulkan outright, so pruning the
+# loader killed GTK on any host without its own copy
+# (field-caught by the GUI smoke in the bare container).
 rm -rf "$APPDIR"/usr/lib64/dri "$APPDIR"/usr/lib64/gbm
-rm -f "$APPDIR"/usr/lib64/libGL.so* \
-      "$APPDIR"/usr/lib64/libGLX*.so* \
-      "$APPDIR"/usr/lib64/libEGL*.so* \
-      "$APPDIR"/usr/lib64/libGLES*.so* \
-      "$APPDIR"/usr/lib64/libGLdispatch.so* \
-      "$APPDIR"/usr/lib64/libOpenGL.so* \
-      "$APPDIR"/usr/lib64/libgbm.so* \
+rm -f "$APPDIR"/usr/lib64/libgbm.so* \
       "$APPDIR"/usr/lib64/libdrm*.so* \
-      "$APPDIR"/usr/lib64/libglapi.so* \
-      "$APPDIR"/usr/lib64/libvulkan*.so*
+      "$APPDIR"/usr/lib64/libglapi.so*
 
 # the font and display-client platform: fontconfig reads the
 # HOST /etc/fonts, so the host's own library must be the one
