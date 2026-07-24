@@ -8,6 +8,29 @@ listener, headroom that never lies.
 
 ## Shipped
 
+- **The cal wears its provenance.** Closed as testimony, not
+  verdict: the architect's analog doctrine rules the domain --
+  a cal belongs to the analog layer in front of the hole, a
+  hole has no serial, and even usb node grammar cannot split
+  an integrated mic from an interface input, so "the wrong
+  cal" is machine-undecidable and the machine testifies while
+  the one who sees the analog layer judges. The slot wears the
+  assigned file's biography (content-addressed by sha,
+  house-wide across every profile's takes, silent when the
+  story is all native); the noise lives in the cloud's shadow
+  -- one number, the count of foreign profiles, in a colored
+  pill whose color weighs the statistical anomaly, with every
+  word in the tooltip; the inventory dialog counts per rig and
+  its Reassign remains the bulk re-cal door. The round also
+  minted H10 (the list dresses evenly, jurisdiction inside the
+  row's own population) which caught the wizard's band budget
+  on its first sighted run and the CI-only two-line target
+  rows the workstation could never see, and the takes list now
+  speaks the architect's three-rule grammar: a group opens
+  with its capsule line right-aligned, takes are separated by
+  their own signal lines, a gray rule closes every group --
+  chronology sacred throughout.
+
 - **AppImage.** Released with 4.0.1 and field-clean on the
   architect's station: a single-file door for everyone not on
   Fedora, attached to every release with a zsync auto-update
@@ -104,17 +127,6 @@ listener, headroom that never lies.
    curves marks a package verified; unverified stays visible
    and labeled. Accept when a profile published in the index
    installs from inside the app with its provenance shown.
-
-2. **The cal wears its provenance.** Field lesson of the
-   poisoned serial: the E.A.R.S cal was picked for the Umik by
-   hand, and nothing said so. Re-picking already heals it; the
-   missing piece is the HIGHLIGHT -- the cal row must say when
-   the applied file does not belong to the selected mic. The
-   design fork to settle before cutting: what names a cal's
-   owner -- the profile's own provenance (sessions that used
-   this cal sha carry the rig stamp), the mic store (the path
-   saved under another mic's entry), or the filename serial
-   against the twin logic. One sitting, then the cut.
 
 ## Direction
 
