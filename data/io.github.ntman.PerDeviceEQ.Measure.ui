@@ -174,7 +174,8 @@
             <child>
               <object class="AdwComboRow" id="chan_row">
                 <property name="title" translatable="yes">Capsules</property>
-                <property name="subtitle" translatable="yes">A UMIK-1 is mono even if it enumerates as stereo</property>
+                <property name="subtitle" translatable="yes">How many capsules actually capture -- enumeration can lie</property>
+                <property name="tooltip-text" translatable="yes">A UMIK-1, for one, enumerates as stereo around a single capsule</property>
               </object>
             </child>
           </object>
