@@ -55,8 +55,8 @@ make it executable and run it -- no root, no install:
 
 The bundle carries Python, GTK 4 and libadwaita; PipeWire's
 own client tools (`pw-dump`, `pw-cat`) come from your distro,
-as on every PipeWire desktop. Floor: glibc 2.41 (Ubuntu
-25.04+, Fedora 42+). The `.zsync` file next to it is the
+as on every PipeWire desktop. Floor: glibc 2.41 (Fedora 42+,
+Ubuntu 25.04+). The `.zsync` file next to it is the
 auto-update channel for AppImageUpdate.
 
 **PipeWire ≥ 1.6** (the in-node `audioconvert.filter-graph` is required),

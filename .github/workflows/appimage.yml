@@ -4,10 +4,13 @@
 # the same artifact from the current tree and parks it as a
 # run artifact for field testing without a release.
 #
-# The job runs INSIDE ubuntu:25.04: the recipe harvests debs
-# from that archive (GTK 4.18, libadwaita 1.7 -- the app needs
-# adw >= 1.6), and the container's glibc (2.41) is the
-# artifact's floor. appimagetool runs squashfs without FUSE via
+# The job runs INSIDE fedora:42: the harvest is a plain dnf
+# --installroot (libadwaita 1.7 from the box; the app needs
+# >= 1.6), and the container's glibc (2.41) is the artifact's
+# floor -- the same floor the ubuntu:25.04 base had, on the
+# architect's home family. appimage-builder is gone: its apt
+# harvest required the long-removed apt-key and it never had
+# a dnf shape. appimagetool runs without FUSE via
 # APPIMAGE_EXTRACT_AND_RUN.
 name: AppImage
 
@@ -27,20 +30,14 @@ jobs:
   appimage:
     runs-on: ubuntu-24.04
     container:
-      image: ubuntu:25.04
+      image: fedora:42
     env:
       APPIMAGE_EXTRACT_AND_RUN: "1"
-      DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Tooling
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git ca-certificates python3-pip python3-setuptools \
-            binutils fakeroot patchelf file wget zsync \
-            squashfs-tools desktop-file-utils gtk-update-icon-cache \
-            gh
-          pip3 install --break-system-packages appimage-builder
+          dnf -y install git glib2 gdk-pixbuf2 file binutils \
+            wget zsync gh
 
       - uses: actions/checkout@v4
 
@@ -58,13 +55,20 @@ jobs:
       - name: Build
         working-directory: packaging/appimage
         run: |
-          appimage-builder --recipe AppImageBuilder.yml --skip-test
-          ls -l *.AppImage*
+          ./build-appdir.sh
+          wget -q -O appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool \
+            -u "gh-releases-zsync|NTMan|PerDeviceEQ|latest|PerDeviceEQ-*x86_64.AppImage.zsync" \
+            AppDir \
+            "PerDeviceEQ-${APP_VERSION}-x86_64.AppImage"
+          ls -l PerDeviceEQ-*
 
       - name: Smoke (headless CLI through the bundled runtime)
         working-directory: packaging/appimage
         run: |
-          ./Per*.AppImage --list-profiles
+          ./PerDeviceEQ-*.AppImage --list-profiles
 
       - name: Attach to the release
         if: github.event_name == 'release'

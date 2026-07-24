@@ -1,0 +1,22 @@
+#!/bin/sh
+# The AppImage entry: point the bundled Python and GTK stack
+# at themselves, hand everything else (loader, PipeWire tools,
+# fonts, session) to the host. The python version is resolved
+# at launch, not baked, so a base bump never breaks the path.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+PYLIB="$(ls -d "$HERE"/usr/lib64/python3.* 2>/dev/null | head -1)"
+
+export PYTHONHOME="$HERE/usr"
+export PYTHONPATH="$PYLIB/site-packages:$HERE/usr/share/per-device-eq${PYTHONPATH:+:$PYTHONPATH}"
+export LD_LIBRARY_PATH="$HERE/usr/lib64:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export GI_TYPELIB_PATH="$HERE/usr/lib64/girepository-1.0"
+export XDG_DATA_DIRS="$HERE/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export GSETTINGS_SCHEMA_DIR="$HERE/usr/share/glib-2.0/schemas"
+LOADERS="$(ls -d "$HERE"/usr/lib64/gdk-pixbuf-2.0/*/loaders 2>/dev/null | head -1)"
+if [ -n "$LOADERS" ]; then
+    export GDK_PIXBUF_MODULEDIR="$LOADERS"
+    export GDK_PIXBUF_MODULE_FILE="$LOADERS.cache"
+fi
+
+exec "$HERE/usr/bin/python3" \
+    "$HERE/usr/share/per-device-eq/per-device-eq.py" "$@"
