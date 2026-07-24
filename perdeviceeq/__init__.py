@@ -11,4 +11,4 @@ Package layout:
   gui          the GTK4 / libadwaita GUI (loads the .ui design)
 """
 
-__version__ = "4.0.0"
+__version__ = "4.0.1"
