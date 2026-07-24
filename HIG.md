@@ -258,9 +258,14 @@ same way rounds do.
   under the CI ratchet. The words themselves -- case,
   terminology -- stay the author's pen, applied as text is
   written or touched.
-- [ ] Documented gap: take rows with live takes -- the audit
-  session is empty by design; their builder already walks the
-  grid.
+- [x] Take rows stand before the floor -- the architect's
+  word closed the last gap with mocks: the audit mounts a
+  fixture session (three takes, three verdicts -- clean,
+  flagged, clipped) through the REAL row builder before the
+  snapshot, so the rows, their dots, their delete buttons and
+  the rig headers are judged and walked like everything else.
+  A lint tool never plays a sweep: the fixture is data, not
+  audio.
 
 ## Process
 

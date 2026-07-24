@@ -154,6 +154,48 @@ def describe(w, in_bar=False):
                          for c in _own_children(w, t)]}
 
 
+class _FixtureRec:
+    """A take record with every field the row builder reads --
+    plain lists for the curves, no numpy, no audio."""
+
+    def __init__(self, i, snr, peak, noise, clipped):
+        self.id = i
+        self.snr_db = snr
+        self.peak_dbfs = peak
+        self.noise_dbfs = noise
+        self.clipped = clipped
+        self.repaired = 0
+        self.wav_path = None
+        self.created_utc = "2026-07-26T00:00:00"
+        self.freq_hz = [20.0 * (1000.0 ** (k / 63.0))
+                        for k in range(64)]
+        self.mag_db = [((k % 16) - 8) * 0.3 + i
+                      for k in range(64)]
+
+
+class _FixtureSession:
+    """The architect's word: mocks, so the take rows exist
+    before the floor. Three takes, three verdicts -- clean,
+    flagged, clipped -- through the REAL row builder; a lint
+    tool never plays a sweep."""
+
+    def __init__(self):
+        self._recs = [
+            _FixtureRec(1, 41.0, -1.2, -55.0, 0),
+            _FixtureRec(2, 5.0, -1.5, -40.0, 0),
+            _FixtureRec(3, None, -0.1, None, 1),
+        ]
+
+    def takes_of(self, _ch):
+        return list(self._recs)
+
+    def average_and_spread(self, _ch):
+        return None, None
+
+    def comp_shift_db(self, _ch):
+        return None
+
+
 def _stop_name(w):
     """A short human handle for a focus stop."""
     name = w.__class__.__name__
@@ -295,6 +337,12 @@ def _window_audit():
             self.win = G.EqWindow(self)
 
             def grab_measure():
+                # the take rows join the judged tree: a
+                # fixture session mounted before the snapshot,
+                # rows born through the real builder
+                self.mwin.session = _FixtureSession()
+                self.mwin._selected_ch = 0
+                self.mwin._rebuild_page()
                 # the cal-history door: a hand-built dialog,
                 # mounted into THIS window's host; on the
                 # audit's empty canvas it shows its honest
