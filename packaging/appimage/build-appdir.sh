@@ -1,5 +1,7 @@
 #!/bin/sh -e
 # Assemble the AppDir by hand on Fedora -- no appimage-builder.
+# Needs: dnf, pip3 (python3-pip), glib2, gdk-pixbuf2 in the
+# build container.
 #
 # The old recipe leaned on appimage-builder, whose package
 # harvest exists only in apt shape and whose apt shape requires
@@ -26,12 +28,19 @@ dnf -y install --installroot="$APPDIR" \
     --setopt=install_weak_deps=False \
     --setopt=reposdir=/etc/yum.repos.d \
     python3 python3-gobject python3-cairo \
-    python3-numpy python3-scipy python3-soundfile \
+    python3-numpy python3-scipy \
     gtk4 libadwaita librsvg2 \
     adwaita-icon-theme shared-mime-info glib2
 
 # the app, in the installed layout the launcher already
 # searches: <prefix>/share/per-device-eq, data checkout-shaped
+# soundfile entered Fedora at 43; on the 42 base it rides in
+# as the manylinux wheel (which bundles its own libsndfile),
+# pinned into the AppDir's own site-packages together with its
+# cffi dependency -- same python (3.13) on both sides
+PYSP="$(ls -d "$APPDIR"/usr/lib64/python3.*/site-packages | head -1)"
+pip3 install --no-cache-dir --target "$PYSP" soundfile
+
 mkdir -p "$APPDIR/usr/share/per-device-eq"
 cp -r ../../perdeviceeq "$APPDIR/usr/share/per-device-eq/"
 cp -r ../../data "$APPDIR/usr/share/per-device-eq/"

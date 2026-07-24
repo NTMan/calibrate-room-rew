@@ -37,7 +37,7 @@ jobs:
       - name: Tooling
         run: |
           dnf -y install git glib2 gdk-pixbuf2 file binutils \
-            wget zsync gh
+            wget zsync gh python3-pip
 
       - uses: actions/checkout@v4
 
