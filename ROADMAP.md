@@ -136,6 +136,23 @@ listener, headroom that never lies.
 
 ## Direction
 
+- **The hole earns a passport (loopback cal).** Born at the
+  architect's speaker bench: with an analog hole in the chain
+  the interface itself colors the sweep, and the cure the
+  field already practices is loopback calibration -- output
+  wired to input, the card's own transfer measured; REW does
+  this today and exports a soundcard cal file. The doctrine
+  closes on itself: a hole has no serial, but it can carry a
+  MEASURED transfer function -- a passport earned by
+  measurement, not by name. Shape at the smallest honest
+  size: import the ready REW cal onto a per-sink out-cal
+  slot; a take then testifies two-sided, cal_sha for the mic
+  and out_cal_sha for the hole, applied as a chain -- and the
+  whole provenance grammar (biography, jurisdiction, the
+  cloud) generalizes to the second axis with no new law. An
+  in-house loopback wizard can come later. Promotion decided
+  after the exchange ships.
+
 - **Frames and targets (architecture settled; the debate narrowed to
   scope).** Two domains that never mix. Playback stays device + taste
   + preamp, forever; everything frame-related lives on the MEASUREMENT
