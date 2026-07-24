@@ -39,6 +39,8 @@ fix is a complaint.
 import os
 import sys
 
+import numpy as np
+
 # The walk phase presents the windows (live focus needs mapped
 # widgets), and presenting wakes GSK's renderer; CI containers
 # ship no libGLESv2 and the GL path aborts. The audit needs
@@ -155,8 +157,11 @@ def describe(w, in_bar=False):
 
 
 class _FixtureRec:
-    """A take record with every field the row builder reads --
-    plain lists for the curves, no numpy, no audio."""
+    """A take record with every field the row builder reads.
+    The curves are numpy arrays because the REAL records carry
+    numpy arrays -- the summary broadcasts mag_db + shift, and
+    the first field run proved a plain list is not the same
+    animal. Still no audio: the fixture is data."""
 
     def __init__(self, i, snr, peak, noise, clipped):
         self.id = i
@@ -167,10 +172,8 @@ class _FixtureRec:
         self.repaired = 0
         self.wav_path = None
         self.created_utc = "2026-07-26T00:00:00"
-        self.freq_hz = [20.0 * (1000.0 ** (k / 63.0))
-                        for k in range(64)]
-        self.mag_db = [((k % 16) - 8) * 0.3 + i
-                      for k in range(64)]
+        self.freq_hz = np.geomspace(20.0, 20000.0, 64)
+        self.mag_db = ((np.arange(64) % 16) - 8) * 0.3 + i
 
 
 class _FixtureSession:
@@ -186,13 +189,19 @@ class _FixtureSession:
             _FixtureRec(3, None, -0.1, None, 1),
         ]
 
-    def takes_of(self, _ch):
-        return list(self._recs)
+    def takes_of(self, ch):
+        # channel 0 only: the partner stays empty, so the
+        # summary's ghost path exits on its own first guard
+        # and the mock owes the page nothing further
+        return list(self._recs) if ch == 0 else []
 
     def average_and_spread(self, _ch):
         return None, None
 
     def comp_shift_db(self, _ch):
+        return None
+
+    def spread_db(self, _ch):
         return None
 
 
