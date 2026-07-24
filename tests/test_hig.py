@@ -208,11 +208,14 @@ def test_h7_prose_needs_a_house():
 
 
 def _row(title, subtitle=None):
-    d = {"class": "AdwActionRow", "title": title,
-         "children": []}
+    # the described tree nests reads under "props" -- the rule
+    # must look where describe() writes (its first live run
+    # was blind: flat synthetic tests hid the nesting)
+    p = {"title": title}
     if subtitle is not None:
-        d["subtitle"] = subtitle
-    return d
+        p["subtitle"] = subtitle
+    return {"class": "AdwActionRow", "props": p,
+            "children": []}
 
 
 def test_h10_flags_the_overdressed_row():

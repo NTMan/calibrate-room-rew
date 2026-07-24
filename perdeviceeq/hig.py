@@ -270,14 +270,16 @@ def _findings_h10(node, path, out):
     clean -- the median carries the scope, not a constant."""
     if node.get("class") != "GtkListBox":
         return
+    def _p(k, key):
+        return (k.get("props") or {}).get(key)
     rows = [k for k in (node.get("children") or [])
-            if k.get("title") is not None]
+            if _p(k, "title") is not None]
     if len(rows) < 3:
         return
-    lines = [((k.get("subtitle") or "").count("\n") + 1)
-             if k.get("subtitle") else 0 for k in rows]
-    mass = [len(k.get("title") or "")
-            + len(k.get("subtitle") or "") for k in rows]
+    lines = [((_p(k, "subtitle") or "").count("\n") + 1)
+             if _p(k, "subtitle") else 0 for k in rows]
+    mass = [len(_p(k, "title") or "")
+            + len(_p(k, "subtitle") or "") for k in rows]
     mode = max(set(lines), key=lines.count)
     med = sorted(mass)[len(mass) // 2]
     for k, ln, ms in zip(rows, lines, mass):
