@@ -205,3 +205,43 @@ def test_h7_prose_needs_a_house():
     assert hig.lint(heading) == []
     in_bar = _box([_label(prose)], in_bar=True)
     assert hig.lint(in_bar) == []
+
+
+def _row(title, subtitle=None):
+    d = {"class": "AdwActionRow", "title": title,
+         "children": []}
+    if subtitle is not None:
+        d["subtitle"] = subtitle
+    return d
+
+
+def test_h10_flags_the_overdressed_row():
+    lb = {"class": "GtkListBox", "children": [
+        _row("L calibration", "\u2713 a.txt"),
+        _row("R calibration", "\u2713 b.txt"),
+        _row("X calibration",
+             "\u2713 c.txt\nrecorded with E.A.R.S Gain 0dB"
+             "\nacross 6 profiles and then some more words"),
+    ]}
+    got = hig.lint({"class": "W", "children": [lb]})
+    assert [f["rule"] for f in got] == ["H10"]
+
+
+def test_h10_uniformly_verbose_archive_is_clean():
+    long = ("6 takes \u00b7 E.A.R.S Gain 0dB Analog Stereo "
+            "with a good many words of honest archive prose")
+    lb = {"class": "GtkListBox", "children": [
+        _row("R_RAW_8603052.txt", long),
+        _row("7163423.txt", long),
+        _row("ECM8000.txt", long),
+    ]}
+    assert hig.lint({"class": "W", "children": [lb]}) == []
+
+
+def test_h10_needs_a_population():
+    lb = {"class": "GtkListBox", "children": [
+        _row("a", "x"),
+        _row("b", "x\ny\nz and plenty of extra characters "
+                  "to be sure of the mass outlier too"),
+    ]}
+    assert hig.lint({"class": "W", "children": [lb]}) == []

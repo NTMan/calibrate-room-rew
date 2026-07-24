@@ -257,9 +257,45 @@ def _findings_h7(node, path, out):
                        "event to a toast"})
 
 
+def _findings_h10(node, path, out):
+    """H10: the list dresses evenly. Information fills the
+    interface uniformly; a row hoarding text against its own
+    sisters is cramped and must decompose or shed its noise to
+    the tooltip. The jurisdiction is the row's OWN population,
+    so an archive that is uniformly verbose is uniformly
+    clean -- the median carries the scope, not a constant."""
+    if node.get("class") != "GtkListBox":
+        return
+    rows = [k for k in (node.get("children") or [])
+            if k.get("title") is not None]
+    if len(rows) < 3:
+        return
+    lines = [((k.get("subtitle") or "").count("\n") + 1)
+             if k.get("subtitle") else 0 for k in rows]
+    mass = [len(k.get("title") or "")
+            + len(k.get("subtitle") or "") for k in rows]
+    mode = max(set(lines), key=lines.count)
+    med = sorted(mass)[len(mass) // 2]
+    for k, ln, ms in zip(rows, lines, mass):
+        over_lines = ln > mode
+        over_mass = ms > max(2 * med, med + 80)
+        if not (over_lines or over_mass):
+            continue
+        out.append({
+            "rule": "H10",
+            "path": "%s/%s" % (path, k.get("class") or "?"),
+            "msg": "the row overdresses its list (%d subtitle "
+                   "line%s where the list wears %d; %d chars "
+                   "vs median %d)"
+                   % (ln, "" if ln == 1 else "s", mode,
+                      ms, med),
+            "fix": "move the noise to the tooltip or "
+                   "decompose the row"})
+
+
 _RULES = (_findings_h1, _findings_h2, _findings_h3,
           _findings_h4, _findings_h5, _findings_h6,
-          _findings_h7, _findings_h8)
+          _findings_h7, _findings_h8, _findings_h10)
 
 
 def lint(tree):

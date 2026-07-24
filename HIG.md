@@ -182,7 +182,13 @@ rows and AdwWindowTitle, EntryRow's floating .dimmed title,
 .body/.description of group headers, heading levels, GtkScale's
 value position -- is the toolkit's business and exempt, and the
 app stylesheet's state trio done/warn/bad on the speaker count
-is sanctioned; the first live run taught both); H9 the Tab walk
+is sanctioned; the first live run taught both); H10 the list
+dresses evenly (the architect's law from the cal-cloud round:
+information fills the interface uniformly -- a row hoarding
+text against its own sisters is cramped and must decompose or
+shed its noise to the tooltip; the jurisdiction is the row's
+OWN population, so the uniformly verbose archive is uniformly
+clean and no constant decides); H9 the Tab walk
 must round the room -- the audit
 presses Tab itself, and a walk that repeats a stop without
 returning to its first is a trapped subset (born from the
