@@ -1,0 +1,84 @@
+# On a published release, build the AppImage and attach it to
+# the release page beside the RPMs and flatpak bundles -- the
+# single-file door for everyone else. workflow_dispatch builds
+# the same artifact from the current tree and parks it as a
+# run artifact for field testing without a release.
+#
+# The job runs INSIDE ubuntu:25.04: the recipe harvests debs
+# from that archive (GTK 4.18, libadwaita 1.7 -- the app needs
+# adw >= 1.6), and the container's glibc (2.41) is the
+# artifact's floor. appimagetool runs squashfs without FUSE via
+# APPIMAGE_EXTRACT_AND_RUN.
+name: AppImage
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: appimage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:25.04
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Tooling
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates python3-pip python3-setuptools \
+            binutils fakeroot patchelf file wget zsync \
+            squashfs-tools desktop-file-utils gtk-update-icon-cache \
+            gh
+          pip3 install --break-system-packages appimage-builder
+
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: ver
+        run: |
+          git config --global --add safe.directory "$PWD"
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(git describe --tags --always)"
+          fi
+          echo "APP_VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: packaging/appimage
+        run: |
+          appimage-builder --recipe AppImageBuilder.yml --skip-test
+          ls -l *.AppImage*
+
+      - name: Smoke (headless CLI through the bundled runtime)
+        working-directory: packaging/appimage
+        run: |
+          ./Per*.AppImage --list-profiles
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        working-directory: packaging/appimage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.ver.outputs.tag }}" \
+            ./*.AppImage ./*.AppImage.zsync --clobber \
+            -R "${{ github.repository }}"
+
+      - name: Park as a run artifact (dispatch builds)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: packaging/appimage/*.AppImage*

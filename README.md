@@ -44,6 +44,21 @@ loop — measure, fit, apply, keep — lives in one app.
 
 ## Requirements & install
 
+### AppImage (any distro with PipeWire)
+
+Grab `PerDeviceEQ-<version>-x86_64.AppImage` from the
+[releases page](https://github.com/NTMan/PerDeviceEQ/releases),
+make it executable and run it -- no root, no install:
+
+    chmod +x PerDeviceEQ-*-x86_64.AppImage
+    ./PerDeviceEQ-*-x86_64.AppImage
+
+The bundle carries Python, GTK 4 and libadwaita; PipeWire's
+own client tools (`pw-dump`, `pw-cat`) come from your distro,
+as on every PipeWire desktop. Floor: glibc 2.41 (Ubuntu
+25.04+, Fedora 42+). The `.zsync` file next to it is the
+auto-update channel for AppImageUpdate.
+
 **PipeWire ≥ 1.6** (the in-node `audioconvert.filter-graph` is required),
 **WirePlumber**, **GTK 4** with **libadwaita ≥ 1.6**, **PyGObject**,
 **PyCairo**, **Python 3**. Measuring and the live meter additionally need
