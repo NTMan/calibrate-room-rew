@@ -1025,6 +1025,9 @@ class MeasureWindow(Adw.Window):
             path = self.cal.get(i)
             btn = self.cal_btns[i]
             if not path:
+                badge = self.cal_badges.get(i)
+                if badge is not None:
+                    badge.set_visible(False)
                 row.set_subtitle("not set -- the capture "
                                  "channel runs raw")
                 row.set_tooltip_text(
@@ -1033,11 +1036,16 @@ class MeasureWindow(Adw.Window):
                     "the compensation" % labels[i])
                 btn.set_label("Choose\u2026")
                 continue
-            sub = "\u2713 " + os.path.basename(path)
-            bio, brk = self._cal_testimony(path)
-            if bio:
-                sub += "\n" + bio
-            row.set_subtitle(sub)
+            row.set_subtitle("\u2713 " + os.path.basename(path))
+            cnt, sev, brk = self._cal_testimony(path)
+            badge = self.cal_badges.get(i)
+            if badge is not None:
+                for c in ("green", "amber", "red"):
+                    badge.remove_css_class(c)
+                if cnt is not None:
+                    badge.set_label(str(cnt))
+                    badge.add_css_class(sev)
+                badge.set_visible(cnt is not None)
             tip = path
             try:
                 sha = measure_build.cal_sha_cached(path)
@@ -1614,58 +1622,102 @@ class MeasureWindow(Adw.Window):
         return m
 
     def _cal_testimony(self, path):
-        """The slot wears the assigned cal's biography -- dim
-        testimony where the picking happens, never a verdict:
-        the analog doctrine stands, a cal may legitimately move
-        between holes with its unseen microphone, so the line
-        informs and the one who knows the analog layer judges.
-        Content-addressed and house-wide; a biography that is
-        ALL native to the selected rig is an echo and stays
-        silent."""
+        """The slot's cloud: ONE number -- foreign profiles --
+        in a colored pill, everything verbal in the tooltip
+        (the architect's dress code: every row equally
+        dressed, the noise off the surface). The color is the
+        WEIGHT of the statistical anomaly, never a verdict --
+        the analog doctrine stands, the one who knows the
+        analog layer judges. Native-only biography is an echo
+        and shows nothing. Returns (count, severity, tip) or
+        three Nones."""
         try:
             sha = measure_build.cal_sha_cached(path)
         except OSError:
-            return None, None
+            return None, None, None
         entries = measure_build.cal_biography(
             self.parent.store.profiles.values(), sha)
         if not entries:
-            return None, None
+            return None, None, None
         me = _node_identity(self.mic_picker.core.node)
-        if all(_node_identity(e["node_match"]) == me
-               for e in entries):
-            return None, None
-        # the testimony names its jurisdiction: the house-wide
-        # count carries "across N profiles" when it spans more
-        # than one, and the tooltip lays the per-profile split
-        per_prof = {}
+        f_prof, n_prof = set(), set()
+        f_takes = 0
+        f_lines = []
         for e in entries:
-            for pn, c in e["profiles"].items():
-                per_prof[pn] = per_prof.get(pn, 0) + c
-        if len(entries) == 1:
-            e = entries[0]
-            n = e["count"]
-            line = ("recorded with %s \u00b7 %d take%s"
-                    % (e["name"], n, "" if n == 1 else "s"))
+            if _node_identity(e["node_match"]) == me:
+                n_prof.update(e["profiles"])
+                continue
+            f_prof.update(e["profiles"])
+            f_takes += e["count"]
+            f_lines.append("%s: %s" % (e["name"], ", ".join(
+                "%s (%d)" % (pn, c)
+                for pn, c in sorted(e["profiles"].items()))))
+        sev = measure_build.badge_severity(
+            len(n_prof), len(f_prof))
+        if sev is None:
+            return None, None, None
+        tip = ("used with another rig in %d profile%s "
+               "\u00b7 %d take%s"
+               % (len(f_prof), "" if len(f_prof) == 1 else "s",
+                  f_takes, "" if f_takes == 1 else "s"))
+        for ln in f_lines:
+            tip += "\n" + ln
+        if not n_prof:
+            tip += "\nthis pairing has no prior takes"
+        return len(f_prof), sev, tip
+
+    _badge_css_installed = False
+
+    @classmethod
+    def _install_badge_css(cls):
+        if cls._badge_css_installed:
+            return
+        cls._badge_css_installed = True
+        css = Gtk.CssProvider()
+        data = """
+        .cal-badge {
+          border-radius: 10px;
+          padding: 1px 8px;
+          font-size: 0.85em;
+        }
+        .cal-badge.green {
+          background-color: alpha(@success_bg_color, .2);
+          color: @success_color;
+        }
+        .cal-badge.amber {
+          background-color: alpha(@warning_bg_color, .25);
+          color: @warning_color;
+        }
+        .cal-badge.red {
+          background-color: alpha(@error_bg_color, .2);
+          color: @error_color;
+        }
+        """
+        if hasattr(css, "load_from_string"):
+            css.load_from_string(data)
         else:
-            line = "recorded with " + ", ".join(
-                "%s (%d)" % (e["name"], e["count"])
-                for e in entries)
-        if len(per_prof) > 1:
-            line += " across %d profiles" % len(per_prof)
-        brk = "recorded in: " + ", ".join(
-            "%s (%d)" % (pn, per_prof[pn])
-            for pn in sorted(per_prof))
-        return line, brk
+            css.load_from_data(data.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
     def _rebuild_cal_row(self):
+        self._install_badge_css()
         for row in getattr(self, "cal_rows", []):
             self.mic_group.remove(row)
         self.cal_rows = []
         self.cal_btns = {}
+        self.cal_badges = {}
         labels = self._mic_labels()
         for i in range(self.mic_ch):
             row = Adw.ActionRow()
             row.set_title("%s calibration" % labels[i])
+            badge = Gtk.Label()
+            badge.add_css_class("cal-badge")
+            badge.set_valign(Gtk.Align.CENTER)
+            badge.set_visible(False)
+            row.add_suffix(badge)
+            self.cal_badges[i] = badge
             btn = Gtk.Button(label="Choose\u2026")
             btn.set_valign(Gtk.Align.CENTER)
             btn.add_css_class("flat")

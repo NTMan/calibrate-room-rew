@@ -72,6 +72,19 @@ def test_foreign_sha_has_no_biography():
     assert mb.cal_biography([p], "other") == []
 
 
+def test_severity_speaks_the_architects_examples():
+    # one incident against one other profile: calm green
+    assert mb.badge_severity(1, 1) == "green"
+    # first-time pairing vs a dominant foreign history: red
+    assert mb.badge_severity(0, 6) == "red"
+    # mixed history: amber
+    assert mb.badge_severity(2, 3) == "amber"
+    # a lone foreign profile is green even when unprecedented
+    assert mb.badge_severity(0, 1) == "green"
+    # no foreign history: no cloud at all
+    assert mb.badge_severity(3, 0) is None
+
+
 def test_empty_house_stays_silent():
     assert mb.cal_biography([], "c1") == []
     assert mb.cal_biography(None, "c1") == []

@@ -252,6 +252,23 @@ def cal_sha_cached(path):
     return sha
 
 
+def badge_severity(native_profiles, foreign_profiles):
+    """The cloud's color as the WEIGHT of the statistical
+    anomaly, never a verdict (the analog doctrine stands): a
+    single foreign precedent is calm green; an unprecedented
+    pairing against a dominant foreign history screams red;
+    mixed histories sit amber. Thresholds ratified by the
+    architect's two canonical examples."""
+    if foreign_profiles <= 0:
+        return None
+    if foreign_profiles == 1:
+        return "green"
+    total = native_profiles + foreign_profiles
+    if native_profiles == 0 and foreign_profiles / total >= 0.8:
+        return "red"
+    return "amber"
+
+
 def cal_biography(profiles, sha):
     """Every rig stamp that ever recorded through cal `sha`,
     across the given profiles -- the testimony the slot wears.
