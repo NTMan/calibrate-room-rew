@@ -55,10 +55,14 @@ make it executable and run it -- no root, no install:
 
 The bundle carries Python, GTK 4 and libadwaita; PipeWire's
 own client tools (`pw-dump`, `pw-cat`) come from your distro,
-as on every PipeWire desktop. Floor: glibc 2.42 (Fedora 43+,
-Ubuntu 25.10+); the build base tracks the oldest supported
-Fedora. The `.zsync` file next to it is the auto-update
-channel for AppImageUpdate.
+as on every PipeWire desktop. Floor: glibc 2.42 -- Fedora
+43+, Ubuntu 25.10+/26.04 LTS, and any rolling distro (Arch,
+Gentoo, openSUSE Tumbleweed) qualifies by nature; Debian 13
+and Mint 22 sit below the floor and are out until a
+source-built-stack build on an older base earns its keep. The
+build base tracks the oldest supported Fedora. The `.zsync`
+file next to it is the auto-update channel for
+AppImageUpdate.
 
 **PipeWire ≥ 1.6** (the in-node `audioconvert.filter-graph` is required),
 **WirePlumber**, **GTK 4** with **libadwaita ≥ 1.6**, **PyGObject**,
