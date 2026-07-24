@@ -1034,19 +1034,19 @@ class MeasureWindow(Adw.Window):
                 btn.set_label("Choose\u2026")
                 continue
             sub = "\u2713 " + os.path.basename(path)
-            bio = self._cal_testimony(path)
+            bio, brk = self._cal_testimony(path)
             if bio:
                 sub += "\n" + bio
             row.set_subtitle(sub)
             tip = path
             try:
-                import hashlib
-                with open(path, "rb") as f:
-                    sha = hashlib.sha256(f.read()).hexdigest()
+                sha = measure_build.cal_sha_cached(path)
                 tip += ("\nsha256 %s -- the profile's rig "
                         "fingerprint records this" % sha[:16])
             except OSError:
                 pass
+            if brk:
+                tip += "\n" + brk
             row.set_tooltip_text(tip)
             btn.set_label("Change\u2026")
 
@@ -1623,25 +1623,39 @@ class MeasureWindow(Adw.Window):
         ALL native to the selected rig is an echo and stays
         silent."""
         try:
-            sha = measure_build.cal_entry(path)["sha256"]
+            sha = measure_build.cal_sha_cached(path)
         except OSError:
-            return None
+            return None, None
         entries = measure_build.cal_biography(
             self.parent.store.profiles.values(), sha)
         if not entries:
-            return None
+            return None, None
         me = _node_identity(self.mic_picker.core.node)
         if all(_node_identity(e["node_match"]) == me
                for e in entries):
-            return None
+            return None, None
+        # the testimony names its jurisdiction: the house-wide
+        # count carries "across N profiles" when it spans more
+        # than one, and the tooltip lays the per-profile split
+        per_prof = {}
+        for e in entries:
+            for pn, c in e["profiles"].items():
+                per_prof[pn] = per_prof.get(pn, 0) + c
         if len(entries) == 1:
             e = entries[0]
             n = e["count"]
-            return ("recorded with %s \u00b7 %d take%s"
+            line = ("recorded with %s \u00b7 %d take%s"
                     % (e["name"], n, "" if n == 1 else "s"))
-        return "recorded with " + ", ".join(
-            "%s (%d)" % (e["name"], e["count"])
-            for e in entries)
+        else:
+            line = "recorded with " + ", ".join(
+                "%s (%d)" % (e["name"], e["count"])
+                for e in entries)
+        if len(per_prof) > 1:
+            line += " across %d profiles" % len(per_prof)
+        brk = "recorded in: " + ", ".join(
+            "%s (%d)" % (pn, per_prof[pn])
+            for pn in sorted(per_prof))
+        return line, brk
 
     def _rebuild_cal_row(self):
         for row in getattr(self, "cal_rows", []):

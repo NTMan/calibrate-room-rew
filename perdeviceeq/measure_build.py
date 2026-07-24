@@ -235,17 +235,37 @@ def cal_groups(measurement):
     return [groups[s] for s in order]
 
 
+_SHA_CACHE = {}
+
+
+def cal_sha_cached(path):
+    """sha256 of a cal file, memoized by (path, mtime, size):
+    the label sync re-reads slots freely, the file is hashed
+    once per actual change. Raises OSError like open()."""
+    st = os.stat(path)
+    key = (path, st.st_mtime_ns, st.st_size)
+    sha = _SHA_CACHE.get(key)
+    if sha is None:
+        with open(path, "rb") as f:
+            sha = hashlib.sha256(f.read()).hexdigest()
+        _SHA_CACHE[key] = sha
+    return sha
+
+
 def cal_biography(profiles, sha):
     """Every rig stamp that ever recorded through cal `sha`,
     across the given profiles -- the testimony the slot wears.
     One entry per distinct rig (name + node_match), ordered by
-    first appearance, each carrying its take count; empty when
-    the sha has no takes anywhere. Pure and GTK-free."""
+    first appearance, each carrying its take count and a
+    per-profile breakdown {profile name: takes} -- the
+    testimony names its jurisdiction; empty when the sha has
+    no takes anywhere. Pure and GTK-free."""
     out = []
     idx = {}
     for p in (profiles or []):
         m = (p or {}).get("measurement") or {}
         sessions = m.get("sessions") or {}
+        pname = (p or {}).get("name") or "unnamed"
         for t in (m.get("takes") or []):
             if t.get("cal_sha") != sha:
                 continue
@@ -257,10 +277,11 @@ def cal_biography(profiles, sha):
                 e = {"name": src.get("name"),
                      "node_match": src.get("node_match"),
                      "serial": src.get("serial"),
-                     "count": 0}
+                     "count": 0, "profiles": {}}
                 idx[key] = e
                 out.append(e)
             e["count"] += 1
+            e["profiles"][pname] = e["profiles"].get(pname, 0) + 1
     return [e for e in out if e["name"]]
 
 

@@ -13,7 +13,7 @@ EARS = ("alsa_input.usb-miniDSP_E.A.R.S_Gain__0dB_00002-00"
 UMIK = "alsa_input.usb-miniDSP_UMIK-1_00001-00.analog-stereo"
 
 
-def _profile(takes_rigs):
+def _profile(takes_rigs, name="p"):
     """A minimal profile: one session per distinct rig, takes
     spread over them, all on one cal sha."""
     sessions = {}
@@ -25,7 +25,8 @@ def _profile(takes_rigs):
             "serial": "", "channels": 2}})
         takes.append({"id": "t%d" % i, "channel": "FL",
                       "session": sid, "cal_sha": sha})
-    return {"measurement": {"sessions": sessions,
+    return {"name": name,
+            "measurement": {"sessions": sessions,
                             "takes": takes,
                             "cal_library": {}}}
 
@@ -37,6 +38,7 @@ def test_single_rig_biography_counts():
     assert bio[0]["name"] == "E.A.R.S"
     assert bio[0]["count"] == 6
     assert bio[0]["node_match"] == EARS
+    assert bio[0]["profiles"] == {"p": 6}
 
 
 def test_two_rigs_keep_their_own_counts():
@@ -48,10 +50,21 @@ def test_two_rigs_keep_their_own_counts():
 
 
 def test_biography_is_house_wide():
-    a = _profile([("c1", "E.A.R.S", EARS)] * 3)
-    b = _profile([("c1", "E.A.R.S", EARS)] * 3)
+    a = _profile([("c1", "E.A.R.S", EARS)] * 3, name="liberty")
+    b = _profile([("c1", "E.A.R.S", EARS)] * 3, name="origin")
     bio = mb.cal_biography([a, b], "c1")
     assert bio[0]["count"] == 6
+    assert bio[0]["profiles"] == {"liberty": 3, "origin": 3}
+
+
+def test_cached_sha_survives_resyncs(tmp_path):
+    f = tmp_path / "cal.txt"
+    f.write_text("20 0.0\n")
+    s1 = mb.cal_sha_cached(str(f))
+    s2 = mb.cal_sha_cached(str(f))
+    assert s1 == s2
+    f.write_text("20 0.0\n20000 -1.0\n")
+    assert mb.cal_sha_cached(str(f)) != s1
 
 
 def test_foreign_sha_has_no_biography():
