@@ -10,9 +10,9 @@ RUN="$(command -v podman || command -v docker)"
 exec "$RUN" run --rm -it \
     -v "$ROOT:/src" -w /src/packaging/appimage \
     -e APP_VERSION="$VER" -e APPIMAGE_EXTRACT_AND_RUN=1 \
-    fedora:42 sh -ec '
+    fedora:43 sh -ec '
         dnf -y install glib2 gdk-pixbuf2 file binutils wget \
-            zsync git python3-pip
+            zsync git
         ./build-appdir.sh
         wget -q -O appimagetool \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage

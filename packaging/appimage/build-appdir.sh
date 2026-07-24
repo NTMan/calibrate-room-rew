@@ -1,24 +1,35 @@
 #!/bin/sh -e
 # Assemble the AppDir by hand on Fedora -- no appimage-builder.
-# Needs: dnf, pip3 (python3-pip), glib2, gdk-pixbuf2 in the
-# build container.
+# Needs: dnf, glib2, gdk-pixbuf2 in the build container.
+# (soundfile is an rpm from Fedora 43 on; if a future base
+# ever lacks a python dep, the fallback road is a pip --target
+# wheel into the AppDir site-packages -- see git history.)
 #
 # The old recipe leaned on appimage-builder, whose package
 # harvest exists only in apt shape and whose apt shape requires
 # the long-removed apt-key: the tool chose Ubuntu for us and
 # then died on modern apt. This script is the replacement: a
-# plain dnf --installroot harvest on fedora:42 (libadwaita 1.7
-# from the box; the app needs >= 1.6), which keeps the SAME
-# glibc floor (2.41) the plucky base had. Runs INSIDE a
-# fedora:42 container, from packaging/appimage/.
+# plain dnf --installroot harvest on the OLDEST SUPPORTED
+# Fedora, run INSIDE that same container, from
+# packaging/appimage/.
+#
+# BASE POLICY (the architect's lifecycle point): Fedora lives
+# on a six-month cadence and each release EOLs ~13 months in,
+# so no pinned number survives -- the base tracks the oldest
+# supported release, bumped once per cycle when N-2 retires.
+# Oldest-supported rather than latest because the base IS the
+# glibc floor: latest would shut out every host still on the
+# previous release. Today that is 43 (libadwaita 1.7, floor
+# glibc 2.42: Fedora 43+, Ubuntu 25.10+). Bump HERE, in
+# build.sh and in the workflow container together.
 #
 # The floor is the HOST loader's: the glibc family is pruned
 # from the AppDir after the harvest, so the artifact runs on
-# any distro whose glibc >= the build's (Fedora 42+, Ubuntu
-# 25.04+ and kin). PipeWire stays host territory by design.
+# any distro whose glibc >= the build's. PipeWire stays host
+# territory by design.
 
 APPDIR="$PWD/AppDir"
-RELEASEVER="${RELEASEVER:-42}"
+RELEASEVER="${RELEASEVER:-43}"
 
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR"
@@ -28,19 +39,12 @@ dnf -y install --installroot="$APPDIR" \
     --setopt=install_weak_deps=False \
     --setopt=reposdir=/etc/yum.repos.d \
     python3 python3-gobject python3-cairo \
-    python3-numpy python3-scipy \
+    python3-numpy python3-scipy python3-soundfile \
     gtk4 libadwaita librsvg2 \
     adwaita-icon-theme shared-mime-info glib2
 
 # the app, in the installed layout the launcher already
 # searches: <prefix>/share/per-device-eq, data checkout-shaped
-# soundfile entered Fedora at 43; on the 42 base it rides in
-# as the manylinux wheel (which bundles its own libsndfile),
-# pinned into the AppDir's own site-packages together with its
-# cffi dependency -- same python (3.13) on both sides
-PYSP="$(ls -d "$APPDIR"/usr/lib64/python3.*/site-packages | head -1)"
-pip3 install --no-cache-dir --target "$PYSP" soundfile
-
 mkdir -p "$APPDIR/usr/share/per-device-eq"
 cp -r ../../perdeviceeq "$APPDIR/usr/share/per-device-eq/"
 cp -r ../../data "$APPDIR/usr/share/per-device-eq/"

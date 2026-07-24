@@ -4,14 +4,15 @@
 # the same artifact from the current tree and parks it as a
 # run artifact for field testing without a release.
 #
-# The job runs INSIDE fedora:42: the harvest is a plain dnf
-# --installroot (libadwaita 1.7 from the box; the app needs
-# >= 1.6), and the container's glibc (2.41) is the artifact's
-# floor -- the same floor the ubuntu:25.04 base had, on the
-# architect's home family. appimage-builder is gone: its apt
-# harvest required the long-removed apt-key and it never had
-# a dnf shape. appimagetool runs without FUSE via
-# APPIMAGE_EXTRACT_AND_RUN.
+# The job runs INSIDE the OLDEST SUPPORTED Fedora -- the base
+# policy: Fedora EOLs ~13 months per release, so the number
+# here is bumped once per cycle (together with build.sh and
+# build-appdir.sh), never pinned for good; oldest-supported
+# rather than latest because the base IS the glibc floor and
+# latest would shut out hosts on the previous release. Today:
+# fedora:43, floor glibc 2.42 (Fedora 43+, Ubuntu 25.10+).
+# The harvest is a plain dnf --installroot; appimagetool runs
+# without FUSE via APPIMAGE_EXTRACT_AND_RUN.
 name: AppImage
 
 on:
@@ -30,14 +31,14 @@ jobs:
   appimage:
     runs-on: ubuntu-24.04
     container:
-      image: fedora:42
+      image: fedora:43
     env:
       APPIMAGE_EXTRACT_AND_RUN: "1"
     steps:
       - name: Tooling
         run: |
           dnf -y install git glib2 gdk-pixbuf2 file binutils \
-            wget zsync gh python3-pip
+            wget zsync gh
 
       - uses: actions/checkout@v4
 
