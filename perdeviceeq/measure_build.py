@@ -235,6 +235,35 @@ def cal_groups(measurement):
     return [groups[s] for s in order]
 
 
+def cal_biography(profiles, sha):
+    """Every rig stamp that ever recorded through cal `sha`,
+    across the given profiles -- the testimony the slot wears.
+    One entry per distinct rig (name + node_match), ordered by
+    first appearance, each carrying its take count; empty when
+    the sha has no takes anywhere. Pure and GTK-free."""
+    out = []
+    idx = {}
+    for p in (profiles or []):
+        m = (p or {}).get("measurement") or {}
+        sessions = m.get("sessions") or {}
+        for t in (m.get("takes") or []):
+            if t.get("cal_sha") != sha:
+                continue
+            src = ((sessions.get(t.get("session")) or {})
+                   .get("source") or {})
+            key = (src.get("name"), src.get("node_match"))
+            e = idx.get(key)
+            if e is None:
+                e = {"name": src.get("name"),
+                     "node_match": src.get("node_match"),
+                     "serial": src.get("serial"),
+                     "count": 0}
+                idx[key] = e
+                out.append(e)
+            e["count"] += 1
+    return [e for e in out if e["name"]]
+
+
 def reassign_cal(store, pid, old_sha, new_path):
     """Move EVERY take that consumed cal `old_sha` onto the cal
     at `new_path`, in one stroke -- the operation is bulk by

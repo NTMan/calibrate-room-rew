@@ -1033,7 +1033,11 @@ class MeasureWindow(Adw.Window):
                     "the compensation" % labels[i])
                 btn.set_label("Choose\u2026")
                 continue
-            row.set_subtitle("\u2713 " + os.path.basename(path))
+            sub = "\u2713 " + os.path.basename(path)
+            bio = self._cal_testimony(path)
+            if bio:
+                sub += "\n" + bio
+            row.set_subtitle(sub)
             tip = path
             try:
                 import hashlib
@@ -1608,6 +1612,36 @@ class MeasureWindow(Adw.Window):
             right = self.mic_ch >= 2 and key.upper().endswith("R")
             m[k] = 1 if right else 0
         return m
+
+    def _cal_testimony(self, path):
+        """The slot wears the assigned cal's biography -- dim
+        testimony where the picking happens, never a verdict:
+        the analog doctrine stands, a cal may legitimately move
+        between holes with its unseen microphone, so the line
+        informs and the one who knows the analog layer judges.
+        Content-addressed and house-wide; a biography that is
+        ALL native to the selected rig is an echo and stays
+        silent."""
+        try:
+            sha = measure_build.cal_entry(path)["sha256"]
+        except OSError:
+            return None
+        entries = measure_build.cal_biography(
+            self.parent.store.profiles.values(), sha)
+        if not entries:
+            return None
+        me = _node_identity(self.mic_picker.core.node)
+        if all(_node_identity(e["node_match"]) == me
+               for e in entries):
+            return None
+        if len(entries) == 1:
+            e = entries[0]
+            n = e["count"]
+            return ("recorded with %s \u00b7 %d take%s"
+                    % (e["name"], n, "" if n == 1 else "s"))
+        return "recorded with " + ", ".join(
+            "%s (%d)" % (e["name"], e["count"])
+            for e in entries)
 
     def _rebuild_cal_row(self):
         for row in getattr(self, "cal_rows", []):
