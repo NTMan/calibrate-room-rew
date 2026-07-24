@@ -67,8 +67,19 @@ if [ -d "$APPDIR/usr/share/glib-2.0/schemas" ]; then
     glib-compile-schemas "$APPDIR/usr/share/glib-2.0/schemas"
 fi
 
-# the floor is the host loader's: prune the glibc family so the
-# host's own libc serves our libraries (any host >= the build)
+# THE HOST-FAMILIES LAW (field lesson: a bundled F43
+# libfontconfig parsing a newer host /etc/fonts spewed
+# warnings, and the mixed GL stack -- host mesa dlopened
+# against our older libdrm/glvnd underneath -- segfaulted the
+# window). Some families MUST come from the host because they
+# are joined at the hip to host state: the dynamic loader and
+# glibc (the floor), the whole GPU platform (mesa follows the
+# host's kernel and hardware), and the font platform
+# (fontconfig follows the host's /etc/fonts syntax). Pruning
+# them here is what makes LD_LIBRARY_PATH safe: whatever
+# remains in usr/lib64 shadows nothing it cannot honor.
+
+# the glibc family: the floor is the host loader's
 rm -f "$APPDIR"/usr/lib64/ld-linux-* \
       "$APPDIR"/usr/lib64/libc.so* \
       "$APPDIR"/usr/lib64/libm.so* \
@@ -77,6 +88,32 @@ rm -f "$APPDIR"/usr/lib64/ld-linux-* \
       "$APPDIR"/usr/lib64/librt.so* \
       "$APPDIR"/usr/lib64/libresolv.so*
 rm -rf "$APPDIR/lib" "$APPDIR/lib64" 2>/dev/null || true
+
+# the GPU platform: drivers, dispatch and their kernel-facing
+# spine belong to the host that owns the hardware
+rm -rf "$APPDIR"/usr/lib64/dri "$APPDIR"/usr/lib64/gbm
+rm -f "$APPDIR"/usr/lib64/libGL.so* \
+      "$APPDIR"/usr/lib64/libGLX*.so* \
+      "$APPDIR"/usr/lib64/libEGL*.so* \
+      "$APPDIR"/usr/lib64/libGLES*.so* \
+      "$APPDIR"/usr/lib64/libGLdispatch.so* \
+      "$APPDIR"/usr/lib64/libOpenGL.so* \
+      "$APPDIR"/usr/lib64/libgbm.so* \
+      "$APPDIR"/usr/lib64/libdrm*.so* \
+      "$APPDIR"/usr/lib64/libglapi.so* \
+      "$APPDIR"/usr/lib64/libvulkan*.so*
+
+# the font and display-client platform: fontconfig reads the
+# HOST /etc/fonts, so the host's own library must be the one
+# reading it; freetype and the X/Wayland client libs travel
+# with it
+rm -f "$APPDIR"/usr/lib64/libfontconfig.so* \
+      "$APPDIR"/usr/lib64/libfreetype.so* \
+      "$APPDIR"/usr/lib64/libX11*.so* \
+      "$APPDIR"/usr/lib64/libxcb*.so* \
+      "$APPDIR"/usr/lib64/libwayland-*.so*
+rm -rf "$APPDIR"/usr/etc/fonts "$APPDIR"/etc/fonts \
+       "$APPDIR"/usr/share/fontconfig "$APPDIR"/usr/share/fonts
 
 # weight nobody runs
 rm -rf "$APPDIR"/usr/share/man "$APPDIR"/usr/share/doc \
