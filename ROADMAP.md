@@ -8,6 +8,23 @@ listener, headroom that never lies.
 
 ## Shipped
 
+- **AppImage.** Released with 4.0.1 and field-clean on the
+  architect's station: a single-file door for everyone not on
+  Fedora, attached to every release with a zsync auto-update
+  channel, and built on every push under the same continuous
+  discipline as the code -- a CLI smoke for the Python spine
+  and a GUI smoke that opens a real window. The harvest is a
+  plain dnf --installroot on the oldest supported Fedora (a
+  policy, not a number: the base is the glibc floor, bumped
+  once per cycle), and the bundle obeys the host-families
+  law the field taught one catch at a time: what couples to
+  host state leaves (the loader and glibc, the GPU drivers
+  and their kernel spine, the C++ runtime mesa resolves
+  through us, fontconfig with its /etc/fonts grammar), while
+  skew-stable cargo stays (dispatch loaders, the protocol
+  client libs, freetype). Debian 13 and Mint 22 sit below the
+  floor until a source-built base earns its keep.
+
 - **GNOME HIG pass.** Closed in both halves. The mechanical
   floor: nine rules (H1-H9, the last one dynamic -- the audit
   presses Tab itself and proves the walk rounds the room),
@@ -77,13 +94,7 @@ listener, headroom that never lies.
 
 ## Next (the sprint)
 
-1. **AppImage.** Flathub cooled the door today, so the
-   single-file path opens: an AppImage built and attached to
-   every release beside the flatpak bundles and RPMs. Accept
-   when CI produces it per release and it runs on a stock
-   Fedora and Ubuntu without root or install.
-
-2. **Verified .pdeq exchange, v1.** The architect's words: a
+1. **Verified .pdeq exchange, v1.** The architect's words: a
    download service of verified EQ profiles. Promoted from
    Direction at its smallest honest size -- a static,
    sha-addressed index of .pdeq packages (a git repo can be
@@ -94,7 +105,7 @@ listener, headroom that never lies.
    and labeled. Accept when a profile published in the index
    installs from inside the app with its provenance shown.
 
-3. **The cal wears its provenance.** Field lesson of the
+2. **The cal wears its provenance.** Field lesson of the
    poisoned serial: the E.A.R.S cal was picked for the Umik by
    hand, and nothing said so. Re-picking already heals it; the
    missing piece is the HIGHLIGHT -- the cal row must say when
