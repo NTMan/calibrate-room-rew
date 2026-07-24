@@ -153,6 +153,24 @@ listener, headroom that never lies.
   in-house loopback wizard can come later. Promotion decided
   after the exchange ships.
 
+- **The audition room (A/B on the listener's own material).**
+  Born from the architect's IEM hunt: YouTube comparisons are
+  a fixed pair on fixed unlicensed tracks, and the exchange
+  can beat that on every axis -- any pair from the base, the
+  listener's OWN material, blind ABX with a score, and curves
+  that carry provenance stamps instead of trust-me. The math
+  is kind: simulating X and Y through the listener's unknown
+  headphones Z is (X-Z) vs (Y-Z), whose difference is X-Y for
+  any Z -- the comparison is exact even when Z is not in the
+  base, only the absolute timbre is colored. Processing lives
+  entirely in the browser (Web Audio, a delta-curve filter),
+  so the material never leaves the listener's machine --
+  licensing and privacy solved by architecture. The page owes
+  one honest line: frequency character transfers; distortion,
+  fit, insertion depth and unit variance do not. A third room
+  of the reading hall beside the index and the pages; the
+  package stays bare. Promotion decided after exchange v1.
+
 - **Frames and targets (architecture settled; the debate narrowed to
   scope).** Two domains that never mix. Playback stays device + taste
   + preamp, forever; everything frame-related lives on the MEASUREMENT
