@@ -1,8 +1,11 @@
-# On a published release, build the AppImage and attach it to
-# the release page beside the RPMs and flatpak bundles -- the
-# single-file door for everyone else. workflow_dispatch builds
-# the same artifact from the current tree and parks it as a
-# run artifact for field testing without a release.
+# The AppImage lane runs like the flatpak one: EVERY push to
+# main builds the image and parks it as a run artifact -- the
+# packaging lives under the same continuous discipline as the
+# code, and the GUI smoke stands guard per commit. On a
+# published release the same build attaches the pair to the
+# release page beside the RPMs and flatpak bundles -- the
+# single-file door for everyone else. workflow_dispatch stays
+# for hand-run field builds.
 #
 # The job runs INSIDE the OLDEST SUPPORTED Fedora -- the base
 # policy: Fedora EOLs ~13 months per release, so the number
@@ -16,6 +19,8 @@
 name: AppImage
 
 on:
+  push:
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
@@ -93,8 +98,8 @@ jobs:
             ./*.AppImage ./*.AppImage.zsync --clobber \
             -R "${{ github.repository }}"
 
-      - name: Park as a run artifact (dispatch builds)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Park as a run artifact (push and dispatch builds)
+        if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: appimage
