@@ -127,6 +127,12 @@ listener, headroom that never lies.
    curves marks a package verified; unverified stays visible
    and labeled. Accept when a profile published in the index
    installs from inside the app with its provenance shown.
+   The package knows its subject: a .pdeq is about the thing
+   being corrected -- headphones, speakers, the room -- and
+   rig knowledge enters only from outside, as cal files and
+   stamps (testimony, not identity). Pages and pictures may
+   dress the index's reading room; the package itself stays
+   bare.
 
 ## Direction
 
