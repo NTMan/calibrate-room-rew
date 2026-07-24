@@ -8,6 +8,19 @@ listener, headroom that never lies.
 
 ## Shipped
 
+- **GNOME HIG pass.** Closed in both halves. The mechanical
+  floor: nine rules (H1-H9, the last one dynamic -- the audit
+  presses Tab itself and proves the walk rounds the room),
+  zero findings across the whole house -- both windows in both
+  channel costumes, the command dialog, About, the export
+  wizard with every preview, the cal history -- under the CI
+  ratchet, cairo-rendered so headless containers judge too.
+  The manual half lives as the charter's checklist in HIG.md,
+  every line a check with evidence; the sittings it settled
+  became rules (the wardrobe, the focus grammar) or design
+  (one rig, one header). Two field bugs became permanent
+  machine rules on the way.
+
 - **Profile package.** The architect's ruling shaped it: the exchange
   artifact is the store's own canonical body, bare -- no envelope, no
   wrapper version, the profile's own schema version is the one
@@ -64,10 +77,33 @@ listener, headroom that never lies.
 
 ## Next (the sprint)
 
-1. **GNOME HIG pass.** A written checklist in-repo (spacing scale, focus
-   order, keyboard mnemonics, symbolic icons, header-bar patterns,
-   dialog vs popover usage, About window), every deviation fixed or
-   argued in place. Accept when each line carries a check or a commit.
+1. **AppImage.** Flathub cooled the door today, so the
+   single-file path opens: an AppImage built and attached to
+   every release beside the flatpak bundles and RPMs. Accept
+   when CI produces it per release and it runs on a stock
+   Fedora and Ubuntu without root or install.
+
+2. **Verified .pdeq exchange, v1.** The architect's words: a
+   download service of verified EQ profiles. Promoted from
+   Direction at its smallest honest size -- a static,
+   sha-addressed index of .pdeq packages (a git repo can be
+   the whole backend) plus in-app browse and import through
+   the existing unpack door. Verification per the Direction
+   entry: the maintainer's cross-check against published
+   curves marks a package verified; unverified stays visible
+   and labeled. Accept when a profile published in the index
+   installs from inside the app with its provenance shown.
+
+3. **The cal wears its provenance.** Field lesson of the
+   poisoned serial: the E.A.R.S cal was picked for the Umik by
+   hand, and nothing said so. Re-picking already heals it; the
+   missing piece is the HIGHLIGHT -- the cal row must say when
+   the applied file does not belong to the selected mic. The
+   design fork to settle before cutting: what names a cal's
+   owner -- the profile's own provenance (sessions that used
+   this cal sha carry the rig stamp), the mic store (the path
+   saved under another mic's entry), or the filename serial
+   against the twin logic. One sitting, then the cut.
 
 ## Direction
 
