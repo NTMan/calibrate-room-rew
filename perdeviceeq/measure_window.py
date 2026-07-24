@@ -1737,8 +1737,15 @@ class MeasureWindow(Adw.Window):
                 row.set_title(g["file"] or "Raw capture")
                 n = g["count"]
                 sub = "%d take%s" % (n, "" if n == 1 else "s")
-                if g["rigs"]:
-                    sub += " \u00b7 " + ", ".join(g["rigs"])
+                if len(g["rigs"]) == 1:
+                    sub += " \u00b7 " + g["rigs"][0]
+                elif g["rigs"]:
+                    # a cal that served several rigs answers
+                    # HOW MANY TIMES on each -- the sitting's
+                    # word on the inventory
+                    sub += " \u00b7 " + ", ".join(
+                        "%s (%d)" % (r, g["rig_counts"][r])
+                        for r in g["rigs"])
                 row.set_subtitle(sub)
                 b = Gtk.Button(label=("Reassign\u2026" if g["sha"]
                                       else "Assign\u2026"))

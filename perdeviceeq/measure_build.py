@@ -206,7 +206,10 @@ def cal_groups(measurement):
     One group per distinct cal_sha (None = raw takes), ordered
     by first appearance on the canvas: {"sha", "file" (None for
     raw), "count", "rigs": [distinct session rig names, in
-    order]}. Pure and GTK-free."""
+    order], "rig_counts": {rig name: takes recorded on it}} --
+    the sitting's word: the inventory answers not just which
+    rigs a cal served but HOW MANY TIMES on each. Pure and
+    GTK-free."""
     m = measurement or {}
     lib = m.get("cal_library") or {}
     sessions = m.get("sessions") or {}
@@ -219,14 +222,16 @@ def cal_groups(measurement):
             g = {"sha": sha,
                  "file": ((lib.get(sha) or {}).get("file")
                           if sha else None),
-                 "count": 0, "rigs": []}
+                 "count": 0, "rigs": [], "rig_counts": {}}
             groups[sha] = g
             order.append(sha)
         g["count"] += 1
         rig = ((sessions.get(t.get("session")) or {})
                .get("source") or {}).get("name")
-        if rig and rig not in g["rigs"]:
-            g["rigs"].append(rig)
+        if rig:
+            if rig not in g["rigs"]:
+                g["rigs"].append(rig)
+            g["rig_counts"][rig] = g["rig_counts"].get(rig, 0) + 1
     return [groups[s] for s in order]
 
 
