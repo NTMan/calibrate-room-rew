@@ -185,8 +185,6 @@ class ExportDialog(Adw.Dialog):
         audit = {t["id"]: xp.audit_target(
             t, self.chains, xp.log_grid(self.flo, self.fhi, 240))
             for t in targets}
-        dark = Adw.StyleManager.get_default().get_dark()
-        red = "#ff7b63" if dark else "#c01c28"
         groups = (("Import files",
                    "Formats the target application reads in",
                    xp.FILE_WRITERS),
@@ -201,17 +199,26 @@ class ExportDialog(Adw.Dialog):
             rows.sort(key=lambda t: audit[t["id"]][0])
             for t in rows:
                 _score, tflag, gaps = audit[t["id"]]
+                # the CI population taught this: gaps used to
+                # join the note with a literal newline, and the
+                # container's clean store dressed two rows in
+                # two lines among one-line sisters (H10 fired
+                # in CI only -- both runs were right about
+                # their own populations, the builder was the
+                # constant). The gap list is tooltip material;
+                # the red flag suffix already carries severity
+                # on the surface, so the subtitle stays one
+                # line in every store.
                 sub = GLib.markup_escape_text(t.get("note", ""))
+                tip = None
                 if gaps:
-                    line = GLib.markup_escape_text(
-                        ", ".join(gaps))
-                    if tflag:
-                        line = ("<span foreground='%s'>%s:"
-                                " %s</span>"
-                                % (red, tflag, line))
-                    sub = ((sub + "\n") if sub else "") + line
+                    tip = (((tflag + ": ") if tflag
+                            else "missing: ")
+                           + ", ".join(gaps))
                 row = Adw.ActionRow(title=GLib.markup_escape_text(
                     t["name"]), subtitle=sub)
+                if tip:
+                    row.set_tooltip_text(tip)
                 row.set_use_markup(True)
                 row.set_activatable(True)
                 if tflag:
