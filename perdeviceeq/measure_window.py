@@ -707,7 +707,12 @@ class MeasureWindow(Adw.Window):
         prev = (getattr(before, "_rig_group", None)
                 if before is not None else None)
         if group and group != prev:
-            lbl = Gtk.Label(label=group[1], xalign=0.0,
+            head = group[1]
+            n = getattr(row, "_rig_run_len", 0)
+            if n:
+                head += " \u00b7 %d take%s" % (
+                    n, "" if n == 1 else "s")
+            lbl = Gtk.Label(label=head, xalign=0.0,
                             wrap=True)
             lbl.add_css_class("caption")
             lbl.add_css_class("dim-label")
@@ -716,6 +721,19 @@ class MeasureWindow(Adw.Window):
             lbl.set_margin_top(6)
             lbl.set_margin_bottom(3)
             row.set_header(lbl)
+        elif group is None and prev is not None:
+            # the closer: returning to the native rig after a
+            # foreign run draws a thin rule -- the separator is
+            # set_header_func's own documented second purpose,
+            # so the section ends in native grammar and the
+            # tail is no longer adopted by the foreign title
+            sep = Gtk.Separator(
+                orientation=Gtk.Orientation.HORIZONTAL)
+            sep.set_margin_start(12)
+            sep.set_margin_end(12)
+            sep.set_margin_top(6)
+            sep.set_margin_bottom(3)
+            row.set_header(sep)
         else:
             row.set_header(None)
 
@@ -1248,13 +1266,28 @@ class MeasureWindow(Adw.Window):
             sh = self.session.comp_shift_db(ch)
             if sh is not None:
                 shifts = {r.id: s for r, s in zip(takes, sh)}
+        rows = []
         for rec in takes:
             row = self._make_take_row(ch, rec, lo, hi,
                                       driver=self._spread_driver,
                                       mean=mean,
                                       shift=shifts.get(rec.id, 0.0))
+            rows.append(row)
             lb.append(row)
             self._page["take_rows"].append(row)
+        # the run length rides the first row of each foreign
+        # run: the header closes its membership in words
+        # ("· N takes") before the eye reaches the closer
+        i = 0
+        while i < len(rows):
+            g = getattr(rows[i], "_rig_group", None)
+            j = i + 1
+            while j < len(rows) and getattr(
+                    rows[j], "_rig_group", None) == g:
+                j += 1
+            if g:
+                rows[i]._rig_run_len = j - i
+            i = j
         lb.set_visible(bool(takes))
         # an empty fold has nothing to promise: the chevron
         # leaves with the takes instead of wagging at nothing
