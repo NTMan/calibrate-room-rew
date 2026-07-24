@@ -182,7 +182,9 @@ rows and AdwWindowTitle, EntryRow's floating .dimmed title,
 .body/.description of group headers, heading levels, GtkScale's
 value position -- is the toolkit's business and exempt, and the
 app stylesheet's state trio done/warn/bad on the speaker count
-is sanctioned; the first live run taught both); H10 the list
+is sanctioned, and the cal cloud's pill with its three moods
+joined by name after the ratchet accused its own birth; the
+first live run taught both); H10 the list
 dresses evenly (the architect's law from the cal-cloud round:
 information fills the interface uniformly -- a row hoarding
 text against its own sisters is cramped and must decompose or

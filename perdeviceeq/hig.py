@@ -198,7 +198,11 @@ _WARDROBE = frozenset((
     "monospace", "accent", "error", "warning", "success",
     # the app stylesheet's own issue: the speaker count and
     # its three states
-    "measure-count", "done", "warn", "bad"))
+    "measure-count", "done", "warn", "bad",
+    # the cal cloud: the architect's ratified pill and its
+    # three moods (badge_severity) -- the ratchet accused it
+    # on its first live run, one commit younger than the law
+    "cal-badge", "green", "amber", "red"))
 
 # dresses the TOOLKIT puts on labels it builds itself -- the
 # .title/.subtitle of Adw rows and AdwWindowTitle, the floating
