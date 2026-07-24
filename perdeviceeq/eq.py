@@ -84,9 +84,13 @@ def floor_bands(p):
     and the preview both consume; they never enter the
     profile's band lists -- the zone places them, not the
     hand."""
-    params = ((p or {}).get("fit") or {}).get("params") or {}
+    fit = (p or {}).get("fit") or {}
+    zone = fit.get("zone") or {}
+    params = fit.get("params") or {}
     try:
-        lo = float(params.get("f_lo", 0.0))
+        # the measured controlled band, minted by refit, rules;
+        # the fit range is only the fallback for pre-zone fits
+        lo = float(zone.get("lo", params.get("f_lo", 0.0)))
     except (TypeError, ValueError):
         return []
     if lo < FLOOR_MIN_HZ:

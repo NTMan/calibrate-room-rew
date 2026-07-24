@@ -195,6 +195,22 @@ def refit_profile(prof, bands=None, f_lo=None, f_hi=None,
                   "takes": list(used),
                   "inputs_sha256": fit_fingerprint(m, used, params),
                   "edited": False}
+    # The zone rides the fit. The floor's source is the MEASURED
+    # controlled band, not the hand-draggable fit range -- the
+    # architect's own field caught the difference (his stored
+    # f_lo was the 20.0 default while the trust header said
+    # 38.3). The trust doctrine keeps the SCORE unstored, but
+    # the fit block is the house's derived-but-stored pattern
+    # and inputs_sha256 already staleness-guards it; a re-fit
+    # re-mints the zone from the same takes it consumed. The
+    # import is function-level to sidestep the trust->refit
+    # module cycle.
+    from . import trust
+    rep_ = trust.assess(out)
+    band = rep_.get("band") if isinstance(rep_, dict) else None
+    out["fit"]["zone"] = ({"lo": float(band[0]),
+                           "hi": float(band[1])}
+                          if band else None)
     out["fit"]["output_sha256"] = playback_sha256(out)
     return out
 

@@ -38,6 +38,21 @@ def test_the_zone_itself_is_untouched():
     assert abs(eq.response_db(0.0, fb, [383.0])[0]) < 0.2
 
 
+def test_the_zone_outranks_the_fit_range():
+    # the architect's field case: fit made with the 20.0
+    # default while the measured band starts at 38.3
+    p = {"fit": {"params": {"f_lo": 20.0},
+                 "zone": {"lo": 38.3, "hi": 20000.0}}}
+    fb = eq.floor_bands(p)
+    assert len(fb) == 4 and fb[0]["freq"] == 38.3
+
+
+def test_a_deep_zone_gates_even_a_high_fit_range():
+    p = {"fit": {"params": {"f_lo": 38.3},
+                 "zone": {"lo": 20.0, "hi": 20000.0}}}
+    assert eq.floor_bands(p) == []
+
+
 def test_deep_zones_get_no_floor():
     assert eq.floor_bands(_floored(lo=20.0)) == []
     assert eq.floor_bands({}) == []
