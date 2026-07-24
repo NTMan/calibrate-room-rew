@@ -492,6 +492,9 @@ class EqWindow(Adw.ApplicationWindow):
             fr = cache.get("fit_resid")
             if fr is not None:
                 txt += " · fit %.2f dB" % fr
+            fb = eq.floor_bands(p)
+            if fb:
+                txt += " · floor %s Hz" % _fmt_hz(fb[0]["freq"])
         else:
             txt = "Measurement attached"
         self.trust_label.set_text(txt)
@@ -1243,6 +1246,8 @@ class EqWindow(Adw.ApplicationWindow):
             self.bands = slot["bands"]               # alias: edits mutate the slot
             self.preamp_spin.set_value(self.preamp)
             self.view.set_bands([b.to_dict() for b in self.bands])
+            self.view.set_floor(eq.floor_bands(
+                self.store.get(self.current_pid)))
             self.view.set_preamp(self.preamp)
             self._sync_view_curves()
             self._update_headroom()

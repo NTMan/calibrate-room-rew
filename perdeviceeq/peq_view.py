@@ -78,6 +78,7 @@ class PeqView(Gtk.Box):
         self._on_import_file = on_import_file
         self._preamp = float(preamp)
         self._bands = []
+        self._floor = []  # sealed stages: drawn, never listed
         self._curves = None         # (freqs, measured, spread, band)
         self._plot = None
         self._drag_band = None
@@ -121,6 +122,14 @@ class PeqView(Gtk.Box):
 
     def get_bands(self):
         return [b.to_dict() for b in self._bands]
+
+    def set_floor(self, band_dicts):
+        """Sealed floor stages: the curve and the prediction
+        wear them, the table never does -- their handle lives
+        in the Measure window, and its name is trust."""
+        self._floor = [eq.Band.from_dict(b)
+                       for b in (band_dicts or [])]
+        self.graph.queue_draw()
 
     def set_active(self, active):
         """Bypass dimming: an inactive EQ draws gray with a dashed
@@ -261,7 +270,8 @@ class PeqView(Gtk.Box):
                 x, y = x_of(f), y_of(meas[i])
                 cr.move_to(x, y) if i == 0 else cr.line_to(x, y)
             cr.stroke()
-            resp = eq.response_db(self._preamp, self._bands, fo)
+            resp = eq.response_db(self._preamp,
+                                  self._bands + self._floor, fo)
             cr.set_source_rgba(0.45, 0.95, 0.55, 0.90)
             cr.set_line_width(1.5)
             for i, f in enumerate(fo):
@@ -299,7 +309,8 @@ class PeqView(Gtk.Box):
             cr.restore()
 
         freqs = _log_freqs(int(max(60, pw_)))
-        curve = eq.response_db(self._preamp, self._bands, freqs)
+        curve = eq.response_db(self._preamp,
+                                self._bands + self._floor, freqs)
         cr.set_source_rgb(0.30, 0.78, 1.0) if self._active \
             else cr.set_source_rgba(0.6, 0.6, 0.6, 0.7)
         cr.set_line_width(2.0)

@@ -64,6 +64,37 @@ def build_graph_channels(channel_sets):
             "config = { %s } } ] }" % cfg)
 
 
+# The device floor: Taste asks, the zone disposes. The device
+# renders the whole chain -- Taste included -- only inside its
+# measured trust zone; below the zone's lower edge an LR8
+# high-pass cascade (four biquads, the Butterworth-squared Q
+# pair twice) protects the driver at 48 dB/oct. The frequency
+# is not a new field: it IS the stored fit's f_lo, so a
+# re-measure moves the floor by itself and no hand-kept copy
+# can drift. Engaged only when the zone starts at or above
+# FLOOR_MIN_HZ -- a zone reaching into deep bass means the
+# device rendered it and there is nothing to protect.
+FLOOR_MIN_HZ = 30.0
+FLOOR_QS = (0.5412, 1.3066, 0.5412, 1.3066)
+
+
+def floor_bands(p):
+    """The sealed floor stages for a profile dict, or []. Band
+    dicts (type HP at the fit's f_lo) that the graph builder
+    and the preview both consume; they never enter the
+    profile's band lists -- the zone places them, not the
+    hand."""
+    params = ((p or {}).get("fit") or {}).get("params") or {}
+    try:
+        lo = float(params.get("f_lo", 0.0))
+    except (TypeError, ValueError):
+        return []
+    if lo < FLOOR_MIN_HZ:
+        return []
+    return [{"type": "HP", "freq": lo, "gain": 0.0, "q": q,
+             "enabled": True} for q in FLOOR_QS]
+
+
 def profile_graph(p, extra=None):
     """Inline graph string for a schema-v2 profile dict: ONE shared preamp,
     slots carry bands only (apply_all or per-channel). `extra` is a list
@@ -73,7 +104,8 @@ def profile_graph(p, extra=None):
     composition is the caller's job (curve_max_db on the concatenation).
     """
     g = float(p.get("preamp", 0.0))
-    tail = [Band.from_dict(b) for b in (extra or [])]
+    tail = [Band.from_dict(b)
+            for b in floor_bands(p) + list(extra or [])]
     if p.get("apply_all", True):
         a = p.get("all") or {"bands": []}
         return build_graph(g, [Band.from_dict(b)
@@ -133,6 +165,16 @@ def biquad(btype, f0, gain_db, q, fs=FS):
         a0 = (A + 1) + (A - 1) * cw + s
         a1 = -2 * ((A - 1) + (A + 1) * cw)
         a2 = (A + 1) + (A - 1) * cw - s
+    elif btype == "HP":
+        b0 = (1 + cw) / 2
+        b1 = -(1 + cw)
+        b2 = (1 + cw) / 2
+        a0, a1, a2 = 1 + alpha, -2 * cw, 1 - alpha
+    elif btype == "LP":
+        b0 = (1 - cw) / 2
+        b1 = 1 - cw
+        b2 = (1 - cw) / 2
+        a0, a1, a2 = 1 + alpha, -2 * cw, 1 - alpha
     else:  # HSC
         s = 2 * math.sqrt(A) * alpha
         b0 = A * ((A + 1) + (A - 1) * cw + s)
