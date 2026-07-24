@@ -358,10 +358,14 @@ class ExportDialog(Adw.Dialog):
         if target["writer"] == "parametric":
             spin = Adw.SpinRow(
                 title="Band budget",
-                subtitle="0 -- follow the chain / profile",
                 adjustment=Gtk.Adjustment(
                     lower=0, upper=32, step_increment=1),
                 value=float(target.get("max_bands") or 0))
+            # H10's first sighted catch: the lone subtitle in
+            # a bare-sistered list -- the words keep, the dress
+            # goes to the tooltip
+            spin.set_tooltip_text(
+                "0 -- follow the chain / profile")
 
             def on_budget(_r, _p):
                 self._bake(st)
